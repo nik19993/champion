@@ -83,7 +83,6 @@ export function AppShell({ client, profile, onMfaRequired }: Props) {
     setGroups((result.data ?? []) as GroupSummary[]);
   }, [client, onMfaRequired, profile.role]);
   useEffect(() => { void loadGroups(); }, [loadGroups]);
-  useEffect(() => { if ("serviceWorker" in navigator) void navigator.serviceWorker.register("/sw.js"); }, []);
 
   function selectView(value: View) {
     window.sessionStorage.setItem(`champion:active-view:${profile.id}`, value);

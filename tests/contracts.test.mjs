@@ -203,6 +203,19 @@ test("club branding uses the supplied emblem and yellow-black palette", async ()
   assert.match(styles, /\.calendar-plus\s*\{[^}]*border:\s*2px solid #111[^}]*background:\s*#ffd400/is);
 });
 
+test("private Sites does not hand page control to an application service worker", async () => {
+  const [shell, gate, worker] = await Promise.all([
+    readFile(appShellUrl, "utf8"),
+    readFile(authGateUrl, "utf8"),
+    readFile(serviceWorkerUrl, "utf8"),
+  ]);
+  assert.doesNotMatch(shell, /serviceWorker\.register/);
+  assert.match(gate, /serviceWorker\.getRegistrations/);
+  assert.match(gate, /registration\.unregister\(\)/);
+  assert.doesNotMatch(worker, /addEventListener\(["']fetch/);
+  assert.match(worker, /self\.registration\.unregister\(\)/);
+});
+
 test("event end time is maintained by a database trigger", async () => {
   const sql = await readModulesMigration();
   assert.match(sql, /create trigger events_set_end/i);
