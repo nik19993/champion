@@ -1,0 +1,13 @@
+{
+  "name": "ЧЕМПІОН",
+  "short_name": "ЧЕМПІОН",
+  "description": "Приватний робочий застосунок футбольної школи",
+  "lang": "uk",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fffdf2",
+  "theme_color": "#111111",
+  "icons": [
+    { "src": "/champion-club-emblem.jpg", "sizes": "200x200", "type": "image/jpeg", "purpose": "any" }
+  ]
+}

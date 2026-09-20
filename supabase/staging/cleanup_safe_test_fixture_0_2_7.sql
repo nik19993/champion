@@ -1,0 +1,25 @@
+-- STAGING ONLY. Removes only rows with the fixed synthetic fixture identifiers.
+
+begin;
+
+delete from public.announcement_targets where id = '11111111-1111-4111-8111-111111111901';
+delete from public.announcements where id = '11111111-1111-4111-8111-111111111900';
+delete from public.attendance_records where id in ('11111111-1111-4111-8111-111111111601', '11111111-1111-4111-8111-111111111602', '11111111-1111-4111-8111-111111111603');
+delete from public.attendance_sessions where id = '11111111-1111-4111-8111-111111111600';
+delete from public.operational_items where id = '11111111-1111-4111-8111-111111111700';
+delete from public.events where id in ('11111111-1111-4111-8111-111111111501', '11111111-1111-4111-8111-111111111502', '11111111-1111-4111-8111-111111111503');
+delete from public.physical_test_results where id = '11111111-1111-4111-8111-111111111401';
+delete from public.game_activity_results where id = '11111111-1111-4111-8111-111111111402';
+delete from public.uniform_request_items where id in ('11111111-1111-4111-8111-111111111351', '11111111-1111-4111-8111-111111111352');
+delete from public.uniform_requests where id in ('11111111-1111-4111-8111-111111111301', '11111111-1111-4111-8111-111111111302');
+delete from public.monthly_payments where id in ('11111111-1111-4111-8111-111111111251', '11111111-1111-4111-8111-111111111252', '11111111-1111-4111-8111-111111111253');
+delete from public.guardians where id in ('11111111-1111-4111-8111-111111111211', '11111111-1111-4111-8111-111111111212', '11111111-1111-4111-8111-111111111213');
+delete from public.players where id in ('11111111-1111-4111-8111-111111111201', '11111111-1111-4111-8111-111111111202', '11111111-1111-4111-8111-111111111203');
+delete from public.inventory_items where id in ('11111111-1111-4111-8111-111111111801', '11111111-1111-4111-8111-111111111802');
+delete from public.inventory_permissions where id = '11111111-1111-4111-8111-111111111850';
+delete from public.coach_group_assignments where id = '11111111-1111-4111-8111-111111111101';
+delete from public.evaluation_metrics where id in ('11111111-1111-4111-8111-111111111401', '11111111-1111-4111-8111-111111111402');
+delete from public.profiles where id = '11111111-1111-4111-8111-111111111111';
+delete from auth.users where id = '11111111-1111-4111-8111-111111111111';
+
+commit;

@@ -1,0 +1,14 @@
+node_modules/
+.next/
+out/
+.sites-runtime/
+.env
+.env.local
+.env.staging
+.env.production
+.supabase/
+supabase/.branches/
+supabase/.temp/
+*.log
+*.tsbuildinfo
+*.tar.gz

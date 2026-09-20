@@ -1,0 +1,134 @@
+"use client";
+
+import type { SupabaseClient } from "@supabase/supabase-js";
+import Image from "next/image";
+import { Check, ChevronRight, Mail, Phone, Shirt, UserRound } from "lucide-react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { EmptyState, GroupSelect, LoadingState, Modal, Pill, SearchField, StatusMessage, Tabs, WorkspaceHeader } from "@/components/common/workspace-ui";
+import { formatDate, formatMonth, safeError, toMonthInput } from "@/lib/domain/format";
+import type { GroupSummary, Guardian, Player, Profile, UniformCatalogItem, UniformRequest, UniformStatus } from "@/lib/domain/types";
+import { UNIFORM_STATUS_LABELS } from "@/lib/domain/format";
+
+interface Props { client: SupabaseClient; profile: Profile; groups: GroupSummary[]; }
+type PlayerTab = "list" | "payments" | "uniform";
+
+interface PlayerWithUniform extends Player {
+  uniform_requests?: Array<{ id: string; status: UniformStatus }>;
+  player_photos?: Array<{ file_assets?: { bucket: string; object_path: string } | null }>;
+}
+
+export function CoachPlayers({ client, profile, groups }: Props) {
+  const [tab, setTab] = useState<PlayerTab>("list");
+  const [groupId, setGroupId] = useState(groups[0]?.id ?? "");
+  const [players, setPlayers] = useState<PlayerWithUniform[]>([]);
+  const [photoUrls, setPhotoUrls] = useState<Record<string, string>>({});
+  const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedPlayer, setSelectedPlayer] = useState<PlayerWithUniform | null>(null);
+
+  useEffect(() => { if (!groupId && groups[0]) setGroupId(groups[0].id); }, [groupId, groups]);
+  const load = useCallback(async () => {
+    if (!groupId) { setPlayers([]); setLoading(false); return; }
+    setLoading(true); setError(null);
+    const result = await client.from("players").select("id, group_id, full_name, first_name, last_name, middle_name, birth_date, birth_year, position, dominant_foot, coach_note, is_active, groups(code), uniform_requests(id, status), player_photos(file_assets(bucket, object_path))").eq("group_id", groupId).eq("is_active", true).order("full_name");
+    setLoading(false);
+    if (result.error) { setError("Не вдалося завантажити список гравців."); return; }
+    const next = (result.data ?? []) as unknown as PlayerWithUniform[];
+    setPlayers(next);
+    const urls: Record<string, string> = {};
+    await Promise.all(next.map(async (player) => {
+      const asset = player.player_photos?.[0]?.file_assets;
+      if (!asset) return;
+      const signed = await client.storage.from(asset.bucket).createSignedUrl(asset.object_path, 600, { transform: { width: 160, height: 160, resize: "cover" } });
+      if (signed.data?.signedUrl) urls[player.id] = signed.data.signedUrl;
+    }));
+    setPhotoUrls(urls);
+  }, [client, groupId]);
+  useEffect(() => { void load(); }, [load]);
+
+  const filtered = useMemo(() => {
+    const query = search.trim().toLocaleLowerCase("uk-UA");
+    return query ? players.filter((player) => `${player.full_name} ${player.position ?? ""}`.toLocaleLowerCase("uk-UA").includes(query)) : players;
+  }, [players, search]);
+
+  return <div className="workspace-stack"><WorkspaceHeader eyebrow="Команда" title="Гравці" description="Список, щомісячні оплати та замовлення форми" actions={groups.length ? <GroupSelect groups={groups} value={groupId} onChange={setGroupId} /> : undefined} /><Tabs label="Розділи гравців" value={tab} onChange={setTab} items={[{ value: "list", label: "Список гравців", badge: players.length }, { value: "payments", label: "Оплати" }, { value: "uniform", label: "Форма" }]} />{error && <StatusMessage kind="error">{error}</StatusMessage>}{loading ? <LoadingState label="Завантажуємо гравців…" /> : tab === "list" ? <><SearchField value={search} onChange={setSearch} placeholder="Пошук за прізвищем або амплуа" />{filtered.length ? <div className="player-grid">{filtered.map((player) => { const issued = player.uniform_requests?.some((request) => request.status === "issued"); return <button className="player-card" type="button" key={player.id} onClick={() => setSelectedPlayer(player)}>{photoUrls[player.id] ? <Image unoptimized width={64} height={64} src={photoUrls[player.id]} alt="" /> : <span className="avatar-placeholder"><UserRound /></span>}<div><h2>{player.full_name}</h2><p>{player.birth_date ? new Date(player.birth_date).getFullYear() : player.birth_year ?? "Рік не вказано"} · {player.position || "Амплуа не вказано"}</p><Pill tone={issued ? "success" : "warning"}>{issued ? "Формою забезпечено" : "Форма не видана"}</Pill></div><ChevronRight aria-hidden="true" /></button>; })}</div> : <EmptyState title="Гравців не знайдено" />}</> : tab === "payments" ? <PaymentsPanel client={client} profile={profile} players={players} /> : <UniformPanel client={client} profile={profile} players={players} />}{selectedPlayer && <PlayerDetails client={client} player={selectedPlayer} photoUrl={photoUrls[selectedPlayer.id]} onClose={() => setSelectedPlayer(null)} />}</div>;
+}
+
+export function PlayerDetails({ client, player, photoUrl, onClose }: { client: SupabaseClient; player: Player; photoUrl?: string; onClose: () => void }) {
+  const [guardians, setGuardians] = useState<Guardian[]>([]);
+  const [tests, setTests] = useState<Array<{ id: string; measured_on: string; metric_name: string; field_name: string; value: string; unit?: string | null }>>([]);
+  const [activity, setActivity] = useState<Array<{ id: string; period: string; metric_name: string; value: string }>>([]);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => { let active = true; void Promise.all([
+    client.from("guardians").select("id, player_id, full_name, relation, phone, email").eq("player_id", player.id).order("created_at"),
+    client.from("physical_test_results").select("id, measured_on, metric_name, field_name, value, unit").eq("player_id", player.id).order("measured_on", { ascending: false }),
+    client.from("game_activity_results").select("id, period, metric_name, value").eq("player_id", player.id).order("created_at", { ascending: false }),
+  ]).then(([guardianResult, testResult, activityResult]) => { if (!active) return; setGuardians((guardianResult.data ?? []) as Guardian[]); setTests((testResult.data ?? []) as typeof tests); setActivity((activityResult.data ?? []) as typeof activity); setLoading(false); }); return () => { active = false; }; }, [client, player.id]);
+  return <Modal title={player.full_name} onClose={onClose} wide footer={<button className="primary-action" type="button" onClick={onClose}>Закрити</button>}><div className="player-profile-head">{photoUrl ? <Image unoptimized width={92} height={92} src={photoUrl} alt={`Фото ${player.full_name}`} /> : <span className="profile-avatar"><UserRound /></span>}<div><Pill tone="plum">{player.groups?.code ?? "Гравець"}</Pill><h3>{player.position || "Амплуа не вказано"}</h3><p>{player.birth_date ? formatDate(player.birth_date) : player.birth_year ? String(player.birth_year) : "Дата народження не вказана"}{player.dominant_foot ? ` · ${player.dominant_foot}` : ""}</p></div></div>{player.coach_note && <section className="profile-section"><h3>Характеристика тренера</h3><p>{player.coach_note}</p></section>}<section className="profile-section"><h3>Контакти батьків або опікунів</h3>{loading ? <LoadingState /> : guardians.length ? <div className="contact-list">{guardians.map((guardian) => <article key={guardian.id}><b>{guardian.full_name || "Ім’я не вказано"}</b><small>{guardian.relation || "Контактна особа"}</small>{guardian.phone && <a href={`tel:${guardian.phone}`}><Phone size={16} />{guardian.phone}</a>}{guardian.email && <a href={`mailto:${guardian.email}`}><Mail size={16} />{guardian.email}</a>}{!guardian.phone && !guardian.email && <span className="muted">Контакти не внесено</span>}</article>)}</div> : <p className="muted">Контакти не внесено.</p>}</section><section className="profile-section"><h3>Результати фізичної підготовленості</h3>{tests.length ? <div className="responsive-table"><table><thead><tr><th>Дата</th><th>Тест</th><th>Поле результату</th><th>Результат</th></tr></thead><tbody>{tests.map((test) => <tr key={test.id}><td>{formatDate(test.measured_on)}</td><td>{test.metric_name}</td><td>{test.field_name}</td><td>{test.value} {test.unit}</td></tr>)}</tbody></table></div> : <p className="muted">Результатів ще немає.</p>}</section><section className="profile-section"><h3>Оцінювання ігрової діяльності</h3>{activity.length ? <div className="responsive-table"><table><thead><tr><th>Період</th><th>Показник</th><th>Результат</th></tr></thead><tbody>{activity.map((item) => <tr key={item.id}><td>{item.period}</td><td>{item.metric_name}</td><td>{item.value}</td></tr>)}</tbody></table></div> : <p className="muted">Результатів ще немає.</p>}</section></Modal>;
+}
+
+function PaymentsPanel({ client, profile, players }: { client: SupabaseClient; profile: Profile; players: Player[] }) {
+  const [month, setMonth] = useState(toMonthInput());
+  const [payments, setPayments] = useState<Record<string, { status: "paid" | "unpaid"; changed_at?: string; profiles?: { full_name: string } | null }>>({});
+  const [loading, setLoading] = useState(true);
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const load = useCallback(async () => { if (!players.length) { setPayments({}); setLoading(false); return; } setLoading(true); const result = await client.from("monthly_payments").select("player_id, status, changed_at, profiles!monthly_payments_changed_by_fkey(full_name)").in("player_id", players.map((player) => player.id)).eq("month", `${month}-01`); setLoading(false); if (result.error) { setError("Не вдалося завантажити оплати."); return; } const map: typeof payments = {}; for (const item of result.data ?? []) map[item.player_id as string] = item as unknown as typeof payments[string]; setPayments(map); }, [client, month, players]);
+  useEffect(() => { void load(); }, [load]);
+  async function setStatus(playerId: string, status: "paid" | "unpaid") { setSavingId(playerId); setError(null); const now = new Date().toISOString(); const result = await client.from("monthly_payments").upsert({ player_id: playerId, month: `${month}-01`, status, changed_by: profile.id, changed_at: now }, { onConflict: "player_id,month" }); setSavingId(null); if (result.error) { setError("Статус не збережено."); return; } setPayments((value) => ({ ...value, [playerId]: { status, changed_at: now, profiles: { full_name: profile.full_name } } })); }
+  return <section className="panel-section"><div className="section-title-row"><div><p className="eyebrow">Щомісячний контроль</p><h2>{formatMonth(month)}</h2></div><label className="compact-field"><span>Місяць</span><input type="month" value={month} onChange={(e) => setMonth(e.target.value)} /></label></div>{error && <StatusMessage kind="error">{error}</StatusMessage>}{loading ? <LoadingState /> : players.length ? <div className="payment-list">{players.map((player) => { const row = payments[player.id]; const status = row?.status ?? "unpaid"; return <div className="payment-row" key={player.id}><div><b>{player.full_name}</b>{row?.changed_at && <small>Змінено {formatDate(row.changed_at)} · {row.profiles?.full_name ?? "користувач"}</small>}</div><div className="binary-choice" aria-label={`Оплата ${player.full_name}`}><button className={status === "paid" ? "selected paid" : ""} disabled={savingId === player.id} onClick={() => void setStatus(player.id, "paid")}><Check size={16} />Оплачено</button><button className={status === "unpaid" ? "selected unpaid" : ""} disabled={savingId === player.id} onClick={() => void setStatus(player.id, "unpaid")}>Не оплачено</button></div></div>; })}</div> : <EmptyState title="Гравців у команді немає" />}</section>;
+}
+
+function UniformPanel({ client, profile, players }: { client: SupabaseClient; profile: Profile; players: Player[] }) {
+  const [catalog, setCatalog] = useState<UniformCatalogItem[]>([]);
+  const [requests, setRequests] = useState<UniformRequest[]>([]);
+  const [selected, setSelected] = useState<Player | null>(null);
+  const [loading, setLoading] = useState(true);
+  const load = useCallback(async () => { setLoading(true); const [catalogResult, requestResult] = await Promise.all([client.from("uniform_catalog_items").select("id, name, sizes, is_active").eq("is_active", true).order("sort_order"), players.length ? client.from("uniform_requests").select("id, player_id, number, surname_print, status, admin_note, uniform_request_items(id, catalog_item_id, size, quantity, uniform_catalog_items(id, name, sizes, is_active))").in("player_id", players.map((player) => player.id)) : Promise.resolve({ data: [], error: null })]); setCatalog((catalogResult.data ?? []) as UniformCatalogItem[]); setRequests((requestResult.data ?? []) as unknown as UniformRequest[]); setLoading(false); }, [client, players]);
+  useEffect(() => { void load(); }, [load]);
+  return <section className="panel-section"><div className="section-title-row"><div><p className="eyebrow">Екіпірування</p><h2>Форма гравців</h2></div><Pill tone="plum">{requests.filter((request) => request.status === "requested").length} запитів</Pill></div>{loading ? <LoadingState /> : players.length ? <div className="uniform-player-list">{players.map((player) => { const request = requests.find((item) => item.player_id === player.id); return <button type="button" key={player.id} onClick={() => setSelected(player)}><span className="tile-icon coral"><Shirt /></span><div><b>{player.full_name}</b><small>{request ? `${UNIFORM_STATUS_LABELS[request.status]}${request.number ? ` · № ${request.number}` : ""}` : "Не замовлено"}</small></div><ChevronRight /></button>; })}</div> : <EmptyState title="Гравців у команді немає" />}{selected && <UniformRequestModal client={client} profile={profile} player={selected} catalog={catalog} request={requests.find((item) => item.player_id === selected.id)} onClose={() => setSelected(null)} onSaved={() => { setSelected(null); void load(); }} />}</section>;
+}
+
+function UniformRequestModal({ client, profile, player, catalog, request, onClose, onSaved }: { client: SupabaseClient; profile: Profile; player: Player; catalog: UniformCatalogItem[]; request?: UniformRequest; onClose: () => void; onSaved: () => void }) {
+  const locked = request?.status === "preparing" || request?.status === "issued";
+  const [number, setNumber] = useState(request?.number?.toString() ?? "");
+  const [surname, setSurname] = useState(request?.surname_print ?? player.last_name ?? player.full_name.split(" ")[0]);
+  const initial = Object.fromEntries((request?.uniform_request_items ?? []).map((item) => [item.catalog_item_id, { selected: true, size: item.size }]));
+  const [items, setItems] = useState<Record<string, { selected: boolean; size: string }>>(initial);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  async function save(event: FormEvent) {
+    event.preventDefault();
+    if (locked) {
+      setError("Запит уже опрацьовує адміністратор, тому редагування заблоковано.");
+      return;
+    }
+    if (!profile.id) {
+      setError("Сесію користувача не підтверджено.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    const selectedItems = catalog
+      .filter((item) => items[item.id]?.selected)
+      .map((item) => ({
+        catalog_item_id: item.id,
+        size: items[item.id].size || item.sizes[0] || "Не вказано",
+      }));
+    const result = await client.rpc("save_uniform_request", {
+      p_player_id: player.id,
+      p_number: number ? Number(number) : null,
+      p_surname_print: surname,
+      p_items: selectedItems,
+    });
+    setBusy(false);
+    if (result.error) {
+      setError(safeError(result.error, "Запит на форму не збережено."));
+      return;
+    }
+    onSaved();
+  }
+  if (locked) return <Modal title={`Форма · ${player.full_name}`} onClose={onClose} wide footer={<button className="primary-action" type="button" onClick={onClose}>Закрити</button>}><StatusMessage kind="warning">Запит має стан «{UNIFORM_STATUS_LABELS[request.status]}». Тренер може його переглядати, але змінює лише адміністратор.</StatusMessage><div className="detail-list"><div><Shirt /><span><b>{request.surname_print || "Без нанесення"}{request.number != null ? ` · № ${request.number}` : ""}</b><small>{(request.uniform_request_items ?? []).map((item) => `${item.uniform_catalog_items?.name ?? "Позиція"} · ${item.size}`).join(", ") || "Позицій немає"}</small></span></div></div>{request.admin_note && <div className="text-block"><h3>Коментар адміністратора</h3><p>{request.admin_note}</p></div>}</Modal>;
+  return <Modal title={`Форма · ${player.full_name}`} onClose={onClose} wide footer={<><button className="secondary-action" type="button" onClick={onClose}>Скасувати</button><button className="primary-action" form="uniform-request" disabled={busy}>{busy ? "Збереження…" : "Зберегти запит"}</button></>}><form id="uniform-request" className="form-grid" onSubmit={save}><label><span>Номер</span><input type="number" min={0} max={99} value={number} onChange={(e) => setNumber(e.target.value)} /></label><label><span>Прізвище для нанесення</span><input value={surname} onChange={(e) => setSurname(e.target.value)} /></label><div className="span-2 equipment-picker"><h3>Потрібні позиції та розміри</h3>{catalog.map((item) => <div key={item.id}><label className="check-field"><input type="checkbox" checked={items[item.id]?.selected ?? false} onChange={(e) => setItems((value) => ({ ...value, [item.id]: { selected: e.target.checked, size: value[item.id]?.size || item.sizes[0] || "" } }))} /><span>{item.name}</span></label><select disabled={!items[item.id]?.selected} value={items[item.id]?.size ?? item.sizes[0] ?? ""} onChange={(e) => setItems((value) => ({ ...value, [item.id]: { selected: true, size: e.target.value } }))}>{item.sizes.map((size) => <option key={size}>{size}</option>)}</select></div>)}</div>{error && <div className="span-2"><StatusMessage kind="error">{error}</StatusMessage></div>}</form></Modal>;
+}
