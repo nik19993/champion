@@ -40,24 +40,15 @@ export function AuthGate() {
 
   useEffect(() => {
     if (!("serviceWorker" in navigator)) return;
-    let active = true;
 
     void (async () => {
       const registrations = await navigator.serviceWorker.getRegistrations();
-      const wasControlled = navigator.serviceWorker.controller !== null;
       await Promise.all(registrations.map((registration) => registration.unregister()));
       if ("caches" in window) {
         const keys = await window.caches.keys();
         await Promise.all(keys.filter((key) => key.startsWith("champion-shell-")).map((key) => window.caches.delete(key)));
       }
-      const reloadKey = "champion:service-worker-cleanup:v1";
-      if (active && wasControlled && !window.sessionStorage.getItem(reloadKey)) {
-        window.sessionStorage.setItem(reloadKey, "done");
-        window.location.reload();
-      }
     })().catch(() => undefined);
-
-    return () => { active = false; };
   }, []);
 
   useEffect(() => {

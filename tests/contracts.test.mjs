@@ -212,6 +212,7 @@ test("private Sites does not hand page control to an application service worker"
   assert.doesNotMatch(shell, /serviceWorker\.register/);
   assert.match(gate, /serviceWorker\.getRegistrations/);
   assert.match(gate, /registration\.unregister\(\)/);
+  assert.doesNotMatch(gate, /location\.reload\(\)/);
   assert.doesNotMatch(worker, /addEventListener\(["']fetch/);
   assert.match(worker, /self\.registration\.unregister\(\)/);
 });
