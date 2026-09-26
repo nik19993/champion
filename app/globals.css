@@ -532,6 +532,40 @@ textarea { resize: vertical; }
 .group-detail-head { display: grid; grid-template-columns: minmax(190px, .75fr) minmax(360px, 1.25fr); align-items: center; gap: 18px; padding-bottom: 18px; border-bottom: 1px solid var(--line); }
 .group-detail-head h3 { margin: 9px 0 7px; color: var(--ink); font-size: 22px; }
 .group-detail-metrics small { max-width: 92px; line-height: 1.25; }
+.group-month-plan { display: grid; gap: 13px; }
+.group-plan-heading { align-items: flex-end; margin-bottom: 0; }
+.group-plan-view { display: flex; gap: 5px; padding: 4px; border: 1px solid var(--line); border-radius: 11px; background: #faf8ee; }
+.group-plan-view button { min-height: 38px; display: flex; align-items: center; gap: 6px; padding: 7px 10px; color: var(--muted); border: 0; border-radius: 8px; background: transparent; font-size: 13px; font-weight: 800; }
+.group-plan-view button.active { color: #111; background: #ffd400; box-shadow: inset 0 0 0 1px #111; }
+.group-plan-month { display: grid; grid-template-columns: 42px minmax(170px, 1fr) 42px; align-items: center; max-width: 360px; margin-inline: auto; text-align: center; }
+.group-plan-month button { width: 38px; height: 38px; display: grid; place-items: center; color: #111; border: 1px solid #111; border-radius: 10px; background: #ffd400; }
+.group-plan-month strong { color: var(--ink); font-size: 15px; }
+.group-plan-list { display: grid; gap: 8px; }
+.group-plan-list > article { display: grid; grid-template-columns: 142px minmax(0, 1fr); gap: 13px; padding: 13px; border: 1px solid var(--line); border-radius: 13px; background: #fff; }
+.group-plan-list > article.cancelled { opacity: .68; background: #f7f5f5; }
+.group-plan-date { display: flex; flex-direction: column; gap: 4px; }
+.group-plan-date b { color: var(--ink); font-size: 14px; }
+.group-plan-date span { color: var(--muted); font-size: 13px; }
+.group-plan-copy { min-width: 0; display: grid; gap: 5px; }
+.group-plan-copy > div { display: flex; flex-wrap: wrap; gap: 5px; }
+.group-plan-copy h4 { margin: 1px 0; color: var(--ink); font-size: 15px; }
+.group-plan-copy p { display: flex; align-items: center; gap: 6px; margin: 0; color: var(--muted); font-size: 13px; }
+.group-plan-copy small { color: var(--muted); line-height: 1.4; }
+.group-plan-calendar-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 13px; }
+.group-plan-weekdays, .group-plan-calendar { min-width: 700px; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.group-plan-weekdays { background: #faf8ee; }
+.group-plan-weekdays span { padding: 8px; color: var(--muted); text-align: center; font-size: 12px; font-weight: 800; }
+.group-plan-calendar > div { min-height: 112px; padding: 7px; border-top: 1px solid var(--line); border-right: 1px solid var(--line); background: #fff; }
+.group-plan-calendar > div:nth-child(7n+1) { border-left: 0; }
+.group-plan-calendar > div.empty { background: #fafafa; }
+.group-plan-calendar > div > b { display: block; margin-bottom: 5px; color: var(--ink); font-size: 12px; }
+.group-plan-calendar article { display: grid; gap: 1px; margin-top: 4px; padding: 5px 6px; border-left: 3px solid #111; border-radius: 6px; background: #fff5a9; }
+.group-plan-calendar article.cancelled { opacity: .65; background: #eee; }
+.group-plan-calendar article span, .group-plan-calendar article strong, .group-plan-calendar article small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.group-plan-calendar article span { font-size: 11px; font-weight: 850; }
+.group-plan-calendar article strong { font-size: 11px; }
+.group-plan-calendar article small { color: var(--muted); font-size: 10px; }
+.group-plan-note { margin: 0; font-size: 12px; }
 .group-roster .section-title-row { margin-bottom: 11px; }
 .group-player-grid { margin-top: 12px; }
 .modal-note { margin-top: 12px; font-size: 13px; }
@@ -709,6 +743,10 @@ textarea { resize: vertical; }
   .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .group-admin-grid { grid-template-columns: 1fr; }
   .group-detail-head { grid-template-columns: 1fr; }
+  .group-plan-heading { align-items: stretch; flex-direction: column; }
+  .group-plan-view { width: 100%; }
+  .group-plan-view button { flex: 1; justify-content: center; }
+  .group-plan-list > article { grid-template-columns: 1fr; }
   .uniform-admin-list > article { grid-template-columns: 1fr; }
   .uniform-note { grid-column: auto; }
   .checkbox-grid { grid-template-columns: 1fr; }

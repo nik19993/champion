@@ -382,6 +382,24 @@ test("administrator groups remain visible without players and use explicit coach
   assert.match(inventory, /coach_group_assignments!coach_group_assignments_coach_id_fkey/);
 });
 
+test("administrator group details tolerate missing assignments and show the shared monthly event plan", async () => {
+  const [groups, format] = await Promise.all([
+    readFile(adminGroupsUrl, "utf8"),
+    readFile(domainFormatUrl, "utf8"),
+  ]);
+  assert.match(groups, /Тренера не призначено/);
+  assert.match(groups, /function relationOne/);
+  assert.match(groups, /function GroupMonthlyPlan/);
+  assert.match(groups, /from\("events"\)[\s\S]*profiles!events_coach_id_fkey\(full_name\)/);
+  assert.match(groups, /\.eq\("group_id", group\.id\)/);
+  assert.match(groups, /Єдиний план подій/);
+  assert.match(groups, /Список/);
+  assert.match(groups, /Календар/);
+  assert.match(groups, /Видалений тренер/);
+  assert.match(groups, /kyivMonthBounds\(month\)/);
+  assert.match(format, /Europe\/Kyiv/);
+});
+
 test("administrator group cards show current non-payment and past debt", async () => {
   const source = await readFile(adminGroupsUrl, "utf8");
   assert.match(source, /from\("monthly_payments"\)\.select\("player_id, month, status"\)/);

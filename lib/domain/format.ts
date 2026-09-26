@@ -32,10 +32,41 @@ export const UNIFORM_STATUS_LABELS: Record<UniformStatus, string> = {
 export const PHASE_LABELS: Record<MethodologyPhase, string> = { attack: "Тактика нападу", defence: "Тактика захисту" };
 export const LEVEL_LABELS: Record<MethodologyLevel, string> = { individual: "Індивідуальна", group: "Групова", team: "Командна" };
 
-const monthFormatter = new Intl.DateTimeFormat("uk-UA", { month: "long", year: "numeric" });
-const dateFormatter = new Intl.DateTimeFormat("uk-UA", { day: "2-digit", month: "long", year: "numeric" });
-const dateTimeFormatter = new Intl.DateTimeFormat("uk-UA", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
-const timeFormatter = new Intl.DateTimeFormat("uk-UA", { hour: "2-digit", minute: "2-digit" });
+const KYIV_TIME_ZONE = "Europe/Kyiv";
+const monthFormatter = new Intl.DateTimeFormat("uk-UA", { month: "long", year: "numeric", timeZone: KYIV_TIME_ZONE });
+const dateFormatter = new Intl.DateTimeFormat("uk-UA", { day: "2-digit", month: "long", year: "numeric", timeZone: KYIV_TIME_ZONE });
+const dateTimeFormatter = new Intl.DateTimeFormat("uk-UA", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", timeZone: KYIV_TIME_ZONE });
+const timeFormatter = new Intl.DateTimeFormat("uk-UA", { hour: "2-digit", minute: "2-digit", timeZone: KYIV_TIME_ZONE });
+const kyivDateKeyFormatter = new Intl.DateTimeFormat("en-CA", { year: "numeric", month: "2-digit", day: "2-digit", timeZone: KYIV_TIME_ZONE });
+
+function kyivOffsetMs(instant: Date) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit",
+    hourCycle: "h23", timeZone: KYIV_TIME_ZONE,
+  }).formatToParts(instant);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return Date.UTC(Number(values.year), Number(values.month) - 1, Number(values.day), Number(values.hour), Number(values.minute), Number(values.second)) - instant.getTime();
+}
+
+function kyivLocalMidnightIso(year: number, monthIndex: number, day: number) {
+  const target = Date.UTC(year, monthIndex, day);
+  let instant = target;
+  for (let attempt = 0; attempt < 3; attempt += 1) instant = target - kyivOffsetMs(new Date(instant));
+  return new Date(instant).toISOString();
+}
+
+export function kyivMonthBounds(value: Date) {
+  return {
+    start: kyivLocalMidnightIso(value.getFullYear(), value.getMonth(), 1),
+    end: kyivLocalMidnightIso(value.getFullYear(), value.getMonth() + 1, 1),
+  };
+}
+
+export function kyivDateKey(value: string | Date) {
+  const parts = kyivDateKeyFormatter.formatToParts(value instanceof Date ? value : new Date(value));
+  const fields = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${fields.year}-${fields.month}-${fields.day}`;
+}
 
 export function formatMonth(value: string | Date) {
   const date = value instanceof Date ? value : new Date(`${value.length === 7 ? `${value}-01T12:00:00` : value}`);

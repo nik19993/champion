@@ -2,11 +2,12 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import Image from "next/image";
-import { Boxes, CalendarDays, ChevronRight, ClipboardCheck, Pencil, UserRound, Users } from "lucide-react";
+import { Boxes, CalendarDays, ChevronLeft, ChevronRight, ClipboardCheck, List, MapPin, Pencil, UserRound, Users } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { EmptyState, LoadingState, Modal, Pill, SearchField, StatusMessage, WorkspaceHeader } from "@/components/common/workspace-ui";
 import { PlayerDetails } from "@/components/coach/coach-players";
-import type { GroupSummary, InventoryItem, Player, UniformStatus } from "@/lib/domain/types";
+import { EVENT_LABELS, formatDate, formatTime, kyivDateKey, kyivMonthBounds } from "@/lib/domain/format";
+import type { EventType, GroupSummary, InventoryItem, Player, UniformStatus } from "@/lib/domain/types";
 
 interface GroupMetric extends GroupSummary {
   coachName: string;
@@ -23,6 +24,47 @@ interface AdminGroupPlayer extends Player {
 interface PaymentIndicator {
   currentPaid: boolean;
   hasPastDebt: boolean;
+}
+
+type Relation<T> = T | T[] | null;
+
+interface AdminGroupEvent {
+  id: string;
+  event_type: EventType;
+  start_at: string;
+  duration_minutes: number;
+  status: "scheduled" | "cancelled" | "completed";
+  title?: string | null;
+  notes?: string | null;
+  organizational_need?: string | null;
+  coach?: Relation<{ full_name: string }>;
+  venues?: Relation<{ name: string }>;
+  methodology_tasks?: Relation<{ title: string }>;
+}
+
+const EVENT_STATUS_LABELS: Record<AdminGroupEvent["status"], string> = {
+  scheduled: "Заплановано",
+  cancelled: "Скасовано",
+  completed: "Завершено",
+};
+
+function relationOne<T>(value: Relation<T> | undefined) {
+  return Array.isArray(value) ? value[0] ?? null : value ?? null;
+}
+
+function monthCells(month: Date) {
+  const first = new Date(month.getFullYear(), month.getMonth(), 1);
+  const leading = (first.getDay() + 6) % 7;
+  const days = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
+  return [
+    ...Array.from({ length: leading }, () => null),
+    ...Array.from({ length: days }, (_, index) => new Date(month.getFullYear(), month.getMonth(), index + 1)),
+  ];
+}
+
+function sameCalendarDay(date: Date, value: string) {
+  const cellKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  return cellKey === kyivDateKey(value);
 }
 
 function groupCountLabel(count: number) {
@@ -44,7 +86,7 @@ export function AdminGroups({ client, groups, onRefresh }: { client: SupabaseCli
   const load = useCallback(async () => {
     if (!groups.length) { setMetrics([]); setLoading(false); return; }
     setLoading(true); setError(null);
-    const emptyMetrics = groups.map((group) => ({ ...group, coachName: "Не призначено", playerCount: 0, trainingCount: 0, attendancePercent: null }));
+    const emptyMetrics = groups.map((group) => ({ ...group, coachName: "Тренера не призначено", playerCount: 0, trainingCount: 0, attendancePercent: null }));
     setMetrics(emptyMetrics);
     const ids = groups.map((group) => group.id);
     const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0);
@@ -59,13 +101,13 @@ export function AdminGroups({ client, groups, onRefresh }: { client: SupabaseCli
     const failedMetrics = [players.error, events.error, assignments.error, attendance.error].filter(Boolean).length;
     if (failedMetrics) setError("Усі групи відображено, але частину показників поки не вдалося обчислити.");
     const result = groups.map((group) => {
-      const lead = (assignments.data ?? []).find((row) => row.group_id === group.id && row.assignment_role === "lead") as unknown as { coach?: { full_name: string } | null } | undefined;
+      const lead = (assignments.data ?? []).find((row) => row.group_id === group.id && row.assignment_role === "lead") as unknown as { coach?: Relation<{ full_name: string }> } | undefined;
       const records = (attendance.data ?? []).filter((row) => {
-        const session = row.attendance_sessions as unknown as { events?: { group_id: string } | null };
-        return session.events?.group_id === group.id;
+        const session = relationOne(row.attendance_sessions as unknown as Relation<{ events?: Relation<{ group_id: string }> }>);
+        return relationOne(session?.events)?.group_id === group.id;
       });
       const present = records.filter((row) => row.status === "present").length;
-      return { ...group, coachName: lead?.coach?.full_name ?? "Не призначено", playerCount: (players.data ?? []).filter((row) => row.group_id === group.id).length, trainingCount: (events.data ?? []).filter((row) => row.group_id === group.id).length, attendancePercent: records.length ? Math.round((present / records.length) * 100) : null };
+      return { ...group, coachName: relationOne(lead?.coach)?.full_name ?? "Тренера не призначено", playerCount: (players.data ?? []).filter((row) => row.group_id === group.id).length, trainingCount: (events.data ?? []).filter((row) => row.group_id === group.id).length, attendancePercent: records.length ? Math.round((present / records.length) * 100) : null };
     });
     setMetrics(result);
   }, [client, groups]);
@@ -142,6 +184,7 @@ function GroupDetailsModal({ client, group, onClose, onPlayerOpen }: { client: S
   return <Modal title={`Група · ${group.code}`} onClose={onClose} wide footer={<button className="primary-action" type="button" onClick={onClose}>Закрити</button>}>
     <div className="group-detail-head"><div><Pill tone="plum">{group.group_kind === "goalkeeper" ? "Воротарська група" : "Вікова команда"}</Pill><h3>{group.competition_format || "Формат не вказано"}</h3><p className="coach-line"><Users size={17} />{group.coachName}</p></div><div className="group-metrics group-detail-metrics"><div><Users /><span><b>{group.playerCount}</b><small>гравців</small></span></div><div><CalendarDays /><span><b>{group.trainingCount}</b><small>тренувань цього місяця</small></span></div><div><ClipboardCheck /><span><b>{group.attendancePercent === null ? "—" : `${group.attendancePercent}%`}</b><small>відвідування</small></span></div></div></div>
     {(group.regulation_source || group.regulation_verified_on) && <section className="profile-section"><h3>Регламент і формат</h3><div className="detail-list">{group.regulation_source && <div><ClipboardCheck /><span><b>Джерело регламенту</b><small>{group.regulation_source}</small></span></div>}{group.regulation_verified_on && <div><CalendarDays /><span><b>Дата перевірки</b><small>{new Date(group.regulation_verified_on).toLocaleDateString("uk-UA")}</small></span></div>}</div></section>}
+    <GroupMonthlyPlan client={client} group={group} />
     <section className="profile-section group-roster"><div className="section-title-row"><div><p className="eyebrow">Склад команди</p><h3>Гравці групи</h3></div><Pill tone="neutral">{players.length}</Pill></div>
       {error && <StatusMessage kind="error">{error}</StatusMessage>}
       {paymentWarning && <StatusMessage kind="warning">{paymentWarning}</StatusMessage>}
@@ -152,6 +195,67 @@ function GroupDetailsModal({ client, group, onClose, onPlayerOpen }: { client: S
       })}</div> : <EmptyState title="Гравців за цим запитом не знайдено" />}</> : <EmptyState title="У цій групі ще немає гравців">Група залишається активною і доступною для призначення тренера.</EmptyState>}
     </section>
   </Modal>;
+}
+
+function GroupMonthlyPlan({ client, group }: { client: SupabaseClient; group: GroupSummary }) {
+  const [month, setMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+  const [view, setView] = useState<"calendar" | "list">("list");
+  const [events, setEvents] = useState<AdminGroupEvent[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    const bounds = kyivMonthBounds(month);
+    setLoading(true);
+    setError(null);
+    void client.from("events")
+      .select("id, event_type, start_at, duration_minutes, status, title, notes, organizational_need, coach:profiles!events_coach_id_fkey(full_name), venues(name), methodology_tasks(title)")
+      .eq("group_id", group.id)
+      .gte("start_at", bounds.start)
+      .lt("start_at", bounds.end)
+      .order("start_at")
+      .then(({ data, error: loadError }) => {
+        if (!active) return;
+        setEvents(loadError ? [] : (data ?? []) as unknown as AdminGroupEvent[]);
+        setError(loadError ? "Не вдалося завантажити план групи за цей місяць." : null);
+        setLoading(false);
+      });
+    return () => { active = false; };
+  }, [client, group.id, month]);
+
+  const monthLabel = new Intl.DateTimeFormat("uk-UA", { month: "long", year: "numeric" }).format(month);
+  const cells = useMemo(() => monthCells(month), [month]);
+
+  return <section className="profile-section group-month-plan">
+    <div className="section-title-row group-plan-heading">
+      <div><p className="eyebrow">Єдиний план подій</p><h3>План групи на місяць</h3></div>
+      <div className="group-plan-view" role="group" aria-label="Вигляд плану">
+        <button type="button" className={view === "list" ? "active" : ""} onClick={() => setView("list")}><List size={17} />Список</button>
+        <button type="button" className={view === "calendar" ? "active" : ""} onClick={() => setView("calendar")}><CalendarDays size={17} />Календар</button>
+      </div>
+    </div>
+    <div className="group-plan-month">
+      <button type="button" aria-label="Попередній місяць" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))}><ChevronLeft /></button>
+      <strong>{monthLabel.charAt(0).toUpperCase() + monthLabel.slice(1)}</strong>
+      <button type="button" aria-label="Наступний місяць" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))}><ChevronRight /></button>
+    </div>
+    {error && <StatusMessage kind="error">{error}</StatusMessage>}
+    {loading ? <LoadingState label="Завантажуємо план групи…" /> : !events.length ? <EmptyState title="Подій у цьому місяці немає">План залишається доступним навіть для групи без гравців або призначеного тренера.</EmptyState> : view === "list" ? <div className="group-plan-list">{events.map((event) => {
+      const coach = relationOne(event.coach);
+      const venue = relationOne(event.venues);
+      const task = relationOne(event.methodology_tasks);
+      return <article key={event.id} className={event.status === "cancelled" ? "cancelled" : ""}>
+        <div className="group-plan-date"><b>{formatDate(event.start_at)}</b><span>{formatTime(event.start_at)} · {event.duration_minutes} хв</span></div>
+        <div className="group-plan-copy"><div><Pill tone="plum">{EVENT_LABELS[event.event_type]}</Pill><Pill tone={event.status === "completed" ? "success" : event.status === "cancelled" ? "danger" : "neutral"}>{EVENT_STATUS_LABELS[event.status]}</Pill></div><h4>{task?.title ?? event.title ?? "Завдання або назву не вказано"}</h4><p><MapPin size={15} />{venue?.name ?? "Місце не вказано"}</p><p><Users size={15} />{coach?.full_name ?? "Видалений тренер"}</p>{event.organizational_need && <small><b>Організаційні потреби:</b> {event.organizational_need}</small>}{event.notes && <small><b>Уточнення:</b> {event.notes}</small>}</div>
+      </article>;
+    })}</div> : <div className="group-plan-calendar-wrap"><div className="group-plan-weekdays">{["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд"].map((day) => <span key={day}>{day}</span>)}</div><div className="group-plan-calendar">{cells.map((date, index) => {
+      if (!date) return <div className="empty" key={`empty-${index}`} />;
+      const dayEvents = events.filter((event) => sameCalendarDay(date, event.start_at));
+      return <div key={date.toISOString()}><b>{date.getDate()}</b>{dayEvents.map((event) => <article key={event.id} className={event.status === "cancelled" ? "cancelled" : ""}><span>{formatTime(event.start_at)}</span><strong>{EVENT_LABELS[event.event_type]}</strong><small>{relationOne(event.coach)?.full_name ?? "Видалений тренер"}</small></article>)}</div>;
+    })}</div></div>}
+    <p className="muted group-plan-note">Перегляд без редагування. Дані беруться з того самого плану подій, який веде тренер.</p>
+  </section>;
 }
 
 function GroupFormatModal({ client, group, onClose, onSaved }: { client: SupabaseClient; group: GroupSummary; onClose: () => void; onSaved: () => void }) {
