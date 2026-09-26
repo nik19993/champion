@@ -2,8 +2,8 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "ЧЕМПІОН — робочий простір",
-  description: "Приватний робочий вебдодаток футбольної школи ЧЕМПІОН",
+  title: "Клуб Чемпіон — робочий простір",
+  description: "Приватний робочий вебдодаток Клубу Чемпіон",
   manifest: "/manifest.webmanifest",
   icons: {
     icon: "/champion-club-emblem.jpg",

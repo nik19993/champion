@@ -7,15 +7,16 @@ import { Accordion, EmptyState, LoadingState, Modal, Pill, StatusMessage, Worksp
 import { EvaluationManagement } from "@/components/admin/evaluation-management";
 import { InventoryManagement } from "@/components/admin/inventory-management";
 import { MethodologyManagement } from "@/components/admin/admin-management-methodology";
+import { MonthlyStarManagement } from "@/components/admin/monthly-star-management";
 import type { GroupSummary, Profile, Venue } from "@/lib/domain/types";
 
 interface Props { client: SupabaseClient; profile: Profile; groups: GroupSummary[]; onMfaRequired?: () => void; }
-type Section = "announcements" | "users" | "inventory" | "venues" | "evaluation" | "program" | "structure" | "terms" | "materials" | "imports";
+type Section = "announcements" | "users" | "monthly-star" | "inventory" | "venues" | "evaluation" | "program" | "structure" | "terms" | "materials" | "imports";
 
 export function AdminManagement({ client, profile, groups, onMfaRequired }: Props) {
   const [open, setOpen] = useState<Section | null>(null);
   const toggle = (value: Section) => setOpen((current) => current === value ? null : value);
-  return <div className="workspace-stack"><WorkspaceHeader eyebrow="Системні налаштування" title="Керування" description="Розділи згортаються, щоб потрібна дія завжди залишалась поруч" /><div className="accordion-list"><Accordion priority="1" title="Оголошення тренерам" open={open === "announcements"} onToggle={() => toggle("announcements")}><AnnouncementManagement client={client} profile={profile} groups={groups} /></Accordion><Accordion priority="2" title="Користувачі й паролі" open={open === "users"} onToggle={() => toggle("users")}><UserManagement client={client} groups={groups} onMfaRequired={onMfaRequired} /></Accordion><Accordion title="Інвентар" open={open === "inventory"} onToggle={() => toggle("inventory")}><InventoryManagement client={client} profile={profile} groups={groups} /></Accordion><Accordion title="Поля й майданчики" open={open === "venues"} onToggle={() => toggle("venues")}><VenueManagement client={client} profile={profile} /></Accordion><Accordion title="Тестування й оцінювання" open={open === "evaluation"} onToggle={() => toggle("evaluation")}><EvaluationManagement client={client} profile={profile} /></Accordion><MethodologyManagement client={client} profile={profile} groups={groups} open={open} onOpen={toggle} /></div></div>;
+  return <div className="workspace-stack"><WorkspaceHeader eyebrow="Системні налаштування" title="Керування" description="Розділи згортаються, щоб потрібна дія завжди залишалась поруч" /><div className="accordion-list"><Accordion priority="1" title="Оголошення тренерам" open={open === "announcements"} onToggle={() => toggle("announcements")}><AnnouncementManagement client={client} profile={profile} groups={groups} /></Accordion><Accordion priority="2" title="Користувачі й паролі" open={open === "users"} onToggle={() => toggle("users")}><UserManagement client={client} groups={groups} onMfaRequired={onMfaRequired} /></Accordion><Accordion priority="3" title="Зірка місяця" open={open === "monthly-star"} onToggle={() => toggle("monthly-star")}><MonthlyStarManagement client={client} profile={profile} groups={groups} /></Accordion><Accordion title="Інвентар" open={open === "inventory"} onToggle={() => toggle("inventory")}><InventoryManagement client={client} profile={profile} groups={groups} /></Accordion><Accordion title="Поля й майданчики" open={open === "venues"} onToggle={() => toggle("venues")}><VenueManagement client={client} profile={profile} /></Accordion><Accordion title="Тестування й оцінювання" open={open === "evaluation"} onToggle={() => toggle("evaluation")}><EvaluationManagement client={client} profile={profile} /></Accordion><MethodologyManagement client={client} profile={profile} groups={groups} open={open} onOpen={toggle} /></div></div>;
 }
 
 interface AnnouncementTarget {
@@ -252,6 +253,11 @@ function adminUserError(error: unknown, fallback: string) {
   if (code.includes("INVALID_INPUT")) return "Перевірте обов’язкові поля, електронну адресу та тимчасовий пароль.";
   if (code.includes("GROUP_ASSIGNMENT_FAILED")) return "Користувача не створено, тому що вибрану групу не вдалося призначити. Оновіть групи та повторіть дію.";
   if (code.includes("PROFILE_UPDATE_FAILED")) return "Користувача не створено через помилку профілю. Повторіть дію після оновлення сторінки.";
+  if (code.includes("CONFIRMATION_NAME_MISMATCH")) return "Видалення не підтверджено: введене ПІБ не збігається з профілем тренера.";
+  if (code.includes("ONLY_COACH_CAN_BE_DELETED") || code.includes("CANNOT_DELETE_SELF")) return "Цю дію можна застосувати лише до профілю тренера, а не до адміністратора.";
+  if (code.includes("AUTH_BLOCK_FAILED")) return "Не вдалося негайно заблокувати вхід тренера. Дані не змінено; повторіть дію.";
+  if (code.includes("DELETE_FINALIZATION_FAILED")) return "Видалення не завершено. Доступ тренера відновлено, дані не приховано; повторіть дію.";
+  if (code.includes("AUTH_DELETE_PENDING")) return "Доступ тренера вже заблоковано й профіль закрито, але видалення Auth-акаунта потребує повторної серверної перевірки.";
   if (code.includes("SERVER_CONFIG")) return "Захищена функція не має серверного ключа Supabase. Потрібне повторне розгортання конфігурації.";
   if (code.includes("FORBIDDEN")) return "Ця дія доступна лише активному адміністратору після MFA.";
   if (code.includes("UNAUTHORIZED")) return "Сеанс завершився. Увійдіть знову й повторіть дію.";
@@ -263,12 +269,13 @@ function UserManagement({ client, groups, onMfaRequired }: { client: SupabaseCli
   const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<UserRow | null>(null);
   const [message, setMessage] = useState<{ kind: "success" | "error" | "warning"; text: string } | null>(null);
   const [createdCredentials, setCreatedCredentials] = useState<{ email: string; password: string } | null>(null);
   const [form, setForm] = useState({ last_name: "", first_name: "", middle_name: "", email: "", role: "coach" as "coach" | "admin", password: "", group_ids: [] as string[] });
   const load = useCallback(async () => {
     setLoading(true);
-    const result = await client.from("profiles").select("id, full_name, first_name, last_name, middle_name, email, role, status, must_change_password, coach_group_assignments!coach_group_assignments_coach_id_fkey(group_id, assignment_role, is_active)").order("full_name");
+    const result = await client.from("profiles").select("id, full_name, first_name, last_name, middle_name, email, role, status, must_change_password, coach_group_assignments!coach_group_assignments_coach_id_fkey(group_id, assignment_role, is_active)").neq("status", "closed").order("full_name");
     if (result.error) setMessage({ kind: "error", text: "Список користувачів не завантажено. Оновіть захищену сесію." });
     else setUsers((result.data ?? []) as unknown as UserRow[]);
     setLoading(false);
@@ -339,8 +346,105 @@ function UserManagement({ client, groups, onMfaRequired }: { client: SupabaseCli
   async function setAccess(user: UserRow, enabled: boolean) { setMessage(null); try { await invoke({ action: "access", user_id: user.id, enabled }); setUsers((rows) => rows.map((row) => row.id === user.id ? { ...row, status: enabled ? "active" : "suspended" } : row)); } catch (error) { setMessage({ kind: "error", text: adminUserError(error, "Стан доступу не змінено.") }); } }
   async function resetPassword(user: UserRow) { const password = window.prompt(`Новий тимчасовий пароль для ${user.full_name} (щонайменше 12 символів, великі й малі літери, цифра та спеціальний знак):`, generateTemporaryPassword()); if (!password) return; if (!isStrongTemporaryPassword(password)) { setMessage({ kind: "error", text: adminUserError(new Error("PASSWORD_POLICY"), "Пароль не скинуто.") }); return; } try { await invoke({ action: "reset_password", user_id: user.id, password }); setCreatedCredentials({ email: user.email ?? "", password }); setMessage({ kind: "success", text: "Новий тимчасовий пароль встановлено. Скопіюйте й передайте його користувачу." }); } catch (error) { setMessage({ kind: "error", text: adminUserError(error, "Пароль не скинуто.") }); } }
   async function updateGroups(user: UserRow, groupIds: string[]) { try { await invoke({ action: "assign_groups", user_id: user.id, group_ids: groupIds }); setUsers((rows) => rows.map((row) => row.id === user.id ? { ...row, coach_group_assignments: groupIds.map((groupId) => ({ group_id: groupId, assignment_role: "lead", is_active: true })) } : row)); setMessage({ kind: "success", text: "Групи тренера оновлено." }); } catch (error) { setMessage({ kind: "error", text: adminUserError(error, "Призначення груп не збережено. Перевірте, чи кожна група має лише одного основного тренера.") }); } }
+  async function deleteCoach(user: UserRow, confirmationName: string, reason: string) {
+    setBusy(true);
+    setMessage(null);
+    try {
+      await invoke({ action: "delete", user_id: user.id, confirmation_name: confirmationName, reason });
+      setPendingDelete(null);
+      setExpandedUserId(null);
+      await load();
+      setMessage({ kind: "success", text: `Тренера ${user.full_name} видалено. Історичні дані збережено, майбутні події передано на перепризначення.` });
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("AUTH_DELETE_PENDING")) {
+        setPendingDelete(null);
+        setExpandedUserId(null);
+        await load();
+      }
+      setMessage({ kind: error instanceof Error && error.message.includes("AUTH_DELETE_PENDING") ? "warning" : "error", text: adminUserError(error, "Тренера не видалено. Повторіть дію після перевірки захищеної сесії.") });
+    } finally {
+      setBusy(false);
+    }
+  }
 
-  return <div className="management-grid users-management"><form className="form-stack management-form" onSubmit={create}><h3>Новий користувач</h3><div className="form-grid"><label><span>Прізвище</span><input value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} required /></label><label><span>Ім’я</span><input value={form.first_name} onChange={(e) => setForm({ ...form, first_name: e.target.value })} required /></label><label><span>По батькові</span><input value={form.middle_name} onChange={(e) => setForm({ ...form, middle_name: e.target.value })} /></label><label><span>Роль</span><select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as "coach" | "admin" })}><option value="coach">Тренер</option><option value="admin">Адміністратор</option></select></label><label className="span-2"><span>Електронна адреса</span><input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required /></label><label className="span-2"><span>Тимчасовий пароль</span><input type="text" minLength={12} autoComplete="new-password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required /><small className="field-help">12+ символів: велика й мала літери, цифра та спеціальний знак.</small><span className="password-field-actions"><button type="button" className="secondary-action small" onClick={() => setForm({ ...form, password: generateTemporaryPassword() })}><RefreshCw size={15} />Згенерувати</button><button type="button" className="secondary-action small" onClick={() => void copyPassword(form.password)} disabled={!form.password}><Copy size={15} />Копіювати</button></span></label>{form.role === "coach" && <fieldset className="span-2"><legend>Групи тренера</legend>{groups.length ? <GroupAssignmentPicker groups={groups} selected={form.group_ids} onChange={(groupIds) => setForm({ ...form, group_ids: groupIds })} /> : <StatusMessage kind="error">Групи не завантажено. Спочатку повторіть завантаження робочого простору.</StatusMessage>}</fieldset>}</div><button className="primary-action" disabled={busy || (form.role === "coach" && !groups.length)}><KeyRound size={18} />{busy ? "Створення…" : "Створити користувача"}</button>{createdCredentials && <div className="temporary-credentials" aria-live="polite"><div><b>Дані для першого входу</b><small>{createdCredentials.email}</small><code>{createdCredentials.password}</code></div><button type="button" className="secondary-action small" onClick={() => void copyPassword(createdCredentials.password)}><Copy size={15} />Копіювати пароль</button></div>}</form><div><h3 className="management-title">Користувачі</h3><p className="user-list-help">Картки згорнуті. Для перевірки входу тренера використовуйте окреме приватне вікно браузера, щоб не завершувати сеанс адміністратора.</p>{message && <StatusMessage kind={message.kind}>{message.text}</StatusMessage>}{loading ? <LoadingState /> : <div className="user-list">{users.map((user) => { const assigned = (user.coach_group_assignments ?? []).filter((item) => item.is_active).map((item) => item.group_id); const assignedCodes = assigned.map((groupId) => groups.find((group) => group.id === groupId)?.code).filter((code): code is string => Boolean(code)); const expanded = expandedUserId === user.id; const hasLogin = Boolean(user.email); return <article key={user.id} className={expanded ? "open" : ""}><button type="button" className="user-summary-button" aria-expanded={expanded} onClick={() => setExpandedUserId(expanded ? null : user.id)}><span className="tile-icon plum"><Users /></span><span className="user-summary-copy"><b>{user.full_name}</b><small>{user.role === "admin" ? "Адміністратор" : "Тренер"} · {user.email || "службовий запис без логіна"}</small>{user.role === "coach" && <small className="user-groups-summary">{assignedCodes.length ? `Групи: ${assignedCodes.join(", ")}` : "Групи не призначено"}</small>}</span><Pill tone={!hasLogin ? "neutral" : user.status === "active" ? "success" : "danger"}>{!hasLogin ? "Без входу" : user.status === "active" ? "Доступ дозволено" : "Доступ заборонено"}</Pill><ChevronDown className="user-expand-icon" size={20} aria-hidden="true" /></button>{expanded && <div className="user-expanded-panel">{user.role === "coach" && <div className="assignment-picker"><GroupAssignmentPicker groups={groups} selected={assigned} onChange={(groupIds) => void updateGroups(user, groupIds)} /></div>}{hasLogin ? <div className="row-actions"><button type="button" className="secondary-action" onClick={() => void resetPassword(user)}><KeyRound size={16} />Скинути пароль</button><button type="button" className={user.status === "active" ? "danger-action" : "secondary-action"} onClick={() => void setAccess(user, user.status !== "active")}>{user.status === "active" ? "Заборонити доступ" : "Дозволити доступ"}</button></div> : <p className="muted user-login-note">Це службовий тестовий запис без облікового запису Auth. Увійти під ним неможливо.</p>}</div>}</article>; })}</div>}</div></div>;
+  return <>
+    <div className="management-grid users-management">
+      <form className="form-stack management-form" onSubmit={create}>
+        <h3>Новий користувач</h3>
+        <div className="form-grid">
+          <label><span>Прізвище</span><input value={form.last_name} onChange={(event) => setForm({ ...form, last_name: event.target.value })} required /></label>
+          <label><span>Ім’я</span><input value={form.first_name} onChange={(event) => setForm({ ...form, first_name: event.target.value })} required /></label>
+          <label><span>По батькові</span><input value={form.middle_name} onChange={(event) => setForm({ ...form, middle_name: event.target.value })} /></label>
+          <label><span>Роль</span><select value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value as "coach" | "admin" })}><option value="coach">Тренер</option><option value="admin">Адміністратор</option></select></label>
+          <label className="span-2"><span>Електронна адреса</span><input type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} required /></label>
+          <label className="span-2"><span>Тимчасовий пароль</span><input type="text" minLength={12} autoComplete="new-password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} required /><small className="field-help">12+ символів: велика й мала літери, цифра та спеціальний знак.</small><span className="password-field-actions"><button type="button" className="secondary-action small" onClick={() => setForm({ ...form, password: generateTemporaryPassword() })}><RefreshCw size={15} />Згенерувати</button><button type="button" className="secondary-action small" onClick={() => void copyPassword(form.password)} disabled={!form.password}><Copy size={15} />Копіювати</button></span></label>
+          {form.role === "coach" && <fieldset className="span-2"><legend>Групи тренера</legend>{groups.length ? <GroupAssignmentPicker groups={groups} selected={form.group_ids} onChange={(groupIds) => setForm({ ...form, group_ids: groupIds })} /> : <StatusMessage kind="error">Групи не завантажено. Спочатку повторіть завантаження робочого простору.</StatusMessage>}</fieldset>}
+        </div>
+        <button className="primary-action" disabled={busy || (form.role === "coach" && !groups.length)}><KeyRound size={18} />{busy ? "Створення…" : "Створити користувача"}</button>
+        {createdCredentials && <div className="temporary-credentials" aria-live="polite"><div><b>Дані для першого входу</b><small>{createdCredentials.email}</small><code>{createdCredentials.password}</code></div><button type="button" className="secondary-action small" onClick={() => void copyPassword(createdCredentials.password)}><Copy size={15} />Копіювати пароль</button></div>}
+      </form>
+      <div>
+        <h3 className="management-title">Користувачі</h3>
+        <p className="user-list-help">Картки згорнуті. Для перевірки входу тренера використовуйте окреме приватне вікно браузера, щоб не завершувати сеанс адміністратора.</p>
+        {message && <StatusMessage kind={message.kind}>{message.text}</StatusMessage>}
+        {loading ? <LoadingState /> : <div className="user-list">{users.map((user) => {
+          const assigned = (user.coach_group_assignments ?? []).filter((item) => item.is_active).map((item) => item.group_id);
+          const assignedCodes = assigned.map((groupId) => groups.find((group) => group.id === groupId)?.code).filter((code): code is string => Boolean(code));
+          const expanded = expandedUserId === user.id;
+          const hasLogin = Boolean(user.email);
+          return <article key={user.id} className={expanded ? "open" : ""}>
+            <button type="button" className="user-summary-button" aria-expanded={expanded} onClick={() => setExpandedUserId(expanded ? null : user.id)}><span className="tile-icon plum"><Users /></span><span className="user-summary-copy"><b>{user.full_name}</b><small>{user.role === "admin" ? "Адміністратор" : "Тренер"} · {user.email || "службовий запис без логіна"}</small>{user.role === "coach" && <small className="user-groups-summary">{assignedCodes.length ? `Групи: ${assignedCodes.join(", ")}` : "Групи не призначено"}</small>}</span><Pill tone={!hasLogin ? "neutral" : user.status === "active" ? "success" : "danger"}>{!hasLogin ? "Без входу" : user.status === "active" ? "Доступ дозволено" : "Доступ заборонено"}</Pill><ChevronDown className="user-expand-icon" size={20} aria-hidden="true" /></button>
+            {expanded && <div className="user-expanded-panel">
+              {user.role === "coach" && <div className="assignment-picker"><GroupAssignmentPicker groups={groups} selected={assigned} onChange={(groupIds) => void updateGroups(user, groupIds)} /></div>}
+              {hasLogin ? <div className="row-actions"><button type="button" className="secondary-action" onClick={() => void resetPassword(user)}><KeyRound size={16} />Скинути пароль</button><button type="button" className={user.status === "active" ? "danger-action" : "secondary-action"} onClick={() => void setAccess(user, user.status !== "active")}>{user.status === "active" ? "Заборонити доступ" : "Дозволити доступ"}</button></div> : <p className="muted user-login-note">Це службовий тестовий запис без облікового запису Auth. Увійти під ним неможливо.</p>}
+              {user.role === "coach" && <div className="permanent-delete-row"><button type="button" className="danger-action" onClick={() => setPendingDelete(user)}><Trash2 size={16} />Видалити тренера</button><small>Окрема незворотна дія: історія занять і відвідування залишиться.</small></div>}
+            </div>}
+          </article>;
+        })}</div>}
+      </div>
+    </div>
+    {pendingDelete && <CoachDeletionModal client={client} user={pendingDelete} groupCodes={(pendingDelete.coach_group_assignments ?? []).filter((item) => item.is_active).map((item) => groups.find((group) => group.id === item.group_id)?.code).filter((code): code is string => Boolean(code))} busy={busy} onClose={() => setPendingDelete(null)} onConfirm={(confirmationName, reason) => void deleteCoach(pendingDelete, confirmationName, reason)} />}
+  </>;
+}
+
+function CoachDeletionModal({ client, user, groupCodes, busy, onClose, onConfirm }: { client: SupabaseClient; user: UserRow; groupCodes: string[]; busy: boolean; onClose: () => void; onConfirm: (confirmationName: string, reason: string) => void }) {
+  const [confirmationName, setConfirmationName] = useState("");
+  const [reason, setReason] = useState("");
+  const [futureEventCount, setFutureEventCount] = useState<number | null>(null);
+  const [eventCountFailed, setEventCountFailed] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    void client
+      .from("events")
+      .select("id", { count: "exact", head: true })
+      .eq("coach_id", user.id)
+      .eq("status", "scheduled")
+      .gte("start_at", new Date().toISOString())
+      .then(({ count, error }) => {
+        if (!active) return;
+        setEventCountFailed(Boolean(error));
+        setFutureEventCount(error ? null : count ?? 0);
+      });
+    return () => { active = false; };
+  }, [client, user.id]);
+
+  const confirmed = confirmationName.trim() === user.full_name.trim();
+  const footer = <><button type="button" className="secondary-action" onClick={onClose} disabled={busy}>Скасувати</button><button type="button" className="danger-action" disabled={busy || !confirmed || eventCountFailed || futureEventCount === null} onClick={() => onConfirm(confirmationName, reason)}><Trash2 size={17} />{busy ? "Видалення…" : "Назавжди видалити тренера"}</button></>;
+
+  return <Modal title="Видалити тренера?" onClose={onClose} footer={footer}>
+    <div className="coach-delete-confirmation">
+      <StatusMessage kind="error">Це окрема незворотна дія. Заборона доступу не видаляє обліковий запис, а ця кнопка видалить Auth-акаунт тренера.</StatusMessage>
+      <div className="delete-impact-list">
+        <p><b>Тренер:</b> {user.full_name}</p>
+        <p><b>Активні групи:</b> {groupCodes.length ? groupCodes.join(", ") : "немає"}</p>
+        <p><b>Майбутні події:</b> {eventCountFailed ? "не вдалося перевірити — видалення заблоковано" : futureEventCount === null ? "перевіряємо…" : futureEventCount}</p>
+      </div>
+      <p className="confirmation-copy">Активні призначення груп завершаться. Майбутні події не буде видалено: вони з’являться у Плані адміністратора для перепризначення. Історичні заняття, відвідування, тести, дисциплінарні записи та ПІБ тренера залишаться.</p>
+      <label><span>Для підтвердження введіть повне ПІБ: <b>{user.full_name}</b></span><input value={confirmationName} onChange={(event) => setConfirmationName(event.target.value)} autoComplete="off" /></label>
+      <label><span>Причина видалення — необов’язково</span><textarea rows={3} maxLength={500} value={reason} onChange={(event) => setReason(event.target.value)} /></label>
+    </div>
+  </Modal>;
 }
 
 function VenueManagement({ client, profile }: { client: SupabaseClient; profile: Profile }) {

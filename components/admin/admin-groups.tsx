@@ -71,7 +71,7 @@ function groupCountLabel(count: number) {
   const lastTwo = count % 100;
   const last = count % 10;
   const noun = lastTwo >= 11 && lastTwo <= 14 ? "груп" : last === 1 ? "група" : last >= 2 && last <= 4 ? "групи" : "груп";
-  return `${count} ${noun} школи`;
+  return `${count} ${noun} клубу`;
 }
 
 export function AdminGroups({ client, groups, onRefresh }: { client: SupabaseClient; groups: GroupSummary[]; onRefresh: () => void }) {

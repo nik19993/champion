@@ -1496,6 +1496,151 @@ export type Database = {
           },
         ]
       }
+      monthly_star_awards: {
+        Row: {
+          award_type: Database["public"]["Enums"]["monthly_star_award_type"]
+          correction_note: string | null
+          created_at: string
+          group_id: string
+          id: string
+          month: string
+          player_id: string
+          revocation_reason: string | null
+          revoked_at: string | null
+          revoked_by: string | null
+          selected_by: string | null
+          theme_id: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          award_type: Database["public"]["Enums"]["monthly_star_award_type"]
+          correction_note?: string | null
+          created_at?: string
+          group_id: string
+          id?: string
+          month: string
+          player_id: string
+          revocation_reason?: string | null
+          revoked_at?: string | null
+          revoked_by?: string | null
+          selected_by?: string | null
+          theme_id: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          award_type?: Database["public"]["Enums"]["monthly_star_award_type"]
+          correction_note?: string | null
+          created_at?: string
+          group_id?: string
+          id?: string
+          month?: string
+          player_id?: string
+          revocation_reason?: string | null
+          revoked_at?: string | null
+          revoked_by?: string | null
+          selected_by?: string | null
+          theme_id?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "monthly_star_awards_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "groups"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "monthly_star_awards_player_id_fkey"
+            columns: ["player_id"]
+            isOneToOne: false
+            referencedRelation: "players"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "monthly_star_awards_revoked_by_fkey"
+            columns: ["revoked_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "monthly_star_awards_selected_by_fkey"
+            columns: ["selected_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "monthly_star_awards_theme_id_fkey"
+            columns: ["theme_id"]
+            isOneToOne: false
+            referencedRelation: "monthly_star_themes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "monthly_star_awards_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      monthly_star_themes: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          criteria: string | null
+          description: string
+          id: string
+          month: string
+          title: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          criteria?: string | null
+          description: string
+          id?: string
+          month: string
+          title: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          criteria?: string | null
+          description?: string
+          id?: string
+          month?: string
+          title?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "monthly_star_themes_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "monthly_star_themes_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       operational_items: {
         Row: {
           assigned_to: string | null
@@ -1579,6 +1724,74 @@ export type Database = {
             columns: ["updated_by"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      parent_contact_actions: {
+        Row: {
+          coach_id: string | null
+          coach_name_snapshot: string
+          comment: string | null
+          contacted_at: string
+          created_at: string
+          created_by: string | null
+          group_id: string
+          id: string
+          month: string
+          player_id: string
+        }
+        Insert: {
+          coach_id?: string | null
+          coach_name_snapshot: string
+          comment?: string | null
+          contacted_at?: string
+          created_at?: string
+          created_by?: string | null
+          group_id: string
+          id?: string
+          month: string
+          player_id: string
+        }
+        Update: {
+          coach_id?: string | null
+          coach_name_snapshot?: string
+          comment?: string | null
+          contacted_at?: string
+          created_at?: string
+          created_by?: string | null
+          group_id?: string
+          id?: string
+          month?: string
+          player_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "parent_contact_actions_coach_id_fkey"
+            columns: ["coach_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "parent_contact_actions_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "parent_contact_actions_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "groups"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "parent_contact_actions_player_id_fkey"
+            columns: ["player_id"]
+            isOneToOne: false
+            referencedRelation: "players"
             referencedColumns: ["id"]
           },
         ]
@@ -1756,6 +1969,99 @@ export type Database = {
           },
         ]
       }
+      player_behavior_cards: {
+        Row: {
+          coach_id: string | null
+          coach_name_snapshot: string
+          comment: string | null
+          created_at: string
+          event_id: string | null
+          group_id: string
+          id: string
+          is_voided: boolean
+          month: string | null
+          occurred_on: string
+          player_id: string
+          reason: Database["public"]["Enums"]["behavior_card_reason"]
+          updated_at: string
+          void_reason: string | null
+          voided_at: string | null
+          voided_by: string | null
+        }
+        Insert: {
+          coach_id?: string | null
+          coach_name_snapshot: string
+          comment?: string | null
+          created_at?: string
+          event_id?: string | null
+          group_id: string
+          id?: string
+          is_voided?: boolean
+          month?: string | null
+          occurred_on?: string
+          player_id: string
+          reason: Database["public"]["Enums"]["behavior_card_reason"]
+          updated_at?: string
+          void_reason?: string | null
+          voided_at?: string | null
+          voided_by?: string | null
+        }
+        Update: {
+          coach_id?: string | null
+          coach_name_snapshot?: string
+          comment?: string | null
+          created_at?: string
+          event_id?: string | null
+          group_id?: string
+          id?: string
+          is_voided?: boolean
+          month?: string | null
+          occurred_on?: string
+          player_id?: string
+          reason?: Database["public"]["Enums"]["behavior_card_reason"]
+          updated_at?: string
+          void_reason?: string | null
+          voided_at?: string | null
+          voided_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "player_behavior_cards_coach_id_fkey"
+            columns: ["coach_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "player_behavior_cards_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "player_behavior_cards_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "groups"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "player_behavior_cards_player_id_fkey"
+            columns: ["player_id"]
+            isOneToOne: false
+            referencedRelation: "players"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "player_behavior_cards_voided_by_fkey"
+            columns: ["voided_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       player_photos: {
         Row: {
           created_at: string
@@ -1886,6 +2192,9 @@ export type Database = {
       profiles: {
         Row: {
           created_at: string
+          deleted_at: string | null
+          deleted_by: string | null
+          deletion_reason: string | null
           email: string | null
           first_name: string | null
           full_name: string
@@ -1899,6 +2208,9 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          deleted_at?: string | null
+          deleted_by?: string | null
+          deletion_reason?: string | null
           email?: string | null
           first_name?: string | null
           full_name: string
@@ -1912,6 +2224,9 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          deleted_at?: string | null
+          deleted_by?: string | null
+          deletion_reason?: string | null
           email?: string | null
           first_name?: string | null
           full_name?: string
@@ -1923,7 +2238,15 @@ export type Database = {
           status?: Database["public"]["Enums"]["profile_status"]
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "profiles_deleted_by_fkey"
+            columns: ["deleted_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       terminology_entries: {
         Row: {
@@ -2345,6 +2668,10 @@ export type Database = {
       }
       complete_password_change: { Args: never; Returns: undefined }
       confirm_import_job: { Args: { p_job_id: string }; Returns: number }
+      finalize_coach_deletion: {
+        Args: { p_admin_id: string; p_coach_id: string; p_reason?: string }
+        Returns: Json
+      }
       move_methodology_task: {
         Args: { p_direction: number; p_task_id: string }
         Returns: undefined
@@ -2361,6 +2688,17 @@ export type Database = {
           p_records: Json
         }
         Returns: string
+      }
+      save_monthly_star_awards: {
+        Args: {
+          p_coach_choice: string
+          p_correction_note?: string
+          p_group_id: string
+          p_month: string
+          p_team_choice: string
+          p_theme_id: string
+        }
+        Returns: undefined
       }
       save_physical_evaluation_metric: {
         Args: {
@@ -2382,11 +2720,23 @@ export type Database = {
         }
         Returns: string
       }
+      void_behavior_card: {
+        Args: { p_card_id: string; p_reason: string }
+        Returns: undefined
+      }
     }
     Enums: {
       app_role: "coach" | "admin"
       assignment_role: "lead" | "assistant"
       attendance_status: "present" | "absent"
+      behavior_card_reason:
+        | "late"
+        | "discipline_violation"
+        | "coach_noncompliance"
+        | "safety"
+        | "unsporting_behavior"
+        | "disrespect"
+        | "other"
       evaluation_metric_kind: "physical_preparedness" | "game_activity"
       event_type: "training" | "oblast" | "ukraine" | "tournament" | "theory"
       file_scan_status: "pending" | "clean" | "rejected"
@@ -2399,6 +2749,7 @@ export type Database = {
         | "completed"
       methodology_level: "individual" | "group" | "team"
       methodology_phase: "attack" | "defence"
+      monthly_star_award_type: "coach_choice" | "team_choice"
       operational_status: "todo" | "in_progress" | "done"
       operational_type:
         | "conflict"
@@ -2539,6 +2890,15 @@ export const Constants = {
       app_role: ["coach", "admin"],
       assignment_role: ["lead", "assistant"],
       attendance_status: ["present", "absent"],
+      behavior_card_reason: [
+        "late",
+        "discipline_violation",
+        "coach_noncompliance",
+        "safety",
+        "unsporting_behavior",
+        "disrespect",
+        "other",
+      ],
       evaluation_metric_kind: ["physical_preparedness", "game_activity"],
       event_type: ["training", "oblast", "ukraine", "tournament", "theory"],
       file_scan_status: ["pending", "clean", "rejected"],
@@ -2552,6 +2912,7 @@ export const Constants = {
       ],
       methodology_level: ["individual", "group", "team"],
       methodology_phase: ["attack", "defence"],
+      monthly_star_award_type: ["coach_choice", "team_choice"],
       operational_status: ["todo", "in_progress", "done"],
       operational_type: [
         "conflict",

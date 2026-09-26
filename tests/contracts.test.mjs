@@ -49,6 +49,13 @@ const importPreviewUrl = new URL("../supabase/functions/import-preview/index.ts"
 const evaluationMigrationUrl = new URL("../supabase/migrations/20260918121638_evaluation_metric_catalogs.sql", import.meta.url);
 const evaluationAgeBandsMigrationUrl = new URL("../supabase/migrations/20260919173000_evaluation_metric_age_bands.sql", import.meta.url);
 const physicalComponentsMigrationUrl = new URL("../supabase/migrations/20260920090000_physical_test_components.sql", import.meta.url);
+const monthlyStarMigrationUrl = new URL("../supabase/migrations/20260926195000_monthly_star_program.sql", import.meta.url);
+const monthlyStarVoidMigrationUrl = new URL("../supabase/migrations/20260926195500_monthly_star_void_security.sql", import.meta.url);
+const monthlyStarAwardMigrationUrl = new URL("../supabase/migrations/20260926200500_monthly_star_award_rpc.sql", import.meta.url);
+const monthlyStarGuardMigrationUrl = new URL("../supabase/migrations/20260926204000_monthly_star_generated_month_guard.sql", import.meta.url);
+const coachDeletionMigrationUrl = new URL("../supabase/migrations/20260926203000_coach_deletion_history.sql", import.meta.url);
+const monthlyStarUiUrl = new URL("../components/star/monthly-star.tsx", import.meta.url);
+const monthlyStarManagementUrl = new URL("../components/admin/monthly-star-management.tsx", import.meta.url);
 const importGroupScopeMigrationUrl = new URL("../supabase/migrations/20260919083847_import_results_group_scope.sql", import.meta.url);
 const libraryMigrationUrl = new URL("../supabase/migrations/20260919140000_goalkeeper_announcements_methodology_library.sql", import.meta.url);
 const evaluationManagementUrl = new URL("../components/admin/evaluation-management.tsx", import.meta.url);
@@ -201,6 +208,11 @@ test("club branding uses the supplied emblem and yellow-black palette", async ()
   assert.match(styles, /\.app-header[\s\S]{0,400}background:\s*#111/i);
   assert.match(styles, /\.primary-action\s*\{[^}]*background:\s*#ffd400/is);
   assert.match(styles, /\.calendar-plus\s*\{[^}]*border:\s*2px solid #111[^}]*background:\s*#ffd400/is);
+  assert.match(login, /<strong>Клуб Чемпіон<\/strong>/);
+  assert.match(mfa, /<strong>Клуб Чемпіон<\/strong>/);
+  assert.match(reset, /<strong>Клуб Чемпіон<\/strong>/);
+  assert.match(shell, /<strong>ЧЕМПІОН<\/strong>/);
+  assert.doesNotMatch(login, /команди школи/i);
 });
 
 test("private Sites does not hand page control to an application service worker", async () => {
@@ -664,6 +676,83 @@ test("physical batteries keep four tests with their exact result fields", async 
   assert.match(exporter, /"Поле результату"/);
   assert.match(exporter, /physical_test_sessions/);
   assert.match(preview, /sessionMetadata/);
+});
+
+test("monthly star data model enforces private group scope and monthly eligibility", async () => {
+  const sql = await readFile(monthlyStarMigrationUrl, "utf8");
+  for (const table of ["monthly_star_themes", "player_behavior_cards", "parent_contact_actions", "monthly_star_awards"]) {
+    assert.match(sql, new RegExp(`create table public\\.${table}`, "i"));
+    assert.match(sql, new RegExp(`alter table public\\.${table} enable row level security`, "i"));
+  }
+  assert.match(sql, /timezone\('Europe\/Kyiv', now\(\)\)/i);
+  assert.match(sql, /where c\.player_id = new\.player_id and c\.month = new\.month and not c\.is_voided/i);
+  assert.match(sql, /if active_cards >= 4/i);
+  assert.match(sql, /PLAYER_INELIGIBLE_FOR_MONTHLY_STAR/);
+  assert.match(sql, /monthly_star_awards_player_active_idx/);
+  assert.match(sql, /public\.void_behavior_card/i);
+  assert.match(sql, /private\.has_group\(group_id\)/i);
+  assert.match(sql, /coach_choice', 'team_choice/);
+  assert.doesNotMatch(sql, /leaderboard|worst/i);
+});
+
+test("monthly star workflow is complete without public rankings or player voting", async () => {
+  const [ui, admin, coachPlan, coachPlayers, voidSql, awardSql, guardSql, exporter] = await Promise.all([
+    readFile(monthlyStarUiUrl, "utf8"),
+    readFile(monthlyStarManagementUrl, "utf8"),
+    readFile(coachPlanUrl, "utf8"),
+    readFile(coachPlayersUrl, "utf8"),
+    readFile(monthlyStarVoidMigrationUrl, "utf8"),
+    readFile(monthlyStarAwardMigrationUrl, "utf8"),
+    readFile(monthlyStarGuardMigrationUrl, "utf8"),
+    readFile(adminExportUrl, "utf8"),
+  ]);
+  assert.match(ui, /ЗІРКА МІСЯЦЯ/);
+  for (const label of ["Запізнення", "Порушення дисципліни", "Невиконання вимог тренера", "Порушення правил безпеки", "Неспортивна поведінка", "Неповага", "Інше"]) assert.match(ui, new RegExp(label));
+  assert.match(ui, /Необхідний контакт із батьками/);
+  assert.match(ui, /currentCards\.length >= 4/);
+  assert.match(ui, /Вибір тренера/);
+  assert.match(ui, /Вибір команди/);
+  assert.match(ui, /Два різні переможці/);
+  assert.match(ui, /Досягнення та поведінка/);
+  assert.match(admin, /Збережена історія/);
+  assert.match(admin, /Теми місяців/);
+  assert.match(coachPlan, /MonthlyStarThemeBanner/);
+  assert.match(coachPlan, /BehaviorCardAction/);
+  assert.match(coachPlayers, /MonthlyStarGroupPanel/);
+  assert.match(coachPlayers, /PlayerAchievementBehavior/);
+  assert.match(voidSql, /security invoker/i);
+  assert.match(voidSql, /ONLY_CARD_VOIDING_IS_ALLOWED/);
+  assert.match(guardSql, /array\['month', 'is_voided', 'voided_at', 'voided_by', 'void_reason', 'updated_at'\]/);
+  assert.match(awardSql, /save_monthly_star_awards/);
+  assert.match(awardSql, /security invoker/i);
+  for (const table of ["monthly_star_themes", "player_behavior_cards", "parent_contact_actions", "monthly_star_awards"]) assert.match(exporter, new RegExp(`"${table}"`));
+  assert.doesNotMatch(ui, /player_vote|public_leaderboard/i);
+});
+
+test("coach deletion is server-only, keeps history and queues future reassignment", async () => {
+  const [sql, edge, management, plan] = await Promise.all([
+    readFile(coachDeletionMigrationUrl, "utf8"),
+    readFile(adminUsersFunctionUrl, "utf8"),
+    readFile(managementUrl, "utf8"),
+    readFile(adminPlanUrl, "utf8"),
+  ]);
+  assert.match(sql, /drop constraint if exists profiles_id_fkey/i);
+  assert.match(sql, /add column if not exists deleted_at timestamptz/i);
+  assert.match(sql, /create or replace function public\.finalize_coach_deletion/i);
+  assert.match(sql, /security invoker/i);
+  assert.match(sql, /revoke all on function public\.finalize_coach_deletion\(uuid, uuid, text\) from public, anon, authenticated/i);
+  assert.match(sql, /grant execute on function public\.finalize_coach_deletion\(uuid, uuid, text\) to service_role/i);
+  assert.match(sql, /set needs_substitute = true/i);
+  assert.match(sql, /'coach_substitution'::public\.operational_type/i);
+  assert.match(sql, /'delete_coach'/i);
+  assert.doesNotMatch(sql, /delete from public\.events/i);
+  assert.match(edge, /action: "create" \| "reset_password" \| "access" \| "assign_groups" \| "delete"/);
+  assert.match(edge, /confirmation_name\.trim\(\) !== targetResult\.data\.full_name\.trim\(\)/);
+  assert.match(edge, /service\.auth\.admin\.deleteUser\(body\.user_id, false\)/);
+  assert.match(edge, /service\.rpc\("finalize_coach_deletion"/);
+  assert.match(management, /Назавжди видалити тренера/);
+  assert.match(management, /\.neq\("status", "closed"\)/);
+  assert.match(plan, /Попереднього тренера видалено — оберіть нового/);
 });
 
 test("an expired admin assurance level returns to MFA instead of showing an empty group list", async () => {

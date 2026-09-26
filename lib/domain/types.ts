@@ -8,6 +8,8 @@ export type UniformStatus = "not_ordered" | "requested" | "preparing" | "issued"
 export type MethodologyPhase = "attack" | "defence";
 export type MethodologyLevel = "individual" | "group" | "team";
 export type GroupKind = "age" | "goalkeeper";
+export type BehaviorCardReason = "late" | "discipline_violation" | "coach_noncompliance" | "safety" | "unsporting_behavior" | "disrespect" | "other";
+export type MonthlyStarAwardType = "coach_choice" | "team_choice";
 
 export interface Profile {
   id: string;
@@ -19,6 +21,9 @@ export interface Profile {
   role: AppRole;
   status: ProfileStatus;
   must_change_password?: boolean;
+  deleted_at?: string | null;
+  deleted_by?: string | null;
+  deletion_reason?: string | null;
 }
 
 export interface GroupSummary {
@@ -96,6 +101,53 @@ export interface Announcement {
   ends_at?: string | null;
   require_acknowledgement: boolean;
   announcement_reads?: Array<{ read_at: string }> | null;
+}
+
+export interface MonthlyStarTheme {
+  id: string;
+  month: string;
+  title: string;
+  description: string;
+  criteria?: string | null;
+}
+
+export interface PlayerBehaviorCard {
+  id: string;
+  player_id: string;
+  group_id: string;
+  coach_id?: string | null;
+  coach_name_snapshot: string;
+  event_id?: string | null;
+  occurred_on: string;
+  month: string;
+  reason: BehaviorCardReason;
+  comment?: string | null;
+  is_voided: boolean;
+  voided_at?: string | null;
+  void_reason?: string | null;
+}
+
+export interface ParentContactAction {
+  id: string;
+  player_id: string;
+  group_id: string;
+  month: string;
+  coach_id?: string | null;
+  coach_name_snapshot: string;
+  contacted_at: string;
+  comment?: string | null;
+}
+
+export interface MonthlyStarAward {
+  id: string;
+  month: string;
+  group_id: string;
+  theme_id: string;
+  award_type: MonthlyStarAwardType;
+  player_id: string;
+  correction_note?: string | null;
+  revoked_at?: string | null;
+  monthly_star_themes?: MonthlyStarTheme | MonthlyStarTheme[] | null;
 }
 
 export interface MethodologyTask {

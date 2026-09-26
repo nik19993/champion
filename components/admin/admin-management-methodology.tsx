@@ -38,6 +38,7 @@ const terminologyCategories = [
 type Section =
   | "announcements"
   | "users"
+  | "monthly-star"
   | "inventory"
   | "venues"
   | "evaluation"

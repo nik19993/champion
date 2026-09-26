@@ -2,7 +2,7 @@ import { corsHeaders, json } from "../_shared/http.ts";
 import { requireAdmin } from "../_shared/admin.ts";
 
 interface Body {
-  action: "create" | "reset_password" | "access" | "assign_groups";
+  action: "create" | "reset_password" | "access" | "assign_groups" | "delete";
   user_id?: string;
   email?: string;
   password?: string;
@@ -12,6 +12,8 @@ interface Body {
   role?: "coach" | "admin";
   enabled?: boolean;
   group_ids?: string[];
+  confirmation_name?: string;
+  reason?: string;
 }
 
 function passwordMeetsPolicy(password: string) {
@@ -58,6 +60,56 @@ Deno.serve(async (request) => {
       return json({ user_id: userId });
     }
     if (!body.user_id) return json({ error: "USER_REQUIRED" }, 400);
+    if (body.action === "delete") {
+      if (body.user_id === adminId) return json({ error: "CANNOT_DELETE_SELF" }, 400);
+      if ((body.reason?.trim().length ?? 0) > 500) return json({ error: "INVALID_INPUT" }, 400);
+
+      const targetResult = await service
+        .from("profiles")
+        .select("id, full_name, role, status")
+        .eq("id", body.user_id)
+        .single();
+      if (targetResult.error || !targetResult.data) return json({ error: "USER_NOT_FOUND" }, 404);
+      if (targetResult.data.role !== "coach") return json({ error: "ONLY_COACH_CAN_BE_DELETED" }, 400);
+      if (targetResult.data.status === "closed") return json({ error: "USER_ALREADY_DELETED" }, 400);
+      if (!body.confirmation_name || body.confirmation_name.trim() !== targetResult.data.full_name.trim()) {
+        return json({ error: "CONFIRMATION_NAME_MISMATCH" }, 400);
+      }
+
+      let authIdentityMissing = false;
+      const blockResult = await service.auth.admin.updateUserById(body.user_id, { ban_duration: "876000h" });
+      if (blockResult.error) {
+        if (/not found|does not exist/i.test(blockResult.error.message)) authIdentityMissing = true;
+        else return json({ error: "AUTH_BLOCK_FAILED" }, 502);
+      }
+
+      const finalizeResult = await service.rpc("finalize_coach_deletion", {
+        p_coach_id: body.user_id,
+        p_admin_id: adminId,
+        p_reason: body.reason?.trim() || null,
+      });
+      if (finalizeResult.error) {
+        if (!authIdentityMissing) await service.auth.admin.updateUserById(body.user_id, { ban_duration: "none" });
+        return json({ error: "DELETE_FINALIZATION_FAILED" }, 500);
+      }
+
+      if (!authIdentityMissing) {
+        let deletionResult = await service.auth.admin.deleteUser(body.user_id, false);
+        if (deletionResult.error) deletionResult = await service.auth.admin.deleteUser(body.user_id, false);
+        if (deletionResult.error) {
+          await service.from("audit_log").insert({
+            actor_id: adminId,
+            action: "delete_coach_auth_pending",
+            entity_type: "profiles",
+            entity_id: body.user_id,
+            metadata: { account_blocked: true, historical_profile_retained: true },
+          });
+          return json({ error: "AUTH_DELETE_PENDING" }, 502);
+        }
+      }
+
+      return json({ ok: true, ...((finalizeResult.data as Record<string, unknown> | null) ?? {}) });
+    }
     if (body.action === "reset_password") {
       if (!body.password || !passwordMeetsPolicy(body.password)) return json({ error: "PASSWORD_POLICY" }, 400);
       const profile = await service.from("profiles").update({ must_change_password: true }).eq("id", body.user_id);

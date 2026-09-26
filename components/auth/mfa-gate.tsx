@@ -90,7 +90,7 @@ export function MfaGate({ client, onVerified }: Props) {
       <section className="auth-card compact" aria-labelledby="mfa-title">
         <div className="auth-brand">
           <span className="brand-mark"><Image src="/champion-club-emblem.jpg" alt="" width={52} height={52} priority /></span>
-          <div><strong>ЧЕМПІОН</strong><span>захищений робочий простір</span></div>
+          <div><strong>Клуб Чемпіон</strong><span>захищений робочий простір</span></div>
         </div>
         <div className="auth-copy">
           <p className="eyebrow">Захист адміністратора</p>
