@@ -85,7 +85,7 @@ export interface EventItem {
   groups?: { code: string; age?: number | null; group_kind?: GroupKind } | null;
   venues?: { name: string } | null;
   methodology_tasks?: { title: string } | null;
-  attendance_sessions?: Array<{ id: string; completed_at?: string | null }> | null;
+  attendance_sessions?: { id: string; completed_at?: string | null } | Array<{ id: string; completed_at?: string | null }> | null;
 }
 
 export interface Announcement {

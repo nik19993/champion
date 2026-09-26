@@ -48,6 +48,11 @@ function startOfMonth(date: Date) { return new Date(date.getFullYear(), date.get
 function endOfMonth(date: Date) { return new Date(date.getFullYear(), date.getMonth() + 1, 1); }
 function sameDay(a: Date, b: Date) { return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate(); }
 
+function attendanceSessions(event: EventItem) {
+  const value = event.attendance_sessions;
+  return Array.isArray(value) ? value : value ? [value] : [];
+}
+
 function calendarCells(month: Date) {
   const first = startOfMonth(month);
   const leading = (first.getDay() + 6) % 7;
@@ -109,7 +114,7 @@ export function CoachPlan({ client, profile, groups }: Props) {
   useEffect(() => { void load(); }, [load]);
 
   const todayEvents = useMemo(() => events.filter((event) => sameDay(new Date(event.start_at), new Date())), [events]);
-  const unfinished = useMemo(() => events.filter((event) => event.event_type === "training" && new Date(event.start_at).getTime() < openedAt && !(event.attendance_sessions ?? []).some((session) => session.completed_at)), [events, openedAt]);
+  const unfinished = useMemo(() => events.filter((event) => event.event_type === "training" && new Date(event.start_at).getTime() < openedAt && !attendanceSessions(event).some((session) => session.completed_at)), [events, openedAt]);
   const selectedGroup = groups.find((group) => group.id === selectedGroupId) ?? groups[0];
   const monthEvents = useMemo(() => events.filter((event) => event.group_id === selectedGroupId && new Date(event.start_at) >= startOfMonth(month) && new Date(event.start_at) < endOfMonth(month)), [events, selectedGroupId, month]);
 

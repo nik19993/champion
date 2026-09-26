@@ -331,6 +331,13 @@ test("coach planning uses the agreed organizational-needs checklist", async () =
   assert.match(source, /Організаційні потреби/);
 });
 
+test("coach plan accepts the one-to-one attendance session returned by PostgREST", async () => {
+  const source = await readFile(coachPlanUrl, "utf8");
+  assert.match(source, /Array\.isArray\(value\) \? value : value \? \[value\] : \[\]/);
+  assert.match(source, /attendanceSessions\(event\)\.some/);
+  assert.doesNotMatch(source, /\(event\.attendance_sessions \?\? \[\]\)\.some/);
+});
+
 test("coach conflict feedback stays visible and formats database time for Kyiv", async () => {
   const [plan, format, styles] = await Promise.all([
     readFile(coachPlanUrl, "utf8"),
