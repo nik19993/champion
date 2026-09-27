@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { A4_LANDSCAPE_PDF_HEIGHT_PT, A4_LANDSCAPE_PDF_WIDTH_PT, buildA4AwardSheetsPdf } from "../lib/domain/monthly-star-award-pdf.ts";
 
 const migrationUrl = new URL("../supabase/migrations/20260917154528_foundation_0_2_2.sql", import.meta.url);
 const modulesMigrationUrls = [
@@ -39,6 +40,7 @@ const programManagementUrl = new URL("../components/admin/program-management.tsx
 const structureManagementUrl = new URL("../components/admin/structure-management.tsx", import.meta.url);
 const importManagementUrl = new URL("../components/admin/import-management.tsx", import.meta.url);
 const adminExportUrl = new URL("../components/admin/admin-export.tsx", import.meta.url);
+const monthlyStarAwardPdfUrl = new URL("../lib/domain/monthly-star-award-pdf.ts", import.meta.url);
 const domainFormatUrl = new URL("../lib/domain/format.ts", import.meta.url);
 const fileUploadUrl = new URL("../lib/supabase/files.ts", import.meta.url);
 const fileValidationUrl = new URL("../supabase/functions/file-validate/index.ts", import.meta.url);
@@ -804,6 +806,45 @@ test("monthly star workflow is complete without public rankings or player voting
   assert.match(awardSql, /security invoker/i);
   for (const table of ["monthly_star_themes", "player_behavior_cards", "parent_contact_actions", "monthly_star_awards"]) assert.match(exporter, new RegExp(`"${table}"`));
   assert.doesNotMatch(ui, /player_vote|public_leaderboard/i);
+});
+
+test("monthly star export places two A5 awards on one A4 sheet and blocks incomplete photo sets", async () => {
+  const [exporter, generator, jpeg] = await Promise.all([
+    readFile(adminExportUrl, "utf8"),
+    readFile(monthlyStarAwardPdfUrl, "utf8"),
+    readFile(new URL("../public/champion-club-emblem.jpg", import.meta.url)),
+  ]);
+  assert.match(exporter, /Нагороди «Зірка місяця»/);
+  assert.match(exporter, /monthly_star_awards/);
+  assert.match(exporter, /\.is\("revoked_at", null\)/);
+  assert.match(exporter, /player_photos/);
+  assert.match(exporter, /\.eq\("is_current", true\)/);
+  assert.match(exporter, /\.eq\("file_assets\.scan_status", "clean"\)/);
+  assert.match(exporter, /PDF не сформовано\. Додайте фото у профілі:/);
+  assert.ok(exporter.indexOf("missingPhotoAwards.length") < exporter.lastIndexOf("createMonthlyStarAwardPdf"), "all missing photos must block generation before the PDF call");
+  assert.doesNotMatch(exporter, /award_type|Вибір тренера|Вибір команди/);
+  for (const field of ["page.photo", "page.fullName", "page.groupCode", "page.themeTitle"]) assert.match(generator, new RegExp(field.replace(".", "\\.")));
+  assert.match(generator, /ЗІРКА/);
+  assert.match(generator, /МІСЯЦЯ/);
+  assert.match(generator, /awardsByGroup/);
+  assert.match(generator, /index \+= 2/);
+
+  const pdf = buildA4AwardSheetsPdf([[new Uint8Array(jpeg), new Uint8Array(jpeg)]]);
+  assert.equal(pdf.type, "application/pdf");
+  const pdfText = Buffer.from(await pdf.arrayBuffer()).toString("latin1");
+  assert.match(pdfText, /^%PDF-1\.4/);
+  assert.equal((pdfText.match(/\/Type \/Page\b/g) ?? []).length, 1, "two A5 awards must share one A4 sheet");
+  assert.equal((pdfText.match(/\/Subtype \/Image/g) ?? []).length, 2);
+  assert.equal((pdfText.match(/\/Width 200 \/Height 200/g) ?? []).length, 2, "embedded JPEG dimensions must match the source images");
+  assert.equal((pdfText.match(/\/MediaBox/g) ?? []).length, 1);
+  assert.match(pdfText, new RegExp(`/MediaBox \\[0 0 ${A4_LANDSCAPE_PDF_WIDTH_PT} ${A4_LANDSCAPE_PDF_HEIGHT_PT}\\]`));
+  assert.match(pdfText, /\/AwardLeft Do/);
+  assert.match(pdfText, /\/AwardRight Do/);
+  assert.match(pdfText, /xref[\s\S]+startxref[\s\S]+%%EOF$/);
+
+  const singleAwardText = Buffer.from(await buildA4AwardSheetsPdf([[new Uint8Array(jpeg)]]).arrayBuffer()).toString("latin1");
+  assert.equal((singleAwardText.match(/\/Subtype \/Image/g) ?? []).length, 1);
+  assert.doesNotMatch(singleAwardText, /\/AwardRight Do/, "an incomplete pair must leave the second A5 half empty");
 });
 
 test("coach deletion is server-only, keeps history and queues future reassignment", async () => {

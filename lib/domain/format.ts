@@ -107,6 +107,10 @@ export function normalizedSearch(value: string) {
 
 export function downloadText(filename: string, content: string, mime = "text/plain;charset=utf-8") {
   const blob = new Blob([content], { type: mime });
+  downloadBlob(filename, blob);
+}
+
+export function downloadBlob(filename: string, blob: Blob) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;

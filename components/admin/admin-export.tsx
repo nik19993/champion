@@ -5,11 +5,24 @@ import { Download, FileJson, Printer } from "lucide-react";
 import { useEffect, useState } from "react";
 import { EmptyState, GroupSelect, Pill, StatusMessage, WorkspaceHeader } from "@/components/common/workspace-ui";
 import { encryptBackup } from "@/lib/domain/backup";
-import { downloadText, formatDate, formatMonth, toCsv } from "@/lib/domain/format";
+import { downloadBlob, downloadText, formatDate, formatMonth, toCsv, toMonthInput } from "@/lib/domain/format";
+import { createMonthlyStarAwardPdf } from "@/lib/domain/monthly-star-award-pdf";
 import type { GroupSummary, Player, Profile } from "@/lib/domain/types";
 
 interface Props { client: SupabaseClient; profile: Profile; groups: GroupSummary[]; }
-type ExportKind = "group" | "player" | "tests" | "activity" | "debts" | "uniform" | "operations" | "backup";
+type ExportKind = "group" | "player" | "tests" | "activity" | "monthly-star" | "debts" | "uniform" | "operations" | "backup";
+
+interface MonthlyStarExportRow {
+  player_id: string;
+  players: { id: string; full_name: string };
+  groups: { code: string };
+  monthly_star_themes: { title: string };
+}
+
+interface CurrentPhotoRow {
+  player_id: string;
+  file_assets: { bucket: string; object_path: string; scan_status: string };
+}
 
 const ALL_GROUPS_VALUE = "__all_groups__";
 
@@ -33,6 +46,7 @@ export function AdminExport({ client, profile, groups }: Props) {
   const [groupId, setGroupId] = useState(ALL_GROUPS_VALUE);
   const [players, setPlayers] = useState<Player[]>([]);
   const [playerId, setPlayerId] = useState("");
+  const [starMonth, setStarMonth] = useState(() => toMonthInput());
   const [message, setMessage] = useState<{ kind: "success" | "error" | "warning"; text: string } | null>(null);
   const [busy, setBusy] = useState<ExportKind | null>(null);
   const allGroups = groupId === ALL_GROUPS_VALUE;
@@ -200,6 +214,77 @@ export function AdminExport({ client, profile, groups }: Props) {
     setBusy(null);
   }
 
+  async function exportMonthlyStars() {
+    setBusy("monthly-star");
+    setMessage(null);
+    try {
+      let awardQuery = client
+        .from("monthly_star_awards")
+        .select("player_id, players!inner(id, full_name), groups!inner(code), monthly_star_themes!inner(title)")
+        .eq("month", `${starMonth}-01`)
+        .is("revoked_at", null);
+      if (!allGroups) awardQuery = awardQuery.eq("group_id", groupId);
+      const awardResult = await awardQuery;
+      if (awardResult.error) throw new Error("Не вдалося завантажити перелік нагороджених гравців.");
+
+      const awards = ((awardResult.data ?? []) as unknown as MonthlyStarExportRow[]).sort((left, right) => (
+        left.groups.code.localeCompare(right.groups.code, "uk-UA")
+        || left.players.full_name.localeCompare(right.players.full_name, "uk-UA")
+      ));
+      if (!awards.length) {
+        setMessage({ kind: "warning", text: `За ${formatMonth(starMonth)} нагород «Зірка місяця» для вибраних груп ще немає.` });
+        return;
+      }
+
+      const playerIds = [...new Set(awards.map((award) => award.player_id))];
+      const photoResult = await client
+        .from("player_photos")
+        .select("player_id, file_assets!inner(bucket, object_path, scan_status)")
+        .in("player_id", playerIds)
+        .eq("is_current", true)
+        .eq("file_assets.scan_status", "clean");
+      if (photoResult.error) throw new Error("Не вдалося перевірити фотографії нагороджених гравців.");
+
+      const currentPhotos = new Map(
+        ((photoResult.data ?? []) as unknown as CurrentPhotoRow[]).map((photo) => [photo.player_id, photo.file_assets]),
+      );
+      const missingPhotoAwards = awards.filter((award) => !currentPhotos.has(award.player_id));
+      if (missingPhotoAwards.length) {
+        const playersWithoutPhotos = [...new Set(missingPhotoAwards.map((award) => `${award.players.full_name} (${award.groups.code})`))];
+        setMessage({ kind: "error", text: `PDF не сформовано. Додайте фото у профілі: ${playersWithoutPhotos.join(", ")}.` });
+        return;
+      }
+
+      const downloadedPhotos = await Promise.all(awards.map(async (award) => {
+        const asset = currentPhotos.get(award.player_id)!;
+        const result = await client.storage.from(asset.bucket).download(asset.object_path);
+        return { award, photo: result.error ? null : result.data };
+      }));
+      const unavailablePhotos = downloadedPhotos.filter((item) => !item.photo);
+      if (unavailablePhotos.length) {
+        const playerNames = [...new Set(unavailablePhotos.map(({ award }) => `${award.players.full_name} (${award.groups.code})`))];
+        setMessage({ kind: "error", text: `PDF не сформовано. Не вдалося завантажити фото: ${playerNames.join(", ")}. Перевірте фото у профілі.` });
+        return;
+      }
+
+      const pdf = await createMonthlyStarAwardPdf(downloadedPhotos.map(({ award, photo }) => ({
+        fullName: award.players.full_name,
+        groupCode: award.groups.code,
+        themeTitle: award.monthly_star_themes.title,
+        photo: photo!,
+      })));
+      const awardCountsByGroup = awards.reduce((counts, award) => counts.set(award.groups.code, (counts.get(award.groups.code) ?? 0) + 1), new Map<string, number>());
+      const sheetCount = [...awardCountsByGroup.values()].reduce((total, count) => total + Math.ceil(count / 2), 0);
+      downloadBlob(`ЧЕМПІОН_Зірка_місяця_${starMonth}_${selectionFileLabel}_A4_2xA5.pdf`, pdf);
+      await audit("monthly-star", { month: `${starMonth}-01`, format: "pdf-a4-two-a5", awards: awards.length, sheets: sheetCount });
+      setMessage({ kind: "success", text: `PDF A4 сформовано: ${awards.length} нагород на ${sheetCount} арк.` });
+    } catch (error) {
+      setMessage({ kind: "error", text: error instanceof Error ? error.message : "PDF нагород не сформовано." });
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function exportUniform() {
     setBusy("uniform");
     let query = client.from("uniform_requests").select("status, number, surname_print, admin_note, players!inner(full_name, group_id, groups!inner(id, code)), uniform_request_items(size, quantity, uniform_catalog_items(name))");
@@ -256,6 +341,7 @@ export function AdminExport({ client, profile, groups }: Props) {
     { kind: "player", title: "Профіль гравця", description: "Контакти, коротка характеристика тренера, тести та дозволені результати оцінювання.", actions: <button onClick={() => void exportPlayer()} disabled={!playerId}><Printer />Друк / PDF</button> },
     { kind: "tests", title: "Тестування фізичної підготовленості", description: "Первинні результати вибраних груп без автоматичного рейтингу.", actions: <><button onClick={() => void exportDataset("tests", "print")}><Printer />Друк / PDF</button><button onClick={() => void exportDataset("tests", "csv")}><Download />CSV</button></> },
     { kind: "activity", title: "Складові ігрової діяльності", description: "Структуровані результати вибраних груп без загальної оцінки 50/50.", actions: <><button onClick={() => void exportDataset("activity", "print")}><Printer />Друк / PDF</button><button onClick={() => void exportDataset("activity", "csv")}><Download />CSV</button></> },
+    { kind: "monthly-star", title: "Нагороди «Зірка місяця»", description: "Один PDF: дві вертикальні нагороди A5 для переможців групи поруч на одному горизонтальному аркуші A4. Фото автоматично береться з профілю гравця.", actions: <><label className="export-month-field"><span>Місяць нагородження</span><input type="month" value={starMonth} onChange={(event) => setStarMonth(event.target.value)} /></label><button onClick={() => void exportMonthlyStars()} disabled={!starMonth || busy === "monthly-star"}><Download />Завантажити PDF A4</button></> },
     { kind: "debts", title: "Заборгованість гравців", description: "Лише гравці вибраних груп із несплатою за поточний або минулі місяці.", actions: <><button onClick={() => void exportDebts("print")}><Printer />Друк / PDF</button><button onClick={() => void exportDebts("csv")}><Download />CSV</button></> },
     { kind: "uniform", title: "Запити на форму", description: "Позиції, розміри, номери та стан підготовки у вибраних групах.", actions: <button onClick={() => void exportUniform()}><Download />CSV</button> },
     { kind: "operations", title: "План і загальний звіт", description: "Операційні ситуації вибраних груп за останні 30 днів.", actions: <button onClick={() => void exportOperations()}><Download />CSV</button> },

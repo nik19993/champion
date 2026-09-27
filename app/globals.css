@@ -773,6 +773,8 @@ textarea { resize: vertical; }
 .export-grid h2 { margin: 0 0 7px; color: #482c4c; font-size: 18px; }
 .export-grid p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.45; }
 .export-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+.export-month-field { min-width: 190px; display: flex; flex-direction: column; gap: 6px; color: #674f6b; font-size: 13px; font-weight: 720; }
+.export-month-field input { min-height: 42px; padding: 8px 11px; border: 1px solid #dcc9dc; border-radius: 10px; background: #fff; color: #111; }
 .export-actions button { min-height: 42px; display: flex; align-items: center; gap: 7px; padding: 8px 11px; color: #69275f; border: 1px solid #dcc9dc; border-radius: 10px; background: #fbf7fb; font-weight: 740; }
 .export-actions svg { width: 17px; }
 
