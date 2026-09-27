@@ -17,7 +17,7 @@ interface GroupMetric extends GroupSummary {
 }
 
 interface AdminGroupPlayer extends Player {
-  uniform_requests?: Array<{ id: string; status: UniformStatus }>;
+  uniform_requests?: Relation<{ id: string; status: UniformStatus }>;
   player_photos?: Array<{ file_assets?: { bucket: string; object_path: string } | null }>;
 }
 
@@ -189,7 +189,7 @@ function GroupDetailsModal({ client, group, onClose, onPlayerOpen }: { client: S
       {error && <StatusMessage kind="error">{error}</StatusMessage>}
       {paymentWarning && <StatusMessage kind="warning">{paymentWarning}</StatusMessage>}
       {loading ? <LoadingState label="Завантажуємо гравців…" /> : players.length ? <><SearchField value={search} onChange={setSearch} placeholder="Пошук за прізвищем або амплуа" />{filteredPlayers.length ? <div className="player-grid group-player-grid">{filteredPlayers.map((player) => {
-        const issued = player.uniform_requests?.some((request) => request.status === "issued");
+        const issued = relationOne(player.uniform_requests)?.status === "issued";
         const payment = paymentIndicators[player.id];
         return <button className="player-card" type="button" key={player.id} onClick={() => onPlayerOpen(player, photoUrls[player.id])}>{photoUrls[player.id] ? <Image unoptimized width={64} height={64} src={photoUrls[player.id]} alt="" /> : <span className="avatar-placeholder"><UserRound /></span>}<div><h2>{player.full_name}</h2><p>{player.birth_date ? new Date(player.birth_date).getFullYear() : player.birth_year ?? "Рік не вказано"} · {player.position || "Амплуа не вказано"}</p><div className="player-card-pills"><Pill tone={issued ? "success" : "warning"}>{issued ? "Формою забезпечено" : "Форма не видана"}</Pill>{payment && !payment.currentPaid && <Pill tone="danger">Не сплачено за {currentMonthName}</Pill>}{payment?.hasPastDebt && <Pill tone="danger">Є заборгованість</Pill>}</div></div><ChevronRight aria-hidden="true" /></button>;
       })}</div> : <EmptyState title="Гравців за цим запитом не знайдено" />}</> : <EmptyState title="У цій групі ще немає гравців">Група залишається активною і доступною для призначення тренера.</EmptyState>}

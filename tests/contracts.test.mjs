@@ -80,6 +80,7 @@ const adminUsersFunctionUrl = new URL("../supabase/functions/admin-users/index.t
 const conflictCleanupMigrationUrl = new URL("../supabase/migrations/20260920085722_cleanup_transient_schedule_conflicts.sql", import.meta.url);
 const ageExtensionMigrationUrl = new URL("../supabase/migrations/20260927103625_extend_groups_and_player_characteristics.sql", import.meta.url);
 const ageGroupsDomainUrl = new URL("../lib/domain/age-groups.ts", import.meta.url);
+const workingModulesSchemaUrl = new URL("../supabase/migrations/20260917154737_working_modules_schema_0_2_2.sql", import.meta.url);
 
 async function readModulesMigration() {
   return (await Promise.all(modulesMigrationUrls.map((url) => readFile(url, "utf8")))).join("\n");
@@ -143,6 +144,20 @@ test("coach characteristic is optional, attributed and group-scoped", async () =
   assert.match(coachPlayers, /rpc\("save_player_coach_note"/);
   assert.match(coachPlayers, /canEditCoachNote = profile\?\.role === "coach"/);
   assert.doesNotMatch(coachPlayers, /автоматично сформован.{0,30}характеристик/i);
+});
+
+test("player uniform status accepts the one-to-one relation returned by PostgREST", async () => {
+  const [schema, coachPlayers, adminGroups] = await Promise.all([
+    readFile(workingModulesSchemaUrl, "utf8"),
+    readFile(coachPlayersUrl, "utf8"),
+    readFile(adminGroupsUrl, "utf8"),
+  ]);
+  assert.match(schema, /player_id uuid not null unique references public\.players\(id\)/i);
+  for (const source of [coachPlayers, adminGroups]) {
+    assert.match(source, /uniform_requests\?: Relation<\{ id: string; status: UniformStatus \}>/);
+    assert.match(source, /relationOne\(player\.uniform_requests\)\?\.status === "issued"/);
+    assert.doesNotMatch(source, /uniform_requests\?\.some/);
+  }
 });
 
 test("administrator export offers all groups without losing individual selection", async () => {
