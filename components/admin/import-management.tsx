@@ -4,6 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { Download, Upload } from "lucide-react";
 import { useState } from "react";
 import { Pill, StatusMessage } from "@/components/common/workspace-ui";
+import { MAX_AGE_GROUP, MIN_AGE_GROUP } from "@/lib/domain/age-groups";
 import { safeError } from "@/lib/domain/format";
 import type { FileAsset, GroupSummary, Profile } from "@/lib/domain/types";
 import { uploadPrivateFile } from "@/lib/supabase/files";
@@ -143,7 +144,6 @@ function physicalBatteryAge(
   } else if (birthYear) {
     age = measured.getUTCFullYear() - birthYear;
   }
-  if (age !== null && age >= 13 && age <= 17) return 15;
   return age;
 }
 
@@ -240,8 +240,8 @@ function validateValues(dataset: ImportDataset, values: Record<string, string>) 
   if (dataset === "tasks") {
     const from = Number(values.age_from);
     const to = Number(values.age_to);
-    if (!Number.isInteger(from) || !Number.isInteger(to) || from < 6 || to > 15 || from > to) {
-      errors.push("Віковий діапазон має бути від U6 до U15");
+    if (!Number.isInteger(from) || !Number.isInteger(to) || from < MIN_AGE_GROUP || to > MAX_AGE_GROUP || from > to) {
+      errors.push(`Віковий діапазон має бути від U${MIN_AGE_GROUP} до U${MAX_AGE_GROUP}`);
     }
   }
   return errors;
@@ -649,7 +649,7 @@ export function EnhancedImportManagement({ client, profile, groups }: Props) {
           <b>Обов’язкові колонки</b>
           <p>{requiredFields[dataset].map((field) => fieldLabels[field] ?? field).join(", ")}.</p>
           <p>Заповніть аркуш або таблицю «{templateSectionLabels[dataset]}». Усі рядки «ПРИКЛАД» система пропускає автоматично — вони показують формат, а не обмежують кількість даних.</p>
-          {dataset === "physical_tests" && <p>Шаблон містить 4 тести для кожного вікового набору, але окремий рядок для кожного поля результату: 5 полів для U6–U12 і 6 для U13–U15. Для воротарів 9–12 років використовується молодший набір, для воротарів 13–17 — старший; набір визначається за датою або роком народження гравця. Назви тесту та поля мають точно збігатися з довідником у «Тестування й оцінювання». Умови проведення можна заповнити один раз для групи й дати на окремому аркуші.</p>}
+          {dataset === "physical_tests" && <p>Шаблон містить 4 тести для кожного вікового набору, але окремий рядок для кожного поля результату: 5 полів для U6–U12 і 6 для U13–U17. Для воротарів 9–12 років використовується молодший набір, для воротарів 13–17 — старший; набір визначається за датою або роком народження гравця. Назви тесту та поля мають точно збігатися з довідником у «Тестування й оцінювання». Умови проведення можна заповнити один раз для групи й дати на окремому аркуші.</p>}
           {dataset === "game_activity" && <p>Шаблон містить усі 3 складові: лідерські якості, психоемоційну та тактико-технічну підготовленість.</p>}
         </div>
         <div className="import-template-actions">{universalTemplates.map((template) => <a className="secondary-action" href={template.href} download key={template.format}><Download size={18} />{template.label}</a>)}</div>

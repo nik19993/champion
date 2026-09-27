@@ -11,6 +11,7 @@ import {
 import { EnhancedImportManagement } from "@/components/admin/import-management";
 import { EnhancedProgramManagement } from "@/components/admin/program-management";
 import { EnhancedStructureManagement } from "@/components/admin/structure-management";
+import { MAX_AGE_GROUP } from "@/lib/domain/age-groups";
 import { safeError } from "@/lib/domain/format";
 import type {
   FileAsset,
@@ -322,7 +323,7 @@ function MaterialsManagement({
   const [mode, setMode] = useState<"library" | "task">("library");
   const [taskId, setTaskId] = useState("");
   const [ageFrom, setAgeFrom] = useState(6);
-  const [ageTo, setAgeTo] = useState(15);
+  const [ageTo, setAgeTo] = useState(MAX_AGE_GROUP);
   const [taskFile, setTaskFile] = useState<File | null>(null);
   const [sectionFile, setSectionFile] = useState<File | null>(null);
   const [sectionId, setSectionId] = useState("");
@@ -513,8 +514,8 @@ function MaterialsManagement({
           <h3>Додати документ до навчального завдання</h3>
           <label><span>Навчальне завдання</span><select value={taskId} onChange={(event) => setTaskId(event.target.value)}>{tasks.map((task) => <option value={task.id} key={task.id}>{task.title}</option>)}</select></label>
           <div className="inline-fields">
-            <label><span>Від U</span><input type="number" min={6} max={15} value={ageFrom} onChange={(event) => setAgeFrom(Number(event.target.value))} /></label>
-            <label><span>До U</span><input type="number" min={6} max={15} value={ageTo} onChange={(event) => setAgeTo(Number(event.target.value))} /></label>
+            <label><span>Від U</span><input type="number" min={6} max={MAX_AGE_GROUP} value={ageFrom} onChange={(event) => setAgeFrom(Number(event.target.value))} /></label>
+            <label><span>До U</span><input type="number" min={6} max={MAX_AGE_GROUP} value={ageTo} onChange={(event) => setAgeTo(Number(event.target.value))} /></label>
           </div>
           <label><span>PDF або інший дозволений документ</span><input key={`task-${fileInputKey}`} type="file" accept=".pdf,.docx,.pptx,.xlsx,.jpg,.jpeg,.png,.webp" onChange={(event) => setTaskFile(event.target.files?.[0] ?? null)} required /></label>
           <button className="primary-action" disabled={busy || !taskId}><FileUp size={18} />{busy ? "Перевірка й завантаження…" : "Додати матеріал"}</button>

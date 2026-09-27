@@ -12,8 +12,8 @@ export function Tabs<T extends string>({ items, value, onChange, label }: { item
   return <div className="subtabs" role="tablist" aria-label={label}>{items.map((item) => <button key={item.value} role="tab" aria-selected={item.value === value} className={item.value === value ? "active" : ""} onClick={() => onChange(item.value)} type="button"><span>{item.label}</span>{typeof item.badge === "number" && <b>{item.badge}</b>}</button>)}</div>;
 }
 
-export function GroupSelect({ groups, value, onChange, label = "Команда" }: { groups: GroupSummary[]; value: string; onChange: (value: string) => void; label?: string }) {
-  return <label className="compact-field"><span>{label}</span><select value={value} onChange={(event) => onChange(event.target.value)}>{groups.map((group) => <option value={group.id} key={group.id}>{group.code}</option>)}</select></label>;
+export function GroupSelect({ groups, value, onChange, label = "Команда", allOption }: { groups: GroupSummary[]; value: string; onChange: (value: string) => void; label?: string; allOption?: { value: string; label: string } }) {
+  return <label className="compact-field"><span>{label}</span><select value={value} onChange={(event) => onChange(event.target.value)}>{allOption && <option value={allOption.value}>{allOption.label}</option>}{groups.map((group) => <option value={group.id} key={group.id}>{group.code}</option>)}</select></label>;
 }
 
 export function SearchField({ value, onChange, placeholder, label = "Пошук" }: { value: string; onChange: (value: string) => void; placeholder: string; label?: string }) {

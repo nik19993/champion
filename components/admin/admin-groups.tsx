@@ -134,7 +134,7 @@ function GroupDetailsModal({ client, group, onClose, onPlayerOpen }: { client: S
     setPaymentWarning(null);
     setPaymentIndicators({});
     void (async () => {
-      const { data, error: loadError } = await client.from("players").select("id, group_id, full_name, first_name, last_name, middle_name, birth_date, birth_year, position, dominant_foot, coach_note, is_active, groups(code), uniform_requests(id, status), player_photos(file_assets(bucket, object_path))").eq("group_id", group.id).eq("is_active", true).order("full_name");
+      const { data, error: loadError } = await client.from("players").select("id, group_id, full_name, first_name, last_name, middle_name, birth_date, birth_year, position, dominant_foot, coach_note, coach_note_author_id, coach_note_author_name, coach_note_updated_at, is_active, groups(code), uniform_requests(id, status), player_photos(file_assets(bucket, object_path))").eq("group_id", group.id).eq("is_active", true).order("full_name");
       if (!active) return;
       if (loadError) {
         setPlayers([]);

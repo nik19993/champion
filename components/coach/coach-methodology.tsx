@@ -50,7 +50,7 @@ export function CoachMethodology({ client, groups }: Props) {
 }
 
 function GoalkeeperMethodologyNotice({ groupCode, section }: { groupCode: string; section: "program" | "structure" }) {
-  return <EmptyState title={`${section === "program" ? "Програму" : "Структуру заняття"} для «${groupCode}» ще не наповнено`}>Воротарська група працює як окрема команда. Її методичне наповнення не змішується з віковими програмами U6–U15.</EmptyState>;
+  return <EmptyState title={`${section === "program" ? "Програму" : "Структуру заняття"} для «${groupCode}» ще не наповнено`}>Воротарська група працює як окрема команда. Її методичне наповнення не змішується з віковими програмами U6–U17.</EmptyState>;
 }
 
 function TerminologyPanel({ terms }: { terms: TerminologyEntry[] }) {

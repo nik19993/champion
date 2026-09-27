@@ -78,6 +78,8 @@ const universalWordTemplateUrl = new URL("../public/templates/champion-import-te
 const adminFunctionAuthUrl = new URL("../supabase/functions/_shared/admin.ts", import.meta.url);
 const adminUsersFunctionUrl = new URL("../supabase/functions/admin-users/index.ts", import.meta.url);
 const conflictCleanupMigrationUrl = new URL("../supabase/migrations/20260920085722_cleanup_transient_schedule_conflicts.sql", import.meta.url);
+const ageExtensionMigrationUrl = new URL("../supabase/migrations/20260927103625_extend_groups_and_player_characteristics.sql", import.meta.url);
+const ageGroupsDomainUrl = new URL("../lib/domain/age-groups.ts", import.meta.url);
 
 async function readModulesMigration() {
   return (await Promise.all(modulesMigrationUrls.map((url) => readFile(url, "utf8")))).join("\n");
@@ -95,10 +97,64 @@ test("group seed contains all age teams and three goalkeeper groups", async () =
   const sql = await readFile(seedUrl, "utf8");
   const codes = [...sql.matchAll(/\('(U\d{1,2}[AB]?)'/g)].map((item) => item[1]);
   const expected = ["U6", "U7"];
-  for (let age = 8; age <= 15; age += 1) expected.push(`U${age}A`, `U${age}B`);
+  for (let age = 8; age <= 17; age += 1) expected.push(`U${age}A`, `U${age}B`);
   assert.deepEqual(codes, expected);
   const goalkeeperCodes = [...sql.matchAll(/\('(Воротарі [ABC])',\s*null,\s*'[ABC]',\s*'goalkeeper'/g)].map((item) => item[1]);
   assert.deepEqual(goalkeeperCodes, ["Воротарі A", "Воротарі B", "Воротарі C"]);
+});
+
+test("U16 and U17 are supported across schema, controls and imports", async () => {
+  const [migration, ages, management, importer] = await Promise.all([
+    readFile(ageExtensionMigrationUrl, "utf8"),
+    readFile(ageGroupsDomainUrl, "utf8"),
+    readFile(managementUrl, "utf8"),
+    readFile(importManagementUrl, "utf8"),
+  ]);
+  for (const code of ["U16A", "U16B", "U17A", "U17B"]) {
+    assert.match(migration, new RegExp(`'${code}'`));
+  }
+  assert.match(migration, /age between 6 and 17/i);
+  assert.match(migration, /age between 8 and 17/i);
+  assert.match(migration, /methodology_tasks_age_range_v2_check[\s\S]{0,100}age_to between 6 and 17/i);
+  assert.match(migration, /training_structures_age_range_v2_check[\s\S]{0,100}age_to between 6 and 17/i);
+  assert.match(migration, /announcement_targets_age_v2_check[\s\S]{0,80}age between 6 and 17/i);
+  assert.match(migration, /Структура заняття U9–U17/);
+  assert.match(ages, /MAX_AGE_GROUP = 17/);
+  assert.match(management, /AGE_GROUP_VALUES/);
+  assert.match(importer, /MAX_AGE_GROUP/);
+});
+
+test("coach characteristic is optional, attributed and group-scoped", async () => {
+  const [migration, coachPlayers, adminGroups] = await Promise.all([
+    readFile(ageExtensionMigrationUrl, "utf8"),
+    readFile(coachPlayersUrl, "utf8"),
+    readFile(adminGroupsUrl, "utf8"),
+  ]);
+  for (const column of ["coach_note_author_id", "coach_note_author_name", "coach_note_updated_at"]) {
+    assert.match(migration, new RegExp(`add column ${column}`));
+    assert.match(adminGroups, new RegExp(column));
+  }
+  assert.match(migration, /create or replace function public\.save_player_coach_note/i);
+  assert.match(migration, /profile\.role = 'coach'[\s\S]{0,120}profile\.status = 'active'/i);
+  assert.match(migration, /private\.has_group\(target_group_id\)/i);
+  assert.match(migration, /char_length\(prepared_note\) > 2000/i);
+  assert.match(migration, /revoke all on function public\.save_player_coach_note\(uuid, text\) from public/i);
+  assert.match(coachPlayers, /Коротка характеристика тренера/);
+  assert.match(coachPlayers, /rpc\("save_player_coach_note"/);
+  assert.match(coachPlayers, /canEditCoachNote = profile\?\.role === "coach"/);
+  assert.doesNotMatch(coachPlayers, /автоматично сформован.{0,30}характеристик/i);
+});
+
+test("administrator export offers all groups without losing individual selection", async () => {
+  const [exporter, workspace] = await Promise.all([
+    readFile(adminExportUrl, "utf8"),
+    readFile(workspaceUiUrl, "utf8"),
+  ]);
+  assert.match(exporter, /const ALL_GROUPS_VALUE = "__all_groups__"/);
+  assert.match(exporter, /label: "Усі групи"/);
+  assert.match(exporter, /if \(!allGroups\) query = query\.eq\("players\.group_id", groupId\)/);
+  assert.match(exporter, /all_groups: allGroups/);
+  assert.match(workspace, /allOption\?: \{ value: string; label: string \}/);
 });
 
 test("goalkeeper groups remain assignable without a false age", async () => {
@@ -430,13 +486,13 @@ test("coach inventory separates post-training collection from inventory audit", 
   assert.doesNotMatch(source, /Кожна позиція обліковується окремо/);
 });
 
-test("administrator can export only debtors for the selected group", async () => {
+test("administrator can export only debtors for one group or all groups", async () => {
   const source = await readFile(adminExportUrl, "utf8");
   assert.match(source, /async function exportDebts/);
   assert.match(source, /eq\("group_id", groupId\)/);
   assert.match(source, /Заборгованість гравців/);
   assert.match(source, /Неоплачені місяці/);
-  assert.match(source, /ЧЕМПІОН_\$\{group\?\.code\}_заборгованість\.csv/);
+  assert.match(source, /ЧЕМПІОН_\$\{selectionFileLabel\}_заборгованість\.csv/);
   assert.match(source, /audit\("debts"/);
 });
 
@@ -616,9 +672,11 @@ test("goalkeeper announcements and general methodology sections have group-safe 
 });
 
 test("evaluation names come from administrator-managed catalogs", async () => {
-  const [sql, ageBandsSql, management, importer, exporter] = await Promise.all([
+  const [sql, ageBandsSql, extensionSql, ageGroups, management, importer, exporter] = await Promise.all([
     readFile(evaluationMigrationUrl, "utf8"),
     readFile(evaluationAgeBandsMigrationUrl, "utf8"),
+    readFile(ageExtensionMigrationUrl, "utf8"),
+    readFile(ageGroupsDomainUrl, "utf8"),
     readFile(evaluationManagementUrl, "utf8"),
     readFile(importManagementUrl, "utf8"),
     readFile(adminExportUrl, "utf8"),
@@ -629,15 +687,17 @@ test("evaluation names come from administrator-managed catalogs", async () => {
   assert.match(sql, /alter column metric_id set not null/i);
   assert.match(sql, /EVALUATION_METRIC_NOT_FOUND/);
   assert.match(ageBandsSql, /age_from = 6 and age_to = 12/i);
-  assert.match(ageBandsSql, /age_from = 13 and age_to = 15/i);
+  assert.match(extensionSql, /age_from = 13 and age_to = 17/i);
   assert.match(ageBandsSql, /active_count >= 4/i);
   assert.match(ageBandsSql, /Лідерські якості/);
   assert.match(ageBandsSql, /Психоемоційна підготовленість/);
   assert.match(ageBandsSql, /Тактико-технічна підготовленість/);
   assert.match(management, /Тестування фізичної підготовленості/);
   assert.match(management, /Складові ігрової діяльності/);
-  assert.match(management, /Фізичні тести · U6–U12/);
-  assert.match(management, /Фізичні тести · U13–U15/);
+  assert.match(ageGroups, /label: "U6–U12"/);
+  assert.match(ageGroups, /label: "U13–U17"/);
+  assert.match(management, /YOUNGER_PHYSICAL_TEST_BAND\.label/);
+  assert.match(management, /OLDER_PHYSICAL_TEST_BAND\.label/);
   assert.match(management, /4 активні тести/);
   assert.match(importer, /Показник відсутній в активному довіднику адміністратора/);
   assert.match(importer, /Тест відсутній в активному наборі U/);
@@ -645,8 +705,9 @@ test("evaluation names come from administrator-managed catalogs", async () => {
 });
 
 test("physical batteries keep four tests with their exact result fields", async () => {
-  const [sql, management, importer, coach, exporter, preview] = await Promise.all([
+  const [sql, extensionSql, management, importer, coach, exporter, preview] = await Promise.all([
     readFile(physicalComponentsMigrationUrl, "utf8"),
+    readFile(ageExtensionMigrationUrl, "utf8"),
     readFile(evaluationManagementUrl, "utf8"),
     readFile(importManagementUrl, "utf8"),
     readFile(coachPlayersUrl, "utf8"),
@@ -663,13 +724,14 @@ test("physical batteries keep four tests with their exact result fields", async 
   assert.match(sql, /'Yo-Yo IR1', 'Дистанція', 'м'/);
   assert.match(sql, /Фіксується лише краща спроба/);
   assert.match(sql, /Фіксується подолана дистанція у метрах/);
-  assert.match(sql, /player_age between 13 and 17/);
-  assert.match(sql, /PLAYER_AGE_REQUIRED_FOR_PHYSICAL_TEST/);
-  assert.match(sql, /create or replace function public\.save_physical_evaluation_metric/i);
+  assert.match(extensionSql, /player_age not between 6 and 17/);
+  assert.doesNotMatch(extensionSql, /player_age\s*:=\s*15/);
+  assert.match(extensionSql, /PLAYER_AGE_REQUIRED_FOR_PHYSICAL_TEST/);
+  assert.match(extensionSql, /create or replace function public\.save_physical_evaluation_metric/i);
   assert.match(sql, /lower\(field_name\) = lower\(item\.payload ->> 'field'\)/i);
   assert.match(management, /Поля результату цього тесту/);
   assert.match(management, /тест 505 має оббігання справа і зліва/i);
-  assert.match(importer, /5 полів для U6–U12 і 6 для U13–U15/);
+  assert.match(importer, /5 полів для U6–U12 і 6 для U13–U17/);
   assert.match(importer, /воротарів 9–12 років.{0,160}воротарів 13–17/);
   assert.match(importer, /evaluation_metric_fields/);
   assert.match(coach, /<th>Тест<\/th><th>Поле результату<\/th>/);

@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { EmptyState, Pill, StatusMessage } from "@/components/common/workspace-ui";
+import { MAX_AGE_GROUP } from "@/lib/domain/age-groups";
 import type {
   Profile,
   TrainingStructure,
@@ -188,7 +189,7 @@ export function EnhancedStructureManagement({ client, profile }: Props) {
               <input
                 type="number"
                 min={6}
-                max={15}
+                max={MAX_AGE_GROUP}
                 value={ageFrom}
                 onChange={(event) => setAgeFrom(Number(event.target.value))}
               />
@@ -198,7 +199,7 @@ export function EnhancedStructureManagement({ client, profile }: Props) {
               <input
                 type="number"
                 min={6}
-                max={15}
+                max={MAX_AGE_GROUP}
                 value={ageTo}
                 onChange={(event) => setAgeTo(Number(event.target.value))}
               />

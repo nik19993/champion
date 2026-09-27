@@ -9,10 +9,11 @@ import {
   Pill,
   StatusMessage,
 } from "@/components/common/workspace-ui";
+import { OLDER_PHYSICAL_TEST_BAND, YOUNGER_PHYSICAL_TEST_BAND } from "@/lib/domain/age-groups";
 import type { Profile } from "@/lib/domain/types";
 
 type MetricKind = "physical_preparedness" | "game_activity";
-type AgeBand = "" | "u6_u12" | "u13_u15";
+type AgeBand = "" | typeof YOUNGER_PHYSICAL_TEST_BAND.key | typeof OLDER_PHYSICAL_TEST_BAND.key;
 
 interface EvaluationMetric {
   id: string;
@@ -49,19 +50,19 @@ const kindLabels: Record<MetricKind, string> = {
 };
 
 const ageBandLabels: Record<Exclude<AgeBand, "">, string> = {
-  u6_u12: "U6–U12",
-  u13_u15: "U13–U15",
+  [YOUNGER_PHYSICAL_TEST_BAND.key]: YOUNGER_PHYSICAL_TEST_BAND.label,
+  [OLDER_PHYSICAL_TEST_BAND.key]: OLDER_PHYSICAL_TEST_BAND.label,
 };
 
 function ageBandValues(ageBand: AgeBand) {
-  if (ageBand === "u6_u12") return { age_from: 6, age_to: 12 };
-  if (ageBand === "u13_u15") return { age_from: 13, age_to: 15 };
+  if (ageBand === YOUNGER_PHYSICAL_TEST_BAND.key) return { age_from: YOUNGER_PHYSICAL_TEST_BAND.ageFrom, age_to: YOUNGER_PHYSICAL_TEST_BAND.ageTo };
+  if (ageBand === OLDER_PHYSICAL_TEST_BAND.key) return { age_from: OLDER_PHYSICAL_TEST_BAND.ageFrom, age_to: OLDER_PHYSICAL_TEST_BAND.ageTo };
   return { age_from: null, age_to: null };
 }
 
 function metricAgeBand(metric: EvaluationMetric): AgeBand {
-  if (metric.age_from === 6 && metric.age_to === 12) return "u6_u12";
-  if (metric.age_from === 13 && metric.age_to === 15) return "u13_u15";
+  if (metric.age_from === YOUNGER_PHYSICAL_TEST_BAND.ageFrom && metric.age_to === YOUNGER_PHYSICAL_TEST_BAND.ageTo) return YOUNGER_PHYSICAL_TEST_BAND.key;
+  if (metric.age_from === OLDER_PHYSICAL_TEST_BAND.ageFrom && metric.age_to === OLDER_PHYSICAL_TEST_BAND.ageTo) return OLDER_PHYSICAL_TEST_BAND.key;
   return "";
 }
 
@@ -102,7 +103,7 @@ export function EvaluationManagement({
   const [busy, setBusy] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [kind, setKind] = useState<MetricKind>("physical_preparedness");
-  const [ageBand, setAgeBand] = useState<AgeBand>("u6_u12");
+  const [ageBand, setAgeBand] = useState<AgeBand>(YOUNGER_PHYSICAL_TEST_BAND.key);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [fields, setFields] = useState<MetricFieldDraft[]>([
@@ -281,8 +282,8 @@ export function EvaluationManagement({
 
   const grouped = useMemo(
     () => ({
-      u6_u12: metrics.filter((metric) => metric.kind === "physical_preparedness" && metric.age_from === 6 && metric.age_to === 12),
-      u13_u15: metrics.filter((metric) => metric.kind === "physical_preparedness" && metric.age_from === 13 && metric.age_to === 15),
+      u6_u12: metrics.filter((metric) => metric.kind === "physical_preparedness" && metric.age_from === YOUNGER_PHYSICAL_TEST_BAND.ageFrom && metric.age_to === YOUNGER_PHYSICAL_TEST_BAND.ageTo),
+      u13_u17: metrics.filter((metric) => metric.kind === "physical_preparedness" && metric.age_from === OLDER_PHYSICAL_TEST_BAND.ageFrom && metric.age_to === OLDER_PHYSICAL_TEST_BAND.ageTo),
       unassigned: metrics.filter((metric) => metric.kind === "physical_preparedness" && (metric.age_from === null || metric.age_to === null)),
       game_activity: metrics.filter((metric) => metric.kind === "game_activity"),
     }),
@@ -338,7 +339,7 @@ export function EvaluationManagement({
             onChange={(event) => {
               const nextKind = event.target.value as MetricKind;
               setKind(nextKind);
-              if (nextKind === "physical_preparedness" && !ageBand) setAgeBand("u6_u12");
+              if (nextKind === "physical_preparedness" && !ageBand) setAgeBand(YOUNGER_PHYSICAL_TEST_BAND.key);
             }}
             disabled={Boolean(editingId)}
           >
@@ -435,8 +436,8 @@ export function EvaluationManagement({
 
       <div className="form-stack">
         {loading ? <LoadingState /> : <>
-          {metricList("Фізичні тести · U6–U12", grouped.u6_u12, 4)}
-          {metricList("Фізичні тести · U13–U15", grouped.u13_u15, 4)}
+          {metricList(`Фізичні тести · ${YOUNGER_PHYSICAL_TEST_BAND.label}`, grouped.u6_u12, 4)}
+          {metricList(`Фізичні тести · ${OLDER_PHYSICAL_TEST_BAND.label}`, grouped.u13_u17, 4)}
           {grouped.unassigned.length > 0 && metricList("Потрібно визначити віковий набір", grouped.unassigned)}
           {metricList(kindLabels.game_activity, grouped.game_activity, 3)}
         </>}

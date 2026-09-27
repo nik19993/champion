@@ -67,4 +67,4 @@ new vm.Script(fs.readFileSync(path.join(root, "dist/data/methodology-data.js"), 
   filename: "methodology-data.js",
 });
 
-console.log("Methodology verification passed: 318 tasks, 110 terms, U6–U15 complete.");
+console.log("Methodology verification passed: 318 source tasks, 110 terms; senior age extension is migration-managed.");

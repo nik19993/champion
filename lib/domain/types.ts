@@ -56,6 +56,9 @@ export interface Player {
   position?: string | null;
   dominant_foot?: string | null;
   coach_note?: string | null;
+  coach_note_author_id?: string | null;
+  coach_note_author_name?: string | null;
+  coach_note_updated_at?: string | null;
   is_active: boolean;
   groups?: { code: string } | null;
 }

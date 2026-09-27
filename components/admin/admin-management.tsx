@@ -8,6 +8,7 @@ import { EvaluationManagement } from "@/components/admin/evaluation-management";
 import { InventoryManagement } from "@/components/admin/inventory-management";
 import { MethodologyManagement } from "@/components/admin/admin-management-methodology";
 import { MonthlyStarManagement } from "@/components/admin/monthly-star-management";
+import { AGE_GROUP_VALUES } from "@/lib/domain/age-groups";
 import type { GroupSummary, Profile, Venue } from "@/lib/domain/types";
 
 interface Props { client: SupabaseClient; profile: Profile; groups: GroupSummary[]; onMfaRequired?: () => void; }
@@ -191,7 +192,7 @@ function AnnouncementManagement({ client, profile, groups }: { client: SupabaseC
             <p className="field-caption">Конкретні тренери</p>
             <div className="checkbox-grid">{coaches.map((coach) => <label className="check-field" key={coach.id}><input type="checkbox" checked={coachIds.includes(coach.id)} onChange={(e) => setCoachIds((ids) => e.target.checked ? [...ids, coach.id] : ids.filter((id) => id !== coach.id))} /><span>{coach.full_name}</span></label>)}</div>
             <p className="field-caption">Вікові категорії — усі команди відповідного віку</p>
-            <div className="age-picker">{Array.from({ length: 10 }, (_, index) => index + 6).map((age) => <button type="button" key={age} className={ages.includes(age) ? "active" : ""} onClick={() => setAges((values) => values.includes(age) ? values.filter((value) => value !== age) : [...values, age])}>U{age}</button>)}</div>
+            <div className="age-picker">{AGE_GROUP_VALUES.map((age) => <button type="button" key={age} className={ages.includes(age) ? "active" : ""} onClick={() => setAges((values) => values.includes(age) ? values.filter((value) => value !== age) : [...values, age])}>U{age}</button>)}</div>
             <p className="field-caption">Конкретні групи</p>
             <GroupAssignmentPicker groups={groups} selected={groupIds} onChange={setGroupIds} />
           </>}

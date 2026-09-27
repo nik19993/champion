@@ -2108,6 +2108,9 @@ export type Database = {
           birth_date: string | null
           birth_year: number | null
           coach_note: string | null
+          coach_note_author_id: string | null
+          coach_note_author_name: string | null
+          coach_note_updated_at: string | null
           created_at: string
           created_by: string | null
           dominant_foot: string | null
@@ -2129,6 +2132,9 @@ export type Database = {
           birth_date?: string | null
           birth_year?: number | null
           coach_note?: string | null
+          coach_note_author_id?: string | null
+          coach_note_author_name?: string | null
+          coach_note_updated_at?: string | null
           created_at?: string
           created_by?: string | null
           dominant_foot?: string | null
@@ -2150,6 +2156,9 @@ export type Database = {
           birth_date?: string | null
           birth_year?: number | null
           coach_note?: string | null
+          coach_note_author_id?: string | null
+          coach_note_author_name?: string | null
+          coach_note_updated_at?: string | null
           created_at?: string
           created_by?: string | null
           dominant_foot?: string | null
@@ -2166,6 +2175,13 @@ export type Database = {
           updated_by?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "players_coach_note_author_id_fkey"
+            columns: ["coach_note_author_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "players_created_by_fkey"
             columns: ["created_by"]
@@ -2709,6 +2725,10 @@ export type Database = {
           p_metric_id: string
           p_name: string
         }
+        Returns: string
+      }
+      save_player_coach_note: {
+        Args: { p_note: string; p_player_id: string }
         Returns: string
       }
       save_uniform_request: {

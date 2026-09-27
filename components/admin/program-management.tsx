@@ -9,6 +9,7 @@ import {
   StatusMessage,
 } from "@/components/common/workspace-ui";
 import { LEVEL_LABELS, PHASE_LABELS } from "@/lib/domain/format";
+import { MAX_AGE_GROUP } from "@/lib/domain/age-groups";
 import type {
   MethodologyLevel,
   MethodologyPhase,
@@ -28,7 +29,7 @@ const emptyForm = {
   component: "",
   description: "",
   ageFrom: 6,
-  ageTo: 15,
+  ageTo: MAX_AGE_GROUP,
 };
 
 export function EnhancedProgramManagement({ client, profile }: Props) {
@@ -230,7 +231,7 @@ export function EnhancedProgramManagement({ client, profile }: Props) {
             <input
               type="number"
               min={6}
-              max={15}
+              max={MAX_AGE_GROUP}
               value={form.ageFrom}
               onChange={(event) =>
                 setForm({ ...form, ageFrom: Number(event.target.value) })
@@ -242,7 +243,7 @@ export function EnhancedProgramManagement({ client, profile }: Props) {
             <input
               type="number"
               min={6}
-              max={15}
+              max={MAX_AGE_GROUP}
               value={form.ageTo}
               onChange={(event) =>
                 setForm({ ...form, ageTo: Number(event.target.value) })

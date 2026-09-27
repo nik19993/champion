@@ -408,6 +408,11 @@ textarea { resize: vertical; }
 .player-profile-head h3 { margin: 9px 0 4px; color: var(--plum-950); }
 .player-profile-head p { margin: 0; color: var(--muted); }
 .profile-section { margin-top: 22px; }
+.coach-characteristic { padding: 15px; border: 1px solid var(--line); border-radius: 14px; background: #fffdf2; }
+.coach-characteristic .form-stack { gap: 10px; }
+.coach-characteristic textarea { resize: vertical; }
+.coach-characteristic-actions { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 9px; }
+.coach-characteristic-actions .secondary-action { margin-left: auto; }
 .contact-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
 .contact-list article { display: flex; flex-direction: column; gap: 5px; padding: 13px; border: 1px solid var(--line); border-radius: 12px; }
 .contact-list small { color: var(--muted); }

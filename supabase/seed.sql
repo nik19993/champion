@@ -11,6 +11,8 @@ values
   ('U13A', 13, 'A', 'age'), ('U13B', 13, 'B', 'age'),
   ('U14A', 14, 'A', 'age'), ('U14B', 14, 'B', 'age'),
   ('U15A', 15, 'A', 'age'), ('U15B', 15, 'B', 'age'),
+  ('U16A', 16, 'A', 'age'), ('U16B', 16, 'B', 'age'),
+  ('U17A', 17, 'A', 'age'), ('U17B', 17, 'B', 'age'),
   ('Воротарі A', null, 'A', 'goalkeeper'),
   ('Воротарі B', null, 'B', 'goalkeeper'),
   ('Воротарі C', null, 'C', 'goalkeeper')
@@ -39,7 +41,7 @@ on conflict (id) do update set name = excluded.name, sizes = excluded.sizes, sor
 insert into public.training_structures (id, name, age_from, age_to, is_active)
 values
   ('50000000-0000-0000-0000-000000000001', 'Структура заняття U6–U8', 6, 8, true),
-  ('50000000-0000-0000-0000-000000000002', 'Структура заняття U9–U15', 9, 15, true)
+  ('50000000-0000-0000-0000-000000000002', 'Структура заняття U9–U17', 9, 17, true)
 on conflict (id) do update set name = excluded.name, age_from = excluded.age_from, age_to = excluded.age_to, is_active = excluded.is_active;
 
 insert into public.training_structure_steps (id, structure_id, position, duration_minutes, title, description)
