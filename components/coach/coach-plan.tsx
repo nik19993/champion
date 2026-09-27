@@ -5,7 +5,7 @@ import { CalendarPlus, Check, ChevronLeft, ChevronRight, Clock3, FileText, MapPi
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EmptyState, GroupSelect, LoadingState, Modal, Pill, StatusMessage, WorkspaceHeader } from "@/components/common/workspace-ui";
 import { BehaviorCardAction, MonthlyStarThemeBanner } from "@/components/star/monthly-star";
-import { combineLocalDateTime, EVENT_LABELS, formatDate, formatDateTime, formatTime, safeError, toDateInput } from "@/lib/domain/format";
+import { combineLocalDateTime, EVENT_LABELS, formatDate, formatDateTime, formatTime, kyivDateKey, safeError, toDateInput } from "@/lib/domain/format";
 import type { Announcement, EventItem, FileAsset, GroupSummary, MethodologyTask, Profile, Venue } from "@/lib/domain/types";
 import { enqueueAttendance, persistAttendance, type AttendanceQueueItem } from "@/lib/offline/attendance-queue";
 import { openPrivateFile, uploadPrivateFile } from "@/lib/supabase/files";
@@ -296,6 +296,7 @@ function EventEditor({ client, profile, group, event, isCreating, initialDate, v
 function AttendanceModal({ client, profile, event, onClose, onSaved }: { client: SupabaseClient; profile: Profile; event: EventItem; onClose: () => void; onSaved: () => void }) {
   const [players, setPlayers] = useState<Array<{ id: string; full_name: string }>>([]);
   const [records, setRecords] = useState<Record<string, { status: "present" | "absent"; note: string }>>({});
+  const [cardedPlayerIds, setCardedPlayerIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -304,16 +305,32 @@ function AttendanceModal({ client, profile, event, onClose, onSaved }: { client:
     void Promise.all([
       client.from("players").select("id, full_name").eq("group_id", event.group_id).eq("is_active", true).order("full_name"),
       client.from("attendance_sessions").select("id, attendance_records(player_id, status, note)").eq("event_id", event.id).maybeSingle(),
-    ]).then(([playerResult, sessionResult]) => {
+      client.from("player_behavior_cards").select("player_id").eq("event_id", event.id).eq("is_voided", false),
+    ]).then(([playerResult, sessionResult, cardResult]) => {
       if (!active) return;
       const list = (playerResult.data ?? []) as Array<{ id: string; full_name: string }>;
       const existing = ((sessionResult.data as unknown as { attendance_records?: Array<{ player_id: string; status: "present" | "absent"; note?: string | null }> } | null)?.attendance_records ?? []);
       const initial: Record<string, { status: "present" | "absent"; note: string }> = {};
       for (const player of list) { const row = existing.find((item) => item.player_id === player.id); initial[player.id] = { status: row?.status ?? "present", note: row?.note ?? "" }; }
-      setPlayers(list); setRecords(initial); setLoading(false);
+      setPlayers(list);
+      setRecords(initial);
+      setCardedPlayerIds(new Set((cardResult.data ?? []).map((card) => card.player_id as string)));
+      if (playerResult.error || sessionResult.error || cardResult.error) setMessage("Частину попередніх відміток не вдалося завантажити. Перевірте список перед збереженням.");
+      setLoading(false);
     });
     return () => { active = false; };
   }, [client, event.group_id, event.id]);
+
+  function setStatus(playerId: string, status: "present" | "absent") {
+    setRecords((value) => ({
+      ...value,
+      [playerId]: { ...value[playerId], status, note: status === "present" ? "" : value[playerId]?.note ?? "" },
+    }));
+  }
+
+  function markAllPresent() {
+    setRecords((value) => Object.fromEntries(players.map((player) => [player.id, { ...value[player.id], status: "present", note: "" }])));
+  }
 
   async function save() {
     setBusy(true); setMessage(null);
@@ -331,5 +348,33 @@ function AttendanceModal({ client, profile, event, onClose, onSaved }: { client:
     }
   }
 
-  return <Modal title={`Присутність · ${event.groups?.code ?? ""}`} onClose={onClose} wide footer={<><button className="secondary-action" type="button" onClick={onClose}>Скасувати</button><button className="primary-action" type="button" onClick={() => void save()} disabled={busy || loading}>{busy ? "Збереження…" : "Зберегти присутність"}</button></>}>{loading ? <LoadingState /> : players.length ? <div className="attendance-list"><div className="attendance-help"><p>Усі гравці початково позначені присутніми. Відмітьте лише відсутніх і збережіть сесію.</p><Pill tone="teal">{Object.values(records).filter((record) => record.status === "present").length} присутні</Pill></div>{players.map((player) => <div className={`attendance-row ${records[player.id]?.status}`} key={player.id}><div className="attendance-actions"><button className="attendance-toggle" type="button" onClick={() => setRecords((value) => ({ ...value, [player.id]: { ...value[player.id], status: value[player.id]?.status === "absent" ? "present" : "absent" } }))}><span className="attendance-check">{records[player.id]?.status === "present" ? <Check size={18} /> : "—"}</span><b>{player.full_name}</b><small>{records[player.id]?.status === "present" ? "Присутній" : "Відсутній"}</small></button><BehaviorCardAction client={client} profile={profile} player={player} groupId={event.group_id} eventId={event.id} label="Картка" className="yellow-card-action small" /></div>{records[player.id]?.status === "absent" && <input value={records[player.id]?.note ?? ""} onChange={(e) => setRecords((value) => ({ ...value, [player.id]: { ...value[player.id], note: e.target.value } }))} placeholder="Коротка примітка" />}</div>)}</div> : <EmptyState title="У команді немає активних гравців" />}{message && <StatusMessage kind="warning">{message}</StatusMessage>}</Modal>;
+  const presentCount = Object.values(records).filter((record) => record.status === "present").length;
+  const absentCount = Math.max(0, players.length - presentCount);
+
+  return <Modal title={`Присутність і картки · ${event.groups?.code ?? ""}`} onClose={onClose} wide footer={<><button className="secondary-action" type="button" onClick={onClose}>Скасувати</button><button className="primary-action" type="button" onClick={() => void save()} disabled={busy || loading}>{busy ? "Збереження…" : "Зберегти присутність"}</button></>}>
+    {loading ? <LoadingState /> : players.length ? <div className="attendance-list">
+      <div className="attendance-help">
+        <div><b>Відмітьте кожного гравця</b><p>Виберіть «Присутній» або «Відсутній». Жовта картка доступна тут один раз для кожного гравця в цій події.</p></div>
+        <div className="attendance-summary"><Pill tone="teal">{presentCount} присутні</Pill><Pill tone={absentCount ? "warning" : "neutral"}>{absentCount} відсутні</Pill></div>
+        <button className="secondary-action small" type="button" onClick={markAllPresent}><Check size={16} />Усі присутні</button>
+      </div>
+      {players.map((player) => {
+        const record = records[player.id] ?? { status: "present" as const, note: "" };
+        const hasCard = cardedPlayerIds.has(player.id);
+        return <article className={`attendance-row ${record.status}`} key={player.id}>
+          <div className="attendance-player-name"><b>{player.full_name}</b><small>{record.status === "present" ? "На занятті" : "Не був на занятті"}</small></div>
+          <div className="attendance-status-choice" role="group" aria-label={`Присутність · ${player.full_name}`}>
+            <button type="button" className={record.status === "present" ? "selected present" : ""} aria-pressed={record.status === "present"} onClick={() => setStatus(player.id, "present")}><Check size={16} />Присутній</button>
+            <button type="button" className={record.status === "absent" ? "selected absent" : ""} aria-pressed={record.status === "absent"} onClick={() => setStatus(player.id, "absent")}>Відсутній</button>
+          </div>
+          <div className="attendance-card-control">
+            {hasCard ? <span className="attendance-card-recorded"><Check size={16} />Картку зафіксовано</span> : record.status === "present" ? <BehaviorCardAction client={client} profile={profile} player={player} groupId={event.group_id} eventId={event.id} occurredOn={kyivDateKey(new Date(event.start_at))} label="Жовта картка" className="yellow-card-action small" onSaved={() => setCardedPlayerIds((current) => new Set(current).add(player.id))} /> : <span className="attendance-card-unavailable">Картка недоступна для відсутнього</span>}
+          </div>
+          {record.status === "absent" && <label className="attendance-note"><span>Причина або примітка — необов’язково</span><input value={record.note} onChange={(input) => setRecords((value) => ({ ...value, [player.id]: { ...value[player.id], note: input.target.value } }))} placeholder="Наприклад, хворіє" /></label>}
+        </article>;
+      })}
+      <p className="attendance-card-note">Жовта картка зберігається одразу після підтвердження. Присутність збережеться кнопкою внизу.</p>
+    </div> : <EmptyState title="У команді немає активних гравців" />}
+    {message && <StatusMessage kind="warning">{message}</StatusMessage>}
+  </Modal>;
 }

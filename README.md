@@ -1,4 +1,4 @@
-# Клуб Чемпіон — робочий застосунок 0.2.19
+# Клуб Чемпіон — робочий застосунок 0.2.20
 
 Це повний редагований вихідний проєкт застосунку Клубу Чемпіон, відновлений з погодженого прототипу та послідовно оновлений у source. Поточна staging-збірка розгортається лише приватно; production не змінюється без окремого підтвердження власника.
 
@@ -71,4 +71,4 @@ where id = '<auth-user-uuid>';
 
 Після цього адміністратор налаштовує TOTP під час першого входу. Production-користувачів і реальні дані не створювати до завершення staging-перевірки та окремого підтвердження власника.
 
-Документація: [тренеру](docs/trainer-guide.md), [адміністратору](docs/admin-guide.md), [розгортання](docs/deployment.md), [резервування й відновлення](docs/backup-restore.md), [відновлення source](docs/source-recovery-2026-09-19.md), [перевірка 0.2.19](docs/verification-0.2.19.md), [повний аудит вимог](docs/requirements-audit-2026-09-18.md), [середовища](docs/environments.md) та [межі безпеки](docs/security-boundaries.md).
+Документація: [тренеру](docs/trainer-guide.md), [адміністратору](docs/admin-guide.md), [розгортання](docs/deployment.md), [резервування й відновлення](docs/backup-restore.md), [відновлення source](docs/source-recovery-2026-09-19.md), [перевірка 0.2.20](docs/verification-0.2.20.md), [повний аудит вимог](docs/requirements-audit-2026-09-18.md), [середовища](docs/environments.md) та [межі безпеки](docs/security-boundaries.md).

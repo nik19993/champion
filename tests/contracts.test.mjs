@@ -81,6 +81,7 @@ const adminFunctionAuthUrl = new URL("../supabase/functions/_shared/admin.ts", i
 const adminUsersFunctionUrl = new URL("../supabase/functions/admin-users/index.ts", import.meta.url);
 const conflictCleanupMigrationUrl = new URL("../supabase/migrations/20260920085722_cleanup_transient_schedule_conflicts.sql", import.meta.url);
 const ageExtensionMigrationUrl = new URL("../supabase/migrations/20260927103625_extend_groups_and_player_characteristics.sql", import.meta.url);
+const coachPhotoCardScopeMigrationUrl = new URL("../supabase/migrations/20260927194151_coach_photo_attendance_card_scope.sql", import.meta.url);
 const ageGroupsDomainUrl = new URL("../lib/domain/age-groups.ts", import.meta.url);
 const workingModulesSchemaUrl = new URL("../supabase/migrations/20260917154737_working_modules_schema_0_2_2.sql", import.meta.url);
 
@@ -806,6 +807,51 @@ test("monthly star workflow is complete without public rankings or player voting
   assert.match(awardSql, /security invoker/i);
   for (const table of ["monthly_star_themes", "player_behavior_cards", "parent_contact_actions", "monthly_star_awards"]) assert.match(exporter, new RegExp(`"${table}"`));
   assert.doesNotMatch(ui, /player_vote|public_leaderboard/i);
+});
+
+test("coach photo, attendance and card workflow is mobile-friendly and admin read-only", async () => {
+  const [coachPlayers, coachPlan, monthlyStarUi, adminMonthlyStar, scopeSql, files] = await Promise.all([
+    readFile(coachPlayersUrl, "utf8"),
+    readFile(coachPlanUrl, "utf8"),
+    readFile(monthlyStarUiUrl, "utf8"),
+    readFile(monthlyStarManagementUrl, "utf8"),
+    readFile(coachPhotoCardScopeMigrationUrl, "utf8"),
+    readFile(fileUploadUrl, "utf8"),
+  ]);
+
+  assert.match(coachPlayers, /capture="environment"/);
+  assert.match(coachPlayers, /Сфотографувати/);
+  assert.match(coachPlayers, /Вибрати з галереї/);
+  assert.match(coachPlayers, /uploadPrivateFile/);
+  assert.match(coachPlayers, /set_player_photo/);
+  assert.match(coachPlayers, /player_photos\(is_current/);
+  assert.match(coachPlayers, /find\(\(photo\) => photo\.is_current\)/);
+  assert.match(files, /deletePrivateFile/);
+
+  assert.match(coachPlan, /Присутність і картки/);
+  assert.match(coachPlan, /Присутній/);
+  assert.match(coachPlan, /Відсутній/);
+  assert.match(coachPlan, /Усі присутні/);
+  assert.match(coachPlan, /Картку зафіксовано/);
+  assert.match(coachPlan, /occurredOn=\{kyivDateKey\(new Date\(event\.start_at\)\)\}/);
+  assert.equal((coachPlayers.match(/BehaviorCardAction/g) ?? []).length, 0, "the player list and profile must not duplicate card assignment");
+  assert.equal((coachPlan.match(/<BehaviorCardAction/g) ?? []).length, 1, "attendance is the single coach card-assignment point");
+  assert.doesNotMatch(monthlyStarUi, /label="Додати картку"/);
+  assert.doesNotMatch(monthlyStarUi, /label="Картка"/);
+
+  assert.match(adminMonthlyStar, /AdminMonthlyStarResults/);
+  assert.match(adminMonthlyStar, /Адміністратор переглядає результат/);
+  assert.doesNotMatch(adminMonthlyStar, /MonthlyStarGroupPanel|adminMode|BehaviorCardAction|Виправити результат/);
+
+  assert.match(scopeSql, /create or replace function public\.set_player_photo/i);
+  assert.match(scopeSql, /context_type <> 'player_photo'/);
+  assert.match(scopeSql, /behavior_cards_event_player_active_idx/);
+  assert.match(scopeSql, /partition by card\.player_id, card\.event_id/);
+  assert.match(scopeSql, /Автоматично анульовано як дубль картки тієї самої події/);
+  assert.match(scopeSql, /drop policy if exists behavior_cards_admin_all/i);
+  assert.match(scopeSql, /drop policy if exists monthly_star_awards_admin_all/i);
+  assert.match(scopeSql, /profile\.role = 'coach'/);
+  assert.match(scopeSql, /event_id is not null/);
 });
 
 test("monthly star export places two A5 awards on one A4 sheet and blocks incomplete photo sets", async () => {

@@ -55,3 +55,10 @@ export async function openPrivateFile(client: SupabaseClient, asset: Pick<FileAs
   if (result.error || !result.data?.signedUrl) throw result.error ?? new Error("Signed URL is unavailable");
   window.open(result.data.signedUrl, "_blank", "noopener,noreferrer");
 }
+
+export async function deletePrivateFile(client: SupabaseClient, asset: Pick<FileAsset, "id" | "bucket" | "object_path">) {
+  const storageResult = await client.storage.from(asset.bucket).remove([asset.object_path]);
+  if (storageResult.error) throw storageResult.error;
+  const rowResult = await client.from("file_assets").delete().eq("id", asset.id);
+  if (rowResult.error) throw rowResult.error;
+}

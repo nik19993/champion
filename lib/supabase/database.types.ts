@@ -2731,6 +2731,10 @@ export type Database = {
         Args: { p_note: string; p_player_id: string }
         Returns: string
       }
+      set_player_photo: {
+        Args: { p_file_asset_id: string; p_player_id: string }
+        Returns: string
+      }
       save_uniform_request: {
         Args: {
           p_items: Json

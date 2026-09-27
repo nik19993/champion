@@ -18,7 +18,7 @@ interface GroupMetric extends GroupSummary {
 
 interface AdminGroupPlayer extends Player {
   uniform_requests?: Relation<{ id: string; status: UniformStatus }>;
-  player_photos?: Array<{ file_assets?: { bucket: string; object_path: string } | null }>;
+  player_photos?: Array<{ is_current: boolean; file_assets?: { bucket: string; object_path: string } | null }>;
 }
 
 interface PaymentIndicator {
@@ -134,7 +134,7 @@ function GroupDetailsModal({ client, group, onClose, onPlayerOpen }: { client: S
     setPaymentWarning(null);
     setPaymentIndicators({});
     void (async () => {
-      const { data, error: loadError } = await client.from("players").select("id, group_id, full_name, first_name, last_name, middle_name, birth_date, birth_year, position, dominant_foot, coach_note, coach_note_author_id, coach_note_author_name, coach_note_updated_at, is_active, groups(code), uniform_requests(id, status), player_photos(file_assets(bucket, object_path))").eq("group_id", group.id).eq("is_active", true).order("full_name");
+      const { data, error: loadError } = await client.from("players").select("id, group_id, full_name, first_name, last_name, middle_name, birth_date, birth_year, position, dominant_foot, coach_note, coach_note_author_id, coach_note_author_name, coach_note_updated_at, is_active, groups(code), uniform_requests(id, status), player_photos(is_current, file_assets(bucket, object_path))").eq("group_id", group.id).eq("is_active", true).order("full_name");
       if (!active) return;
       if (loadError) {
         setPlayers([]);
@@ -164,7 +164,7 @@ function GroupDetailsModal({ client, group, onClose, onPlayerOpen }: { client: S
       }
       const urls: Record<string, string> = {};
       await Promise.all(next.map(async (player) => {
-        const asset = player.player_photos?.[0]?.file_assets;
+        const asset = player.player_photos?.find((photo) => photo.is_current)?.file_assets;
         if (!asset) return;
         const signed = await client.storage.from(asset.bucket).createSignedUrl(asset.object_path, 600, { transform: { width: 160, height: 160, resize: "cover" } });
         if (signed.data?.signedUrl) urls[player.id] = signed.data.signedUrl;

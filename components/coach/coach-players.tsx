@@ -2,13 +2,14 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import Image from "next/image";
-import { Check, ChevronRight, Mail, Phone, Shirt, UserRound } from "lucide-react";
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { Camera, Check, ChevronRight, ImagePlus, Mail, Phone, Shirt, UserRound } from "lucide-react";
+import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EmptyState, GroupSelect, LoadingState, Modal, Pill, SearchField, StatusMessage, Tabs, WorkspaceHeader } from "@/components/common/workspace-ui";
-import { BehaviorCardAction, MonthlyStarGroupPanel, PlayerAchievementBehavior } from "@/components/star/monthly-star";
+import { MonthlyStarGroupPanel, PlayerAchievementBehavior } from "@/components/star/monthly-star";
 import { formatDate, formatMonth, safeError, toMonthInput } from "@/lib/domain/format";
-import type { GroupSummary, Guardian, Player, Profile, UniformCatalogItem, UniformRequest, UniformStatus } from "@/lib/domain/types";
+import type { FileAsset, GroupSummary, Guardian, Player, Profile, UniformCatalogItem, UniformRequest, UniformStatus } from "@/lib/domain/types";
 import { UNIFORM_STATUS_LABELS } from "@/lib/domain/format";
+import { deletePrivateFile, uploadPrivateFile } from "@/lib/supabase/files";
 
 interface Props { client: SupabaseClient; profile: Profile; groups: GroupSummary[]; }
 type PlayerTab = "list" | "payments" | "uniform" | "monthly-star";
@@ -16,7 +17,7 @@ type Relation<T> = T | T[] | null;
 
 interface PlayerWithUniform extends Player {
   uniform_requests?: Relation<{ id: string; status: UniformStatus }>;
-  player_photos?: Array<{ file_assets?: { bucket: string; object_path: string } | null }>;
+  player_photos?: Array<{ is_current: boolean; file_assets?: { bucket: string; object_path: string } | null }>;
 }
 
 function relationOne<T>(value: Relation<T> | undefined) {
@@ -37,14 +38,14 @@ export function CoachPlayers({ client, profile, groups }: Props) {
   const load = useCallback(async () => {
     if (!groupId) { setPlayers([]); setLoading(false); return; }
     setLoading(true); setError(null);
-    const result = await client.from("players").select("id, group_id, full_name, first_name, last_name, middle_name, birth_date, birth_year, position, dominant_foot, coach_note, coach_note_author_id, coach_note_author_name, coach_note_updated_at, is_active, groups(code), uniform_requests(id, status), player_photos(file_assets(bucket, object_path))").eq("group_id", groupId).eq("is_active", true).order("full_name");
+    const result = await client.from("players").select("id, group_id, full_name, first_name, last_name, middle_name, birth_date, birth_year, position, dominant_foot, coach_note, coach_note_author_id, coach_note_author_name, coach_note_updated_at, is_active, groups(code), uniform_requests(id, status), player_photos(is_current, file_assets(bucket, object_path))").eq("group_id", groupId).eq("is_active", true).order("full_name");
     setLoading(false);
     if (result.error) { setError("Не вдалося завантажити список гравців."); return; }
     const next = (result.data ?? []) as unknown as PlayerWithUniform[];
     setPlayers(next);
     const urls: Record<string, string> = {};
     await Promise.all(next.map(async (player) => {
-      const asset = player.player_photos?.[0]?.file_assets;
+      const asset = player.player_photos?.find((photo) => photo.is_current)?.file_assets;
       if (!asset) return;
       const signed = await client.storage.from(asset.bucket).createSignedUrl(asset.object_path, 600, { transform: { width: 160, height: 160, resize: "cover" } });
       if (signed.data?.signedUrl) urls[player.id] = signed.data.signedUrl;
@@ -59,10 +60,115 @@ export function CoachPlayers({ client, profile, groups }: Props) {
   }, [players, search]);
   const selectedGroup = groups.find((group) => group.id === groupId) ?? groups[0];
 
-  return <div className="workspace-stack"><WorkspaceHeader eyebrow="Команда" title="Гравці" description="Список, щомісячні оплати, форма та «Зірка місяця»" actions={groups.length ? <GroupSelect groups={groups} value={groupId} onChange={setGroupId} /> : undefined} /><Tabs label="Розділи гравців" value={tab} onChange={setTab} items={[{ value: "list", label: "Список гравців", badge: players.length }, { value: "payments", label: "Оплати" }, { value: "uniform", label: "Форма" }, { value: "monthly-star", label: "Зірка місяця" }]} />{error && <StatusMessage kind="error">{error}</StatusMessage>}{loading ? <LoadingState label="Завантажуємо гравців…" /> : tab === "list" ? <><SearchField value={search} onChange={setSearch} placeholder="Пошук за прізвищем або амплуа" />{filtered.length ? <div className="player-grid">{filtered.map((player) => { const issued = relationOne(player.uniform_requests)?.status === "issued"; return <article className="player-list-entry" key={player.id}><button className="player-card" type="button" onClick={() => setSelectedPlayer(player)}>{photoUrls[player.id] ? <Image unoptimized width={64} height={64} src={photoUrls[player.id]} alt="" /> : <span className="avatar-placeholder"><UserRound /></span>}<div><h2>{player.full_name}</h2><p>{player.birth_date ? new Date(player.birth_date).getFullYear() : player.birth_year ?? "Рік не вказано"} · {player.position || "Амплуа не вказано"}</p><Pill tone={issued ? "success" : "warning"}>{issued ? "Формою забезпечено" : "Форма не видана"}</Pill></div><ChevronRight aria-hidden="true" /></button><BehaviorCardAction client={client} profile={profile} player={player} groupId={player.group_id} label="Жовта картка" /></article>; })}</div> : <EmptyState title="Гравців не знайдено" />}</> : tab === "payments" ? <PaymentsPanel client={client} profile={profile} players={players} /> : tab === "uniform" ? <UniformPanel client={client} profile={profile} players={players} /> : selectedGroup ? <section className="panel-section"><MonthlyStarGroupPanel client={client} profile={profile} group={selectedGroup} /></section> : <EmptyState title="Групу не вибрано" />}{selectedPlayer && <PlayerDetails client={client} profile={profile} player={selectedPlayer} photoUrl={photoUrls[selectedPlayer.id]} onClose={() => setSelectedPlayer(null)} />}</div>;
+  return <div className="workspace-stack"><WorkspaceHeader eyebrow="Команда" title="Гравці" description="Список, щомісячні оплати, форма та «Зірка місяця»" actions={groups.length ? <GroupSelect groups={groups} value={groupId} onChange={setGroupId} /> : undefined} /><Tabs label="Розділи гравців" value={tab} onChange={setTab} items={[{ value: "list", label: "Список гравців", badge: players.length }, { value: "payments", label: "Оплати" }, { value: "uniform", label: "Форма" }, { value: "monthly-star", label: "Зірка місяця" }]} />{error && <StatusMessage kind="error">{error}</StatusMessage>}{loading ? <LoadingState label="Завантажуємо гравців…" /> : tab === "list" ? <><SearchField value={search} onChange={setSearch} placeholder="Пошук за прізвищем або амплуа" />{filtered.length ? <div className="player-grid">{filtered.map((player) => { const issued = relationOne(player.uniform_requests)?.status === "issued"; return <article className="player-list-entry" key={player.id}><button className="player-card" type="button" onClick={() => setSelectedPlayer(player)}>{photoUrls[player.id] ? <Image unoptimized width={64} height={64} src={photoUrls[player.id]} alt="" /> : <span className="avatar-placeholder"><UserRound /></span>}<div><h2>{player.full_name}</h2><p>{player.birth_date ? new Date(player.birth_date).getFullYear() : player.birth_year ?? "Рік не вказано"} · {player.position || "Амплуа не вказано"}</p><Pill tone={issued ? "success" : "warning"}>{issued ? "Формою забезпечено" : "Форма не видана"}</Pill></div><ChevronRight aria-hidden="true" /></button></article>; })}</div> : <EmptyState title="Гравців не знайдено" />}</> : tab === "payments" ? <PaymentsPanel client={client} profile={profile} players={players} /> : tab === "uniform" ? <UniformPanel client={client} profile={profile} players={players} /> : selectedGroup ? <section className="panel-section"><MonthlyStarGroupPanel client={client} profile={profile} group={selectedGroup} /></section> : <EmptyState title="Групу не вибрано" />}{selectedPlayer && <PlayerDetails client={client} profile={profile} player={selectedPlayer} photoUrl={photoUrls[selectedPlayer.id]} groupAge={selectedGroup?.age} onPhotoSaved={() => void load()} onClose={() => setSelectedPlayer(null)} />}</div>;
 }
 
-export function PlayerDetails({ client, profile, player, photoUrl, onClose }: { client: SupabaseClient; profile?: Profile; player: Player; photoUrl?: string; onClose: () => void }) {
+const PLAYER_PHOTO_SOURCE_LIMIT = 25 * 1024 * 1024;
+const PLAYER_PHOTO_OUTPUT_LIMIT = 8 * 1024 * 1024;
+
+function normalizePlayerPhoto(file: File) {
+  return new Promise<File>((resolve, reject) => {
+    const extension = file.name.split(".").pop()?.toLocaleLowerCase("en-US") ?? "";
+    if (!file.type.startsWith("image/") && !["heic", "heif"].includes(extension)) {
+      reject(new Error("Оберіть файл зображення."));
+      return;
+    }
+    if (file.size > PLAYER_PHOTO_SOURCE_LIMIT) {
+      reject(new Error("Початкове фото завелике. Максимальний розмір — 25 МБ."));
+      return;
+    }
+
+    const objectUrl = URL.createObjectURL(file);
+    const image = document.createElement("img");
+    image.onload = () => {
+      try {
+        const longestSide = Math.max(image.naturalWidth, image.naturalHeight);
+        const scale = Math.min(1, 1800 / longestSide);
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+        canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+        const context = canvas.getContext("2d");
+        if (!context) throw new Error("Цей браузер не підтримує підготовку фото.");
+        context.fillStyle = "#ffffff";
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        context.imageSmoothingEnabled = true;
+        context.imageSmoothingQuality = "high";
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob((blob) => {
+          URL.revokeObjectURL(objectUrl);
+          if (!blob) {
+            reject(new Error("Фото не вдалося підготувати. Виберіть JPG, PNG або WebP."));
+            return;
+          }
+          if (blob.size > PLAYER_PHOTO_OUTPUT_LIMIT) {
+            reject(new Error("Підготовлене фото завелике. Виберіть інше зображення."));
+            return;
+          }
+          const baseName = file.name.replace(/\.[^.]+$/, "") || "player-photo";
+          resolve(new File([blob], `${baseName}.jpg`, { type: "image/jpeg", lastModified: Date.now() }));
+        }, "image/jpeg", 0.9);
+      } catch (error) {
+        URL.revokeObjectURL(objectUrl);
+        reject(error);
+      }
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error("Цей формат фото не читається на пристрої. Виберіть JPG/PNG або зробіть нове фото камерою."));
+    };
+    image.src = objectUrl;
+  });
+}
+
+function PlayerPhotoEditor({ client, profile, player, groupAge, onSaved }: { client: SupabaseClient; profile: Profile; player: Player; groupAge?: number | null; onSaved: () => void | Promise<void> }) {
+  const cameraInput = useRef<HTMLInputElement>(null);
+  const galleryInput = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<{ kind: "success" | "error"; text: string } | null>(null);
+
+  async function choosePhoto(event: ChangeEvent<HTMLInputElement>) {
+    const source = event.target.files?.[0];
+    event.target.value = "";
+    if (!source) return;
+    setBusy(true);
+    setMessage(null);
+    let asset: FileAsset | null = null;
+    try {
+      const photo = await normalizePlayerPhoto(source);
+      asset = await uploadPrivateFile(client, photo, {
+        bucket: "player-photos",
+        ownerId: profile.id,
+        groupId: player.group_id,
+        age: groupAge ?? null,
+        contextType: "player_photo",
+      });
+      const result = await client.rpc("set_player_photo", { p_player_id: player.id, p_file_asset_id: asset.id });
+      if (result.error) throw result.error;
+      setMessage({ kind: "success", text: "Фото гравця оновлено." });
+      await onSaved();
+    } catch (error) {
+      if (asset) {
+        try { await deletePrivateFile(client, asset); } catch { /* The unattached asset remains private and can be cleaned up by an administrator. */ }
+      }
+      setMessage({ kind: "error", text: error instanceof Error ? error.message : "Фото не завантажено. Перевірте формат і повторіть дію." });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return <section className="player-photo-editor" aria-label="Фото гравця">
+    <div><b>Фото гравця</b><small>Зробіть фото телефоном або виберіть готове з галереї. Зображення буде автоматично підготовлено для профілю й нагороди.</small></div>
+    <div className="player-photo-actions">
+      <input ref={cameraInput} className="sr-only" type="file" accept="image/*" capture="environment" onChange={(event) => void choosePhoto(event)} disabled={busy} />
+      <input ref={galleryInput} className="sr-only" type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif" onChange={(event) => void choosePhoto(event)} disabled={busy} />
+      <button type="button" className="primary-action" onClick={() => cameraInput.current?.click()} disabled={busy}><Camera size={17} />{busy ? "Обробляємо…" : "Сфотографувати"}</button>
+      <button type="button" className="secondary-action" onClick={() => galleryInput.current?.click()} disabled={busy}><ImagePlus size={17} />Вибрати з галереї</button>
+    </div>
+    {message && <StatusMessage kind={message.kind}>{message.text}</StatusMessage>}
+  </section>;
+}
+
+export function PlayerDetails({ client, profile, player, photoUrl, groupAge, onPhotoSaved, onClose }: { client: SupabaseClient; profile?: Profile; player: Player; photoUrl?: string; groupAge?: number | null; onPhotoSaved?: () => void | Promise<void>; onClose: () => void }) {
   const [guardians, setGuardians] = useState<Guardian[]>([]);
   const [tests, setTests] = useState<Array<{ id: string; measured_on: string; metric_name: string; field_name: string; value: string; unit?: string | null }>>([]);
   const [activity, setActivity] = useState<Array<{ id: string; period: string; metric_name: string; value: string }>>([]);
@@ -119,6 +225,7 @@ export function PlayerDetails({ client, profile, player, photoUrl, onClose }: { 
 
   return <Modal title={player.full_name} onClose={onClose} wide footer={<button className="primary-action" type="button" onClick={onClose}>Закрити</button>}>
     <div className="player-profile-head">{photoUrl ? <Image unoptimized width={92} height={92} src={photoUrl} alt={`Фото ${player.full_name}`} /> : <span className="profile-avatar"><UserRound /></span>}<div><Pill tone="plum">{player.groups?.code ?? "Гравець"}</Pill><h3>{player.position || "Амплуа не вказано"}</h3><p>{player.birth_date ? formatDate(player.birth_date) : player.birth_year ? String(player.birth_year) : "Дата народження не вказана"}{player.dominant_foot ? ` · ${player.dominant_foot}` : ""}</p></div></div>
+    {profile?.role === "coach" && onPhotoSaved && <PlayerPhotoEditor client={client} profile={profile} player={player} groupAge={groupAge} onSaved={onPhotoSaved} />}
     <section className="profile-section coach-characteristic">
       <h3>Коротка характеристика тренера</h3>
       {canEditCoachNote ? <form className="form-stack" onSubmit={saveCoachNote}>

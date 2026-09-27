@@ -382,16 +382,26 @@ textarea { resize: vertical; }
 .organizational-needs > p { margin: 0 0 8px; color: var(--muted); font-size: 12px; line-height: 1.45; }
 .organizational-needs .other-need { margin-top: 10px; }
 .attendance-list { display: grid; gap: 8px; }
-.attendance-help { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 7px; padding: 12px; border-radius: 12px; background: #f4faf9; }
+.attendance-help { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 12px; margin-bottom: 7px; padding: 13px; border-radius: 12px; background: #f4faf9; }
+.attendance-help > div:first-child { display: grid; gap: 4px; }
 .attendance-help p { margin: 0; color: #526a68; font-size: 13px; line-height: 1.45; }
-.attendance-row { display: grid; grid-template-columns: 1fr; gap: 7px; padding: 8px; border: 1px solid #dce9df; border-radius: 12px; background: #fbfefb; }
+.attendance-summary { display: flex; flex-wrap: wrap; gap: 6px; }
+.attendance-row { display: grid; grid-template-columns: minmax(170px, 1fr) auto minmax(150px, auto); align-items: center; gap: 10px; padding: 12px; border: 1px solid #dce9df; border-radius: 12px; background: #fbfefb; }
 .attendance-row.absent { border-color: #efc8c5; background: #fff8f7; }
-.attendance-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; }
-.attendance-toggle { min-height: 46px; display: grid; grid-template-columns: 34px 1fr auto; align-items: center; gap: 9px; padding: 0 7px; color: inherit; text-align: left; border: 0; background: transparent; }
-.attendance-check { width: 30px; height: 30px; display: grid; place-items: center; color: white; border-radius: 9px; background: #45a25a; }
-.attendance-row.absent .attendance-check { color: #a13a35; background: #f7dad7; }
+.attendance-player-name { min-width: 0; display: grid; gap: 3px; }
+.attendance-player-name b { overflow-wrap: anywhere; }
 .attendance-row small { color: var(--muted); }
-.attendance-row input { min-height: 42px; padding: 8px 10px; border: 1px solid #ead0cd; border-radius: 9px; }
+.attendance-status-choice { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; border: 1px solid var(--line); border-radius: 11px; background: #f4f2ea; }
+.attendance-status-choice button { min-height: 42px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 7px 10px; color: var(--muted); border: 0; border-radius: 8px; background: transparent; font-size: 12px; font-weight: 800; }
+.attendance-status-choice button.selected.present { color: #155a2c; background: #dff4e4; box-shadow: inset 0 0 0 1px #8bc99a; }
+.attendance-status-choice button.selected.absent { color: #8e2924; background: #fde1df; box-shadow: inset 0 0 0 1px #dfa09b; }
+.attendance-card-control { display: flex; justify-content: flex-end; }
+.attendance-card-recorded, .attendance-card-unavailable { min-height: 38px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 7px 10px; border-radius: 10px; font-size: 12px; font-weight: 760; text-align: center; }
+.attendance-card-recorded { color: #6d5300; border: 1px solid #dec35c; background: #fff4ae; }
+.attendance-card-unavailable { color: var(--muted); border: 1px dashed var(--line); background: #f7f5ef; }
+.attendance-note { grid-column: 1 / -1; display: grid; gap: 5px; color: var(--muted); font-size: 12px; font-weight: 700; }
+.attendance-note input { min-height: 42px; padding: 8px 10px; border: 1px solid #ead0cd; border-radius: 9px; }
+.attendance-card-note { margin: 3px 0 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
 .player-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; }
 .player-card { min-height: 112px; display: grid; grid-template-columns: 74px 1fr auto; align-items: center; gap: 14px; padding: 14px; color: inherit; text-align: left; border: 1px solid var(--line); border-radius: 16px; background: white; }
 .player-card:hover { border-color: #d1afd0; box-shadow: 0 9px 22px rgba(67, 16, 79, .075); }
@@ -407,6 +417,11 @@ textarea { resize: vertical; }
 .profile-avatar svg { width: 46px; height: 46px; }
 .player-profile-head h3 { margin: 9px 0 4px; color: var(--plum-950); }
 .player-profile-head p { margin: 0; color: var(--muted); }
+.player-photo-editor { display: grid; gap: 12px; margin-top: 16px; padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: #fffdf2; }
+.player-photo-editor > div:first-child { display: grid; gap: 4px; }
+.player-photo-editor small { color: var(--muted); line-height: 1.45; }
+.player-photo-actions { display: flex; flex-wrap: wrap; gap: 9px; }
+.player-photo-actions button { flex: 1 1 190px; }
 .profile-section { margin-top: 22px; }
 .coach-characteristic { padding: 15px; border: 1px solid var(--line); border-radius: 14px; background: #fffdf2; }
 .coach-characteristic .form-stack { gap: 10px; }
@@ -623,6 +638,11 @@ textarea { resize: vertical; }
 .behavior-card-log span, .behavior-card-log small { color: var(--muted); font-size: 12px; }
 .monthly-star-admin { display: grid; gap: 18px; }
 .monthly-star-admin .form-title-row > svg { color: #c49e00; }
+.admin-star-results { display: grid; gap: 14px; }
+.admin-star-winner-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.admin-star-winner-list article { display: flex; align-items: center; gap: 11px; padding: 12px; border: 1px solid #dfd18a; border-radius: 12px; background: #fff9d7; }
+.admin-star-winner-list article > div { min-width: 0; display: grid; gap: 3px; }
+.admin-star-winner-list small { color: var(--muted); }
 .star-theme-history article { align-items: flex-start; }
 .star-theme-history article > div { min-width: 0; display: grid; gap: 4px; }
 .star-theme-history small { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
@@ -854,14 +874,17 @@ textarea { resize: vertical; }
   .modal-body { padding: 15px 14px; }
   .modal-card > footer { position: sticky; bottom: 0; padding: 10px 12px; }
   .modal-card > footer > * { flex: 1 1 auto; }
-  .attendance-help { align-items: flex-start; flex-direction: column; }
-  .attendance-actions { grid-template-columns: 1fr; }
-  .attendance-toggle { grid-template-columns: 34px 1fr; }
-  .attendance-toggle small { grid-column: 2; }
+  .attendance-help { grid-template-columns: 1fr; align-items: stretch; }
+  .attendance-help .secondary-action { width: 100%; justify-content: center; }
+  .attendance-row { grid-template-columns: 1fr; align-items: stretch; padding: 11px; }
+  .attendance-status-choice { width: 100%; }
+  .attendance-card-control { justify-content: stretch; }
+  .attendance-card-control > * { width: 100%; }
   .monthly-star-banner { grid-template-columns: 52px minmax(0, 1fr); padding: 14px; }
   .monthly-star-icon { width: 48px; height: 48px; border-radius: 12px; font-size: 28px; }
   .monthly-star-banner h2 { font-size: 18px; }
   .behavior-summary { grid-template-columns: 1fr; }
+  .admin-star-winner-list { grid-template-columns: 1fr; }
   .player-card { grid-template-columns: 62px 1fr auto; }
   .player-card > img, .avatar-placeholder { width: 62px; height: 62px; }
   .player-profile-head { align-items: flex-start; }
