@@ -17,6 +17,9 @@ function safeName(name: string) {
 }
 
 export async function uploadPrivateFile(client: SupabaseClient, file: File, context: UploadContext): Promise<FileAsset> {
+  if (context.bucket === "player-photos" && !context.groupId) {
+    throw new Error("Для фото гравця не визначено групу.");
+  }
   const objectPath = `${context.ownerId}/${crypto.randomUUID()}-${safeName(file.name)}`;
   const upload = await client.storage.from(context.bucket).upload(objectPath, file, { cacheControl: "3600", upsert: false, contentType: file.type || undefined });
   if (upload.error) throw upload.error;
@@ -32,22 +35,43 @@ export async function uploadPrivateFile(client: SupabaseClient, file: File, cont
     context_group_id: context.groupId ?? null,
     context_age: context.age ?? null,
   };
-  const result = await client.from("file_assets").insert(row).select("*").single();
-  if (result.error) {
-    await client.storage.from(context.bucket).remove([objectPath]);
-    throw result.error;
+  let asset: FileAsset;
+  if (context.bucket === "player-photos") {
+    const registration = await client.rpc("register_player_photo_asset", {
+      p_object_path: objectPath,
+      p_original_name: file.name,
+      p_mime_type: row.mime_type,
+      p_size_bytes: file.size,
+      p_group_id: context.groupId,
+    });
+    if (registration.error || !registration.data) {
+      await client.storage.from(context.bucket).remove([objectPath]);
+      throw registration.error ?? new Error("Фото не зареєстровано.");
+    }
+    asset = { id: String(registration.data), ...row } as FileAsset;
+  } else {
+    const result = await client.from("file_assets").insert(row).select("*").single();
+    if (result.error) {
+      await client.storage.from(context.bucket).remove([objectPath]);
+      throw result.error;
+    }
+    asset = result.data as FileAsset;
   }
-  const validation = await client.functions.invoke("file-validate", { body: { file_asset_id: result.data.id } });
+  if (!asset.id) {
+    await client.storage.from(context.bucket).remove([objectPath]);
+    throw new Error("Файл не зареєстровано.");
+  }
+  const validation = await client.functions.invoke("file-validate", { body: { file_asset_id: asset.id } });
   if (validation.error || (validation.data as { status?: string } | null)?.status !== "clean") {
-    const statusResult = await client.from("file_assets").select("*").eq("id", result.data.id).single();
+    const statusResult = await client.from("file_assets").select("*").eq("id", asset.id).single();
     if (!statusResult.error && statusResult.data?.scan_status === "clean") {
       return statusResult.data as FileAsset;
     }
     await client.storage.from(context.bucket).remove([objectPath]);
-    await client.from("file_assets").delete().eq("id", result.data.id);
+    await client.from("file_assets").delete().eq("id", asset.id);
     throw validation.error ?? new Error("Файл відхилено перевіркою безпеки.");
   }
-  return { ...result.data, scan_status: "clean" } as FileAsset;
+  return { ...asset, scan_status: "clean" } as FileAsset;
 }
 
 export async function openPrivateFile(client: SupabaseClient, asset: Pick<FileAsset, "bucket" | "object_path">) {

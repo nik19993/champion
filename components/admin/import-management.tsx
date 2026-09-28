@@ -110,6 +110,12 @@ const universalTemplates = [
   { href: "/templates/champion-import-template.docx", label: "Зразок Word", format: "DOCX" },
 ];
 
+const datasetExcelTemplates: Partial<Record<ImportDataset, { href: string; label: string; format: string }>> = {
+  players: { href: "/templates/champion-import-players.xlsx", label: "Excel лише для гравців", format: "players-XLSX" },
+  physical_tests: { href: "/templates/champion-import-physical-tests.xlsx", label: "Excel для фізичних тестів", format: "physical-XLSX" },
+  game_activity: { href: "/templates/champion-import-game-activity.xlsx", label: "Excel для ігрової діяльності", format: "activity-XLSX" },
+};
+
 const templateSectionLabels: Record<ImportDataset, string> = {
   players: "Гравці",
   physical_tests: "Фізичні тести",
@@ -120,6 +126,23 @@ const templateSectionLabels: Record<ImportDataset, string> = {
 
 function normalized(value: string) {
   return value.trim().toLocaleLowerCase("uk-UA");
+}
+
+function normalizeImportDate(value: string) {
+  const raw = value.trim();
+  if (!raw) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  const local = /^(\d{1,2})[.\/]([0-1]?\d)[.\/](\d{4})$/.exec(raw);
+  if (local) return `${local[3]}-${local[2].padStart(2, "0")}-${local[1].padStart(2, "0")}`;
+  const serial = Number(raw.replace(",", "."));
+  if (Number.isFinite(serial) && serial >= 1 && serial <= 100000) {
+    return new Date(Date.UTC(1899, 11, 30) + Math.floor(serial) * 86_400_000).toISOString().slice(0, 10);
+  }
+  return raw;
+}
+
+function uniqueMessages(messages: string[]) {
+  return [...new Set(messages.filter(Boolean))];
 }
 
 function physicalBatteryAge(
@@ -159,6 +182,7 @@ function importPreviewError(code: string) {
   if (code.includes("DUPLICATE_COLUMNS")) return "У таблиці повторюються назви колонок. Залиште кожну колонку лише один раз.";
   if (code.includes("NO_TABLES_IN_DOCX")) return "У документі Word немає таблиць. Скопіюйте макет із завантажуваного зразка.";
   if (code.includes("EMPTY_WORKBOOK")) return "У книзі Excel немає заповнених аркушів.";
+  if (code.includes("INVALID_DEFAULT_DATE")) return "Спільна дата тестування має бути коректною календарною датою.";
   if (code.includes("FILE_REJECTED")) return "Файл відхилено: дозволені лише XLSX або DOCX до 10 МБ.";
   return "Не вдалося прочитати файл. Перевірте його формат і повторіть дію.";
 }
@@ -215,7 +239,7 @@ export function parseDelimited(text: string, delimiter = detectDelimiter(text)) 
 function validateValues(dataset: ImportDataset, values: Record<string, string>) {
   const errors = requiredFields[dataset]
     .filter((field) => !values[field]?.trim())
-    .map((field) => `Не заповнено «${field}»`);
+    .map((field) => `Не заповнено «${fieldLabels[field] ?? field}»`);
 
   if (dataset === "players" && values.birth_year) {
     const year = Number(values.birth_year);
@@ -247,7 +271,7 @@ function validateValues(dataset: ImportDataset, values: Record<string, string>) 
   return errors;
 }
 
-export function parseCsv(text: string, dataset: ImportDataset): PreviewRow[] {
+export function parseCsv(text: string, dataset: ImportDataset, defaultDate = ""): PreviewRow[] {
   const table = parseDelimited(text);
   if (table.length < 2) return [];
   if (table.length > 5001) throw new Error("Один імпорт може містити не більше 5000 рядків.");
@@ -260,10 +284,13 @@ export function parseCsv(text: string, dataset: ImportDataset): PreviewRow[] {
     const values = Object.fromEntries(
       headers.map((header, cellIndex) => [header, cells[cellIndex] ?? ""]),
     );
+    if (dataset === "physical_tests") {
+      values.date = normalizeImportDate(values.date ?? "") || defaultDate;
+    }
     return {
       row_number: index + 2,
       values,
-      errors: validateValues(dataset, values),
+      errors: uniqueMessages(validateValues(dataset, values)),
       warnings: [],
     };
   });
@@ -472,11 +499,16 @@ async function addDuplicateChecks(
       seen.add(key);
     }
   }
-  return rows;
+  return rows.map((row) => ({
+    ...row,
+    errors: uniqueMessages(row.errors),
+    warnings: uniqueMessages(row.warnings),
+  }));
 }
 
 export function EnhancedImportManagement({ client, profile, groups }: Props) {
   const [dataset, setDataset] = useState<ImportDataset>("players");
+  const [physicalTestDate, setPhysicalTestDate] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [rows, setRows] = useState<PreviewRow[]>([]);
   const [jobId, setJobId] = useState<string | null>(null);
@@ -494,7 +526,7 @@ export function EnhancedImportManagement({ client, profile, groups }: Props) {
       let previewRows: PreviewRow[];
       let asset: FileAsset | null = null;
       if (file.name.toLocaleLowerCase("uk-UA").endsWith(".csv")) {
-        previewRows = parseCsv(await file.text(), dataset);
+        previewRows = parseCsv(await file.text(), dataset, physicalTestDate);
       } else {
         asset = await uploadPrivateFile(client, file, {
           bucket: "imports",
@@ -502,7 +534,7 @@ export function EnhancedImportManagement({ client, profile, groups }: Props) {
           contextType: `import_${dataset}`,
         });
         const result = await client.functions.invoke("import-preview", {
-          body: { file_asset_id: asset.id, dataset },
+          body: { file_asset_id: asset.id, dataset, default_date: dataset === "physical_tests" ? physicalTestDate || undefined : undefined },
         });
         if (result.error) {
           let code = (result.data as { error?: string } | null)?.error;
@@ -513,11 +545,20 @@ export function EnhancedImportManagement({ client, profile, groups }: Props) {
           }
           throw new Error(importPreviewError(code ?? result.error.message));
         }
-        previewRows = ((result.data as { rows: PreviewRow[] }).rows ?? []).map((row) => ({
-          ...row,
-          errors: [...(row.errors ?? []), ...validateValues(dataset, row.values)],
-          warnings: row.warnings ?? [],
-        }));
+        previewRows = ((result.data as { rows: PreviewRow[] }).rows ?? []).map((row) => {
+          const values = dataset === "physical_tests"
+            ? { ...row.values, date: normalizeImportDate(row.values.date ?? "") || physicalTestDate }
+            : row.values;
+          return {
+            ...row,
+            values,
+            errors: uniqueMessages([
+              ...(row.errors ?? []).filter((error) => !(dataset === "physical_tests" && values.date && /«(?:date|Дата)»/.test(error))),
+              ...validateValues(dataset, values),
+            ]),
+            warnings: uniqueMessages(row.warnings ?? []),
+          };
+        });
       }
 
       previewRows = await addDuplicateChecks(client, dataset, previewRows, groups);
@@ -601,6 +642,9 @@ export function EnhancedImportManagement({ client, profile, groups }: Props) {
   const errorCount = rows.filter((row) => row.errors.length).length;
   const warningCount = rows.filter((row) => row.warnings.length).length;
   const headers = rows[0] ? Object.keys(rows[0].values) : [];
+  const templateLinks = datasetExcelTemplates[dataset]
+    ? [datasetExcelTemplates[dataset]!, ...universalTemplates]
+    : universalTemplates;
   return (
     <div className="import-management">
       <div className="import-controls">
@@ -621,6 +665,10 @@ export function EnhancedImportManagement({ client, profile, groups }: Props) {
             ))}
           </select>
         </label>
+        {dataset === "physical_tests" && <label>
+          <span>Спільна дата тестування</span>
+          <input type="date" value={physicalTestDate} onChange={(event) => { setPhysicalTestDate(event.target.value); setRows([]); setJobId(null); }} />
+        </label>}
         <label>
           <span>CSV, Excel або Word</span>
           <input
@@ -649,10 +697,10 @@ export function EnhancedImportManagement({ client, profile, groups }: Props) {
           <b>Обов’язкові колонки</b>
           <p>{requiredFields[dataset].map((field) => fieldLabels[field] ?? field).join(", ")}.</p>
           <p>Заповніть аркуш або таблицю «{templateSectionLabels[dataset]}». Усі рядки «ПРИКЛАД» система пропускає автоматично — вони показують формат, а не обмежують кількість даних.</p>
-          {dataset === "physical_tests" && <p>Шаблон містить 4 тести для кожного вікового набору, але окремий рядок для кожного поля результату: 5 полів для U6–U12 і 6 для U13–U17. Для воротарів 9–12 років використовується молодший набір, для воротарів 13–17 — старший; набір визначається за датою або роком народження гравця. Назви тесту та поля мають точно збігатися з довідником у «Тестування й оцінювання». Умови проведення можна заповнити один раз для групи й дати на окремому аркуші.</p>}
+          {dataset === "physical_tests" && <p>Шаблон містить 4 тести для кожного вікового набору, але окремий рядок для кожного поля результату: 5 полів для U6–U12 і 6 для U13–U17. Для воротарів 9–12 років використовується молодший набір, для воротарів 13–17 — старший; набір визначається за датою або роком народження гравця. Якщо всі вимірювання виконані в один день, виберіть «Спільну дату тестування» — система підставить її в усі порожні клітинки «Дата». Назви тесту та поля мають точно збігатися з довідником у «Тестування й оцінювання».</p>}
           {dataset === "game_activity" && <p>Шаблон містить усі 3 складові: лідерські якості, психоемоційну та тактико-технічну підготовленість.</p>}
         </div>
-        <div className="import-template-actions">{universalTemplates.map((template) => <a className="secondary-action" href={template.href} download key={template.format}><Download size={18} />{template.label}</a>)}</div>
+        <div className="import-template-actions">{templateLinks.map((template) => <a className="secondary-action" href={template.href} download key={template.format}><Download size={18} />{template.label}</a>)}</div>
       </div>
 
       {message && <StatusMessage kind={message.kind}>{message.text}</StatusMessage>}

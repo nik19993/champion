@@ -386,7 +386,7 @@ textarea { resize: vertical; }
 .attendance-help > div:first-child { display: grid; gap: 4px; }
 .attendance-help p { margin: 0; color: #526a68; font-size: 13px; line-height: 1.45; }
 .attendance-summary { display: flex; flex-wrap: wrap; gap: 6px; }
-.attendance-row { display: grid; grid-template-columns: minmax(170px, 1fr) auto minmax(150px, auto); align-items: center; gap: 10px; padding: 12px; border: 1px solid #dce9df; border-radius: 12px; background: #fbfefb; }
+.attendance-row { display: grid; grid-template-columns: minmax(170px, 1fr) minmax(260px, auto); align-items: center; gap: 10px; padding: 12px; border: 1px solid #dce9df; border-radius: 12px; background: #fbfefb; }
 .attendance-row.absent { border-color: #efc8c5; background: #fff8f7; }
 .attendance-player-name { min-width: 0; display: grid; gap: 3px; }
 .attendance-player-name b { overflow-wrap: anywhere; }
@@ -402,6 +402,12 @@ textarea { resize: vertical; }
 .attendance-note { grid-column: 1 / -1; display: grid; gap: 5px; color: var(--muted); font-size: 12px; font-weight: 700; }
 .attendance-note input { min-height: 42px; padding: 8px 10px; border: 1px solid #ead0cd; border-radius: 9px; }
 .attendance-card-note { margin: 3px 0 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.event-tracking-actions { width: 100%; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.behavior-card-list { display: grid; gap: 8px; margin-top: 12px; }
+.behavior-card-row { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(190px, auto); align-items: center; gap: 12px; padding: 12px; border: 1px solid #eadfb0; border-radius: 12px; background: #fffdf2; }
+.behavior-card-row > div { min-width: 0; display: grid; gap: 3px; }
+.behavior-card-row b { overflow-wrap: anywhere; }
+.behavior-card-row small { color: var(--muted); }
 .player-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; }
 .player-card { min-height: 112px; display: grid; grid-template-columns: 74px 1fr auto; align-items: center; gap: 14px; padding: 14px; color: inherit; text-align: left; border: 1px solid var(--line); border-radius: 16px; background: white; }
 .player-card:hover { border-color: #d1afd0; box-shadow: 0 9px 22px rgba(67, 16, 79, .075); }
@@ -417,11 +423,13 @@ textarea { resize: vertical; }
 .profile-avatar svg { width: 46px; height: 46px; }
 .player-profile-head h3 { margin: 9px 0 4px; color: var(--plum-950); }
 .player-profile-head p { margin: 0; color: var(--muted); }
-.player-photo-editor { display: grid; gap: 12px; margin-top: 16px; padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: #fffdf2; }
-.player-photo-editor > div:first-child { display: grid; gap: 4px; }
-.player-photo-editor small { color: var(--muted); line-height: 1.45; }
-.player-photo-actions { display: flex; flex-wrap: wrap; gap: 9px; }
-.player-photo-actions button { flex: 1 1 190px; }
+.player-photo-trigger { position: relative; width: 112px; height: 112px; flex: 0 0 auto; padding: 0; border: 0; border-radius: 20px; background: transparent; }
+.player-photo-trigger > img, .player-photo-trigger > .profile-avatar { display: block; }
+.player-photo-trigger:focus-visible { outline: 3px solid rgba(143, 52, 121, .35); outline-offset: 3px; }
+.player-photo-badge { position: absolute; right: -5px; bottom: -5px; width: 34px; height: 34px; display: grid; place-items: center; color: white; border: 3px solid white; border-radius: 50%; background: #8f3479; box-shadow: 0 5px 12px rgba(49, 20, 49, .2); }
+.player-photo-picker { display: grid; gap: 10px; }
+.player-photo-picker p { margin: 0 0 4px; color: var(--muted); line-height: 1.5; }
+.player-photo-picker > button { width: 100%; justify-content: center; }
 .profile-section { margin-top: 22px; }
 .coach-characteristic { padding: 15px; border: 1px solid var(--line); border-radius: 14px; background: #fffdf2; }
 .coach-characteristic .form-stack { gap: 10px; }
@@ -775,7 +783,7 @@ textarea { resize: vertical; }
 .structure-admin-list li { display: grid; grid-template-columns: 28px 1fr; gap: 7px; padding: 8px; border-radius: 9px; background: #f9f5f9; }
 .structure-admin-list li > span { width: 26px; height: 26px; display: grid; place-items: center; color: white; border-radius: 8px; background: #9b3977; font-size: 12px; font-weight: 800; }
 .structure-admin-list li > div { display: flex; flex-direction: column; gap: 2px; }
-.import-controls { display: grid; grid-template-columns: minmax(200px, .7fr) minmax(250px, 1fr) auto; align-items: end; gap: 10px; }
+.import-controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); align-items: end; gap: 10px; }
 .import-template-help { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: #fffdf0; }
 .import-template-help > div { min-width: 0; }
 .import-template-help b { color: var(--ink); font-size: 14px; }
@@ -814,8 +822,18 @@ textarea { resize: vertical; }
   .workspace-actions, .workspace-actions > * { width: 100%; }
   .event-card-grid, .player-grid, .uniform-player-list, .export-grid { grid-template-columns: 1fr; }
   .calendar-panel { padding-inline: 12px; }
-  .calendar-wrap { margin-inline: -3px; }
-  .calendar-weekdays, .calendar-grid { min-width: 650px; }
+  .calendar-wrap { margin-inline: 0; overflow-x: visible; }
+  .calendar-weekdays, .calendar-grid { min-width: 0; }
+  .calendar-weekdays span { padding: 7px 1px; font-size: 11px; }
+  .calendar-day { min-width: 0; min-height: 78px; padding: 3px; }
+  .calendar-date-row { min-height: 34px; gap: 1px; }
+  .calendar-date-row > span { width: 25px; height: 25px; font-size: 11px; }
+  .calendar-plus { width: 30px; height: 30px; border-radius: 9px; }
+  .calendar-plus svg { width: 16px; height: 16px; }
+  .calendar-events { gap: 3px; }
+  .calendar-event { min-width: 0; min-height: 28px; display: flex; justify-content: center; padding: 5px 2px; text-align: center; }
+  .calendar-event b { font-size: 10px; }
+  .calendar-event span, .calendar-event small { display: none; }
   .form-grid { grid-template-columns: 1fr; }
   .form-grid .span-2 { grid-column: auto; }
   .payment-row { align-items: stretch; flex-direction: column; }
@@ -880,6 +898,9 @@ textarea { resize: vertical; }
   .attendance-status-choice { width: 100%; }
   .attendance-card-control { justify-content: stretch; }
   .attendance-card-control > * { width: 100%; }
+  .behavior-card-row { grid-template-columns: 1fr; align-items: stretch; }
+  .behavior-card-row > :last-child { width: 100%; }
+  .event-tracking-actions > * { flex: 1 1 170px; justify-content: center; }
   .monthly-star-banner { grid-template-columns: 52px minmax(0, 1fr); padding: 14px; }
   .monthly-star-icon { width: 48px; height: 48px; border-radius: 12px; font-size: 28px; }
   .monthly-star-banner h2 { font-size: 18px; }
@@ -889,6 +910,8 @@ textarea { resize: vertical; }
   .player-card > img, .avatar-placeholder { width: 62px; height: 62px; }
   .player-profile-head { align-items: flex-start; }
   .player-profile-head img, .profile-avatar { width: 82px; height: 82px; }
+  .player-photo-trigger { width: 82px; height: 82px; border-radius: 18px; }
+  .player-photo-badge { width: 30px; height: 30px; }
   .equipment-picker > div { grid-template-columns: 1fr 110px; }
   .phase-switch { grid-template-columns: 1fr; }
   .structure-steps li > div > div { align-items: flex-start; flex-direction: column; }

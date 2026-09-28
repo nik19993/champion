@@ -60,7 +60,7 @@ export function CoachPlayers({ client, profile, groups }: Props) {
   }, [players, search]);
   const selectedGroup = groups.find((group) => group.id === groupId) ?? groups[0];
 
-  return <div className="workspace-stack"><WorkspaceHeader eyebrow="Команда" title="Гравці" description="Список, щомісячні оплати, форма та «Зірка місяця»" actions={groups.length ? <GroupSelect groups={groups} value={groupId} onChange={setGroupId} /> : undefined} /><Tabs label="Розділи гравців" value={tab} onChange={setTab} items={[{ value: "list", label: "Список гравців", badge: players.length }, { value: "payments", label: "Оплати" }, { value: "uniform", label: "Форма" }, { value: "monthly-star", label: "Зірка місяця" }]} />{error && <StatusMessage kind="error">{error}</StatusMessage>}{loading ? <LoadingState label="Завантажуємо гравців…" /> : tab === "list" ? <><SearchField value={search} onChange={setSearch} placeholder="Пошук за прізвищем або амплуа" />{filtered.length ? <div className="player-grid">{filtered.map((player) => { const issued = relationOne(player.uniform_requests)?.status === "issued"; return <article className="player-list-entry" key={player.id}><button className="player-card" type="button" onClick={() => setSelectedPlayer(player)}>{photoUrls[player.id] ? <Image unoptimized width={64} height={64} src={photoUrls[player.id]} alt="" /> : <span className="avatar-placeholder"><UserRound /></span>}<div><h2>{player.full_name}</h2><p>{player.birth_date ? new Date(player.birth_date).getFullYear() : player.birth_year ?? "Рік не вказано"} · {player.position || "Амплуа не вказано"}</p><Pill tone={issued ? "success" : "warning"}>{issued ? "Формою забезпечено" : "Форма не видана"}</Pill></div><ChevronRight aria-hidden="true" /></button></article>; })}</div> : <EmptyState title="Гравців не знайдено" />}</> : tab === "payments" ? <PaymentsPanel client={client} profile={profile} players={players} /> : tab === "uniform" ? <UniformPanel client={client} profile={profile} players={players} /> : selectedGroup ? <section className="panel-section"><MonthlyStarGroupPanel client={client} profile={profile} group={selectedGroup} /></section> : <EmptyState title="Групу не вибрано" />}{selectedPlayer && <PlayerDetails client={client} profile={profile} player={selectedPlayer} photoUrl={photoUrls[selectedPlayer.id]} groupAge={selectedGroup?.age} onPhotoSaved={() => void load()} onClose={() => setSelectedPlayer(null)} />}</div>;
+  return <div className="workspace-stack"><WorkspaceHeader eyebrow="Команда" title="Гравці" description="Список, щомісячні оплати, форма та «Зірка місяця»" actions={groups.length ? <GroupSelect groups={groups} value={groupId} onChange={setGroupId} /> : undefined} /><Tabs label="Розділи гравців" value={tab} onChange={setTab} items={[{ value: "list", label: "Список гравців", badge: players.length }, { value: "payments", label: "Оплати" }, { value: "uniform", label: "Форма" }, { value: "monthly-star", label: "Зірка місяця" }]} />{error && <StatusMessage kind="error">{error}</StatusMessage>}{loading ? <LoadingState label="Завантажуємо гравців…" /> : tab === "list" ? <><SearchField value={search} onChange={setSearch} placeholder="Пошук за прізвищем або амплуа" />{filtered.length ? <div className="player-grid">{filtered.map((player) => { const issued = relationOne(player.uniform_requests)?.status === "issued"; return <article className="player-list-entry" key={player.id}><button className="player-card" type="button" onClick={() => setSelectedPlayer(player)}>{photoUrls[player.id] ? <Image unoptimized width={64} height={64} src={photoUrls[player.id]} alt="" /> : <span className="avatar-placeholder"><UserRound /></span>}<div><h2>{player.full_name}</h2><p>{player.birth_date ? new Date(player.birth_date).getFullYear() : player.birth_year ?? "Рік не вказано"} · {player.position || "Амплуа не вказано"}</p><Pill tone={issued ? "success" : "warning"}>{issued ? "Формою забезпечено" : "Форма не видана"}</Pill></div><ChevronRight aria-hidden="true" /></button></article>; })}</div> : <EmptyState title="Гравців не знайдено" />}</> : tab === "payments" ? <PaymentsPanel client={client} profile={profile} players={players} /> : tab === "uniform" ? <UniformPanel client={client} profile={profile} players={players} /> : selectedGroup ? <section className="panel-section"><MonthlyStarGroupPanel client={client} profile={profile} group={selectedGroup} /></section> : <EmptyState title="Групу не вибрано" />}{selectedPlayer && <PlayerDetails client={client} profile={profile} player={selectedPlayer} photoUrl={photoUrls[selectedPlayer.id]} onPhotoSaved={() => void load()} onClose={() => setSelectedPlayer(null)} />}</div>;
 }
 
 const PLAYER_PHOTO_SOURCE_LIMIT = 25 * 1024 * 1024;
@@ -69,7 +69,7 @@ const PLAYER_PHOTO_OUTPUT_LIMIT = 8 * 1024 * 1024;
 function normalizePlayerPhoto(file: File) {
   return new Promise<File>((resolve, reject) => {
     const extension = file.name.split(".").pop()?.toLocaleLowerCase("en-US") ?? "";
-    if (!file.type.startsWith("image/") && !["heic", "heif"].includes(extension)) {
+    if (!file.type.startsWith("image/") && !["jpg", "jpeg", "png", "webp", "heic", "heif"].includes(extension)) {
       reject(new Error("Оберіть файл зображення."));
       return;
     }
@@ -120,9 +120,10 @@ function normalizePlayerPhoto(file: File) {
   });
 }
 
-function PlayerPhotoEditor({ client, profile, player, groupAge, onSaved }: { client: SupabaseClient; profile: Profile; player: Player; groupAge?: number | null; onSaved: () => void | Promise<void> }) {
+function PlayerPhotoEditor({ client, profile, player, photoUrl, onSaved }: { client: SupabaseClient; profile: Profile; player: Player; photoUrl?: string; onSaved: () => void | Promise<void> }) {
   const cameraInput = useRef<HTMLInputElement>(null);
   const galleryInput = useRef<HTMLInputElement>(null);
+  const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ kind: "success" | "error"; text: string } | null>(null);
 
@@ -139,36 +140,53 @@ function PlayerPhotoEditor({ client, profile, player, groupAge, onSaved }: { cli
         bucket: "player-photos",
         ownerId: profile.id,
         groupId: player.group_id,
-        age: groupAge ?? null,
+        age: null,
         contextType: "player_photo",
       });
       const result = await client.rpc("set_player_photo", { p_player_id: player.id, p_file_asset_id: asset.id });
       if (result.error) throw result.error;
       setMessage({ kind: "success", text: "Фото гравця оновлено." });
       await onSaved();
+      setOpen(false);
     } catch (error) {
       if (asset) {
-        try { await deletePrivateFile(client, asset); } catch { /* The unattached asset remains private and can be cleaned up by an administrator. */ }
+        try {
+          await deletePrivateFile(client, asset);
+        } catch {
+          /* The unattached asset remains private and can be cleaned up by an administrator. */
+        }
       }
-      setMessage({ kind: "error", text: error instanceof Error ? error.message : "Фото не завантажено. Перевірте формат і повторіть дію." });
+      const detail = error instanceof Error ? error.message : "";
+      setMessage({
+        kind: "error",
+        text: detail.includes("row-level security")
+          ? "Фото не завантажено через обмеження доступу. Оновіть сторінку та повторіть дію."
+          : detail || "Фото не завантажено. Перевірте формат і повторіть дію.",
+      });
     } finally {
       setBusy(false);
     }
   }
 
-  return <section className="player-photo-editor" aria-label="Фото гравця">
-    <div><b>Фото гравця</b><small>Зробіть фото телефоном або виберіть готове з галереї. Зображення буде автоматично підготовлено для профілю й нагороди.</small></div>
-    <div className="player-photo-actions">
-      <input ref={cameraInput} className="sr-only" type="file" accept="image/*" capture="environment" onChange={(event) => void choosePhoto(event)} disabled={busy} />
-      <input ref={galleryInput} className="sr-only" type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif" onChange={(event) => void choosePhoto(event)} disabled={busy} />
-      <button type="button" className="primary-action" onClick={() => cameraInput.current?.click()} disabled={busy}><Camera size={17} />{busy ? "Обробляємо…" : "Сфотографувати"}</button>
-      <button type="button" className="secondary-action" onClick={() => galleryInput.current?.click()} disabled={busy}><ImagePlus size={17} />Вибрати з галереї</button>
-    </div>
-    {message && <StatusMessage kind={message.kind}>{message.text}</StatusMessage>}
-  </section>;
+  return <>
+    <button type="button" className="player-photo-trigger" onClick={() => { setMessage(null); setOpen(true); }} aria-label={photoUrl ? `Змінити фото гравця ${player.full_name}` : `Додати фото гравця ${player.full_name}`}>
+      {photoUrl ? <Image unoptimized width={112} height={112} src={photoUrl} alt={`Фото ${player.full_name}`} /> : <span className="profile-avatar"><UserRound /></span>}
+      <span className="player-photo-badge" aria-hidden="true"><Camera size={16} /></span>
+    </button>
+    {open && <Modal title="Фото гравця" onClose={() => !busy && setOpen(false)} footer={<button type="button" className="secondary-action" onClick={() => setOpen(false)} disabled={busy}>Закрити</button>}>
+      <div className="player-photo-picker">
+        <p>Зробіть фото телефоном або виберіть готове з галереї.</p>
+        <input ref={cameraInput} className="sr-only" type="file" accept="image/*" capture="environment" onChange={(event) => void choosePhoto(event)} disabled={busy} />
+        <input ref={galleryInput} className="sr-only" type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.heic,.heif" onChange={(event) => void choosePhoto(event)} disabled={busy} />
+        <button type="button" className="primary-action" onClick={() => cameraInput.current?.click()} disabled={busy}><Camera size={17} />{busy ? "Обробляємо…" : "Сфотографувати"}</button>
+        <button type="button" className="secondary-action" onClick={() => galleryInput.current?.click()} disabled={busy}><ImagePlus size={17} />Вибрати з галереї</button>
+        {message && <StatusMessage kind={message.kind}>{message.text}</StatusMessage>}
+      </div>
+    </Modal>}
+  </>;
 }
 
-export function PlayerDetails({ client, profile, player, photoUrl, groupAge, onPhotoSaved, onClose }: { client: SupabaseClient; profile?: Profile; player: Player; photoUrl?: string; groupAge?: number | null; onPhotoSaved?: () => void | Promise<void>; onClose: () => void }) {
+export function PlayerDetails({ client, profile, player, photoUrl, onPhotoSaved, onClose }: { client: SupabaseClient; profile?: Profile; player: Player; photoUrl?: string; onPhotoSaved?: () => void | Promise<void>; onClose: () => void }) {
   const [guardians, setGuardians] = useState<Guardian[]>([]);
   const [tests, setTests] = useState<Array<{ id: string; measured_on: string; metric_name: string; field_name: string; value: string; unit?: string | null }>>([]);
   const [activity, setActivity] = useState<Array<{ id: string; period: string; metric_name: string; value: string }>>([]);
@@ -224,8 +242,7 @@ export function PlayerDetails({ client, profile, player, photoUrl, groupAge, onP
   }
 
   return <Modal title={player.full_name} onClose={onClose} wide footer={<button className="primary-action" type="button" onClick={onClose}>Закрити</button>}>
-    <div className="player-profile-head">{photoUrl ? <Image unoptimized width={92} height={92} src={photoUrl} alt={`Фото ${player.full_name}`} /> : <span className="profile-avatar"><UserRound /></span>}<div><Pill tone="plum">{player.groups?.code ?? "Гравець"}</Pill><h3>{player.position || "Амплуа не вказано"}</h3><p>{player.birth_date ? formatDate(player.birth_date) : player.birth_year ? String(player.birth_year) : "Дата народження не вказана"}{player.dominant_foot ? ` · ${player.dominant_foot}` : ""}</p></div></div>
-    {profile?.role === "coach" && onPhotoSaved && <PlayerPhotoEditor client={client} profile={profile} player={player} groupAge={groupAge} onSaved={onPhotoSaved} />}
+    <div className="player-profile-head">{profile?.role === "coach" && onPhotoSaved ? <PlayerPhotoEditor client={client} profile={profile} player={player} photoUrl={photoUrl} onSaved={onPhotoSaved} /> : photoUrl ? <Image unoptimized width={92} height={92} src={photoUrl} alt={`Фото ${player.full_name}`} /> : <span className="profile-avatar"><UserRound /></span>}<div><Pill tone="plum">{player.groups?.code ?? "Гравець"}</Pill><h3>{player.position || "Амплуа не вказано"}</h3><p>{player.birth_date ? formatDate(player.birth_date) : player.birth_year ? String(player.birth_year) : "Дата народження не вказана"}{player.dominant_foot ? ` · ${player.dominant_foot}` : ""}</p></div></div>
     <section className="profile-section coach-characteristic">
       <h3>Коротка характеристика тренера</h3>
       {canEditCoachNote ? <form className="form-stack" onSubmit={saveCoachNote}>

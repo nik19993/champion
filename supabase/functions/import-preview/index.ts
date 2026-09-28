@@ -77,8 +77,52 @@ const sessionFields = [
   "session_notes",
 ];
 
+const fieldLabels: Record<string, string> = {
+  group: "Команда",
+  full_name: "ПІБ",
+  birth_year: "Рік народження",
+  player: "Гравець",
+  date: "Дата",
+  metric: "Тест або показник",
+  field: "Поле результату",
+  value: "Значення",
+  period: "Період",
+  phase: "Фаза",
+  level: "Рівень",
+  age_from: "Вік від",
+  age_to: "Вік до",
+  title: "Назва",
+  term: "Термін",
+  definition: "Визначення",
+  category: "Категорія",
+};
+
+function normalizeDate(value: string) {
+  const raw = value.trim();
+  if (!raw) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  const local = /^(\d{1,2})[.\/]([0-1]?\d)[.\/](\d{4})$/.exec(raw);
+  if (local) return `${local[3]}-${local[2].padStart(2, "0")}-${local[1].padStart(2, "0")}`;
+  const serial = Number(raw.replace(",", "."));
+  if (Number.isFinite(serial) && serial >= 1 && serial <= 100000) {
+    const excelEpoch = Date.UTC(1899, 11, 30);
+    return new Date(excelEpoch + Math.floor(serial) * 86_400_000).toISOString().slice(0, 10);
+  }
+  return raw;
+}
+
 function collectSessionMetadata(candidates: CandidateTable[]) {
   const sessions = new Map<string, Record<string, string>>();
+  const datesByGroup = new Map<string, Set<string>>();
+  function addSession(values: Record<string, string>) {
+    values.date = normalizeDate(values.date ?? "");
+    if (!values.group || !values.date) return;
+    const groupKey = values.group.toLocaleLowerCase("uk-UA");
+    sessions.set(`${groupKey}|${values.date}`, values);
+    const dates = datesByGroup.get(groupKey) ?? new Set<string>();
+    dates.add(values.date);
+    datesByGroup.set(groupKey, dates);
+  }
   for (const candidate of candidates) {
     const headerIndex = candidate.rows.slice(0, 12).findIndex((row) => {
       const headers = row.map(normalizeHeader);
@@ -94,8 +138,7 @@ function collectSessionMetadata(candidates: CandidateTable[]) {
         headers.forEach((header, index) => {
           if (header) values[header] = String(row[index] ?? "").trim();
         });
-        if (!values.group || !values.date) continue;
-        sessions.set(`${values.group.toLocaleLowerCase("uk-UA")}|${values.date}`, values);
+        addSession(values);
       }
     }
 
@@ -107,17 +150,15 @@ function collectSessionMetadata(candidates: CandidateTable[]) {
         vertical[key] = String(row[1] ?? "").trim();
       }
     }
-    if (vertical.group && vertical.date && sessionFields.some((field) => vertical[field])) {
-      sessions.set(`${vertical.group.toLocaleLowerCase("uk-UA")}|${vertical.date}`, vertical);
-    }
+    if (vertical.group && vertical.date && sessionFields.some((field) => vertical[field])) addSession(vertical);
   }
-  return sessions;
+  return { sessions, datesByGroup };
 }
 
-function rowsForDataset(candidates: CandidateTable[], dataset: Dataset) {
+function rowsForDataset(candidates: CandidateTable[], dataset: Dataset, defaultDate = "") {
   const sessionMetadata = dataset === "physical_tests"
     ? collectSessionMetadata(candidates)
-    : new Map<string, Record<string, string>>();
+    : { sessions: new Map<string, Record<string, string>>(), datesByGroup: new Map<string, Set<string>>() };
   for (const candidate of candidates) {
     const headerIndex = candidate.rows.slice(0, 12).findIndex((row) => {
       const headers = row.map(normalizeHeader);
@@ -139,9 +180,13 @@ function rowsForDataset(candidates: CandidateTable[], dataset: Dataset) {
         if (header) values[header] = String(cells[cellIndex] ?? "").trim();
       });
       if (dataset === "physical_tests") {
-        const session = sessionMetadata.get(
-          `${(values.group ?? "").toLocaleLowerCase("uk-UA")}|${values.date ?? ""}`,
-        );
+        const groupKey = (values.group ?? "").toLocaleLowerCase("uk-UA");
+        values.date = normalizeDate(values.date ?? "") || defaultDate;
+        if (!values.date) {
+          const metadataDates = [...(sessionMetadata.datesByGroup.get(groupKey) ?? [])];
+          if (metadataDates.length === 1) values.date = metadataDates[0];
+        }
+        const session = sessionMetadata.sessions.get(`${groupKey}|${values.date ?? ""}`);
         if (session) {
           for (const field of sessionFields) {
             if (!values[field] && session[field]) values[field] = session[field];
@@ -150,7 +195,7 @@ function rowsForDataset(candidates: CandidateTable[], dataset: Dataset) {
       }
       const errors = required[dataset]
         .filter((field) => !values[field])
-        .map((field) => `Не заповнено «${field}»`);
+        .map((field) => `Не заповнено «${fieldLabels[field] ?? field}»`);
       return { row_number: headerIndex + index + 2, values, errors, warnings: [], source: candidate.source };
     });
   }
@@ -158,14 +203,15 @@ function rowsForDataset(candidates: CandidateTable[], dataset: Dataset) {
 }
 
 function xlsxTables(buffer: ArrayBuffer): CandidateTable[] {
-  const workbook = XLSX.read(buffer, { type: "array", cellDates: false });
+  const workbook = XLSX.read(buffer, { type: "array", cellDates: true, dateNF: "yyyy-mm-dd" });
   return workbook.SheetNames.flatMap((name) => {
     const sheet = workbook.Sheets[name];
     if (!sheet) return [];
-    const rows = XLSX.utils.sheet_to_json<Array<string | number | boolean>>(sheet, {
+    const rows = XLSX.utils.sheet_to_json<Array<string | number | boolean | Date>>(sheet, {
       header: 1,
       defval: "",
       raw: false,
+      dateNF: "yyyy-mm-dd",
       blankrows: false,
     }).map((row) => row.map((value) => String(value ?? "").trim()));
     return [{ source: `Аркуш «${name}»`, rows }];
@@ -210,8 +256,10 @@ Deno.serve(async (request) => {
   if (request.method !== "POST") return json({ error: "METHOD_NOT_ALLOWED" }, 405);
   try {
     const { service, adminId } = await requireAdmin(request);
-    const body = await request.json() as { file_asset_id?: string; dataset?: Dataset };
+    const body = await request.json() as { file_asset_id?: string; dataset?: Dataset; default_date?: string };
     if (!body.file_asset_id || !body.dataset || !required[body.dataset]) return json({ error: "INVALID_INPUT" }, 400);
+    const defaultDate = normalizeDate(body.default_date ?? "");
+    if (body.default_date && !/^\d{4}-\d{2}-\d{2}$/.test(defaultDate)) return json({ error: "INVALID_DEFAULT_DATE" }, 400);
     const assetResult = await service.from("file_assets").select("id, owner_id, bucket, object_path, mime_type, size_bytes, scan_status").eq("id", body.file_asset_id).single();
     const asset = assetResult.data;
     if (assetResult.error || !asset || asset.owner_id !== adminId || asset.bucket !== "imports" || asset.scan_status !== "clean" || ![xlsxMime, docxMime].includes(asset.mime_type) || asset.size_bytes > 10 * 1024 * 1024) return json({ error: "FILE_REJECTED" }, 400);
@@ -220,7 +268,7 @@ Deno.serve(async (request) => {
     const buffer = await download.data.arrayBuffer();
     const candidates = asset.mime_type === xlsxMime ? xlsxTables(buffer) : await docxTables(buffer);
     if (!candidates.length) return json({ error: asset.mime_type === xlsxMime ? "EMPTY_WORKBOOK" : "NO_TABLES_IN_DOCX" }, 400);
-    return json({ rows: rowsForDataset(candidates, body.dataset), format: asset.mime_type === xlsxMime ? "xlsx" : "docx" });
+    return json({ rows: rowsForDataset(candidates, body.dataset, defaultDate), format: asset.mime_type === xlsxMime ? "xlsx" : "docx" });
   } catch (error) {
     const code = error instanceof Error ? error.message : "SERVER_ERROR";
     const status = code === "UNAUTHORIZED" ? 401 : code === "FORBIDDEN" || code === "MFA_REQUIRED" ? 403 : code === "ROW_LIMIT_EXCEEDED" ? 413 : code === "SERVER_ERROR" ? 500 : 400;

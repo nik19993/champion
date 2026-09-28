@@ -1,11 +1,11 @@
 "use client";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { CalendarPlus, Check, ChevronLeft, ChevronRight, Clock3, FileText, MapPin, Paperclip, Plus, Repeat2, Trash2, Users } from "lucide-react";
+import { CalendarPlus, Check, ChevronLeft, ChevronRight, Clock3, FileText, MapPin, Paperclip, Plus, Repeat2, ShieldAlert, Trash2, Users } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EmptyState, GroupSelect, LoadingState, Modal, Pill, StatusMessage, WorkspaceHeader } from "@/components/common/workspace-ui";
 import { BehaviorCardAction, MonthlyStarThemeBanner } from "@/components/star/monthly-star";
-import { combineLocalDateTime, EVENT_LABELS, formatDate, formatDateTime, formatTime, kyivDateKey, safeError, toDateInput } from "@/lib/domain/format";
+import { combineKyivDateTime, EVENT_LABELS, formatDate, formatDateTime, formatTime, kyivDateKey, kyivMonthBounds, safeError, toKyivDateInput, toKyivTimeInput } from "@/lib/domain/format";
 import type { Announcement, EventItem, FileAsset, GroupSummary, MethodologyTask, Profile, Venue } from "@/lib/domain/types";
 import { enqueueAttendance, persistAttendance, type AttendanceQueueItem } from "@/lib/offline/attendance-queue";
 import { openPrivateFile, uploadPrivateFile } from "@/lib/supabase/files";
@@ -18,6 +18,10 @@ type OrganizationalNeedOption = typeof ORGANIZATIONAL_NEED_OPTIONS[number];
 
 function supportsOrganizationalNeeds(eventType: EventItem["event_type"]) {
   return eventType === "oblast" || eventType === "ukraine" || eventType === "tournament";
+}
+
+function supportsBehaviorCards(eventType: EventItem["event_type"]) {
+  return eventType === "training";
 }
 
 function parseOrganizationalNeeds(value?: string | null) {
@@ -46,8 +50,12 @@ function serializeOrganizationalNeeds(selected: OrganizationalNeedOption[], othe
 }
 
 function startOfMonth(date: Date) { return new Date(date.getFullYear(), date.getMonth(), 1); }
-function endOfMonth(date: Date) { return new Date(date.getFullYear(), date.getMonth() + 1, 1); }
-function sameDay(a: Date, b: Date) { return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate(); }
+function plainDateKey(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
 
 function attendanceSessions(event: EventItem) {
   const value = event.attendance_sessions;
@@ -66,7 +74,7 @@ function calendarCells(month: Date) {
 
 export function CoachPlan({ client, profile, groups }: Props) {
   const [selectedGroupId, setSelectedGroupId] = useState(groups[0]?.id ?? "");
-  const [month, setMonth] = useState(() => startOfMonth(new Date()));
+  const [month, setMonth] = useState(() => startOfMonth(new Date(`${kyivDateKey(new Date())}T12:00:00`)));
   const [events, setEvents] = useState<EventItem[]>([]);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [venues, setVenues] = useState<Venue[]>([]);
@@ -75,6 +83,7 @@ export function CoachPlan({ client, profile, groups }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [eventMode, setEventMode] = useState<EventMode | null>(null);
   const [attendanceEvent, setAttendanceEvent] = useState<EventItem | null>(null);
+  const [behaviorEvent, setBehaviorEvent] = useState<EventItem | null>(null);
   const [openedAt] = useState(() => Date.now());
 
   useEffect(() => {
@@ -87,8 +96,9 @@ export function CoachPlan({ client, profile, groups }: Props) {
     setLoading(true);
     setError(null);
     const today = new Date();
-    const selectedStart = startOfMonth(month);
-    const selectedEnd = endOfMonth(month);
+    const selectedBounds = kyivMonthBounds(month);
+    const selectedStart = new Date(selectedBounds.start);
+    const selectedEnd = new Date(selectedBounds.end);
     const overdueStart = new Date(today); overdueStart.setDate(today.getDate() - 45);
     const rangeStart = new Date(Math.min(selectedStart.getTime(), overdueStart.getTime()));
     const tomorrow = new Date(today); tomorrow.setDate(today.getDate() + 2);
@@ -114,10 +124,12 @@ export function CoachPlan({ client, profile, groups }: Props) {
 
   useEffect(() => { void load(); }, [load]);
 
-  const todayEvents = useMemo(() => events.filter((event) => sameDay(new Date(event.start_at), new Date())), [events]);
-  const unfinished = useMemo(() => events.filter((event) => event.event_type === "training" && new Date(event.start_at).getTime() < openedAt && !attendanceSessions(event).some((session) => session.completed_at)), [events, openedAt]);
+  const todayKey = kyivDateKey(new Date());
+  const todayEvents = useMemo(() => events.filter((event) => kyivDateKey(event.start_at) === todayKey), [events, todayKey]);
+  const unfinished = useMemo(() => events.filter((event) => new Date(event.start_at).getTime() < openedAt && !attendanceSessions(event).some((session) => session.completed_at)), [events, openedAt]);
   const selectedGroup = groups.find((group) => group.id === selectedGroupId) ?? groups[0];
-  const monthEvents = useMemo(() => events.filter((event) => event.group_id === selectedGroupId && new Date(event.start_at) >= startOfMonth(month) && new Date(event.start_at) < endOfMonth(month)), [events, selectedGroupId, month]);
+  const monthKey = plainDateKey(month).slice(0, 7);
+  const monthEvents = useMemo(() => events.filter((event) => event.group_id === selectedGroupId && kyivDateKey(event.start_at).startsWith(monthKey)), [events, selectedGroupId, monthKey]);
 
   async function acknowledge(id: string) {
     const result = await client.from("announcement_reads").upsert({ announcement_id: id, profile_id: profile.id, read_at: new Date().toISOString() }, { onConflict: "announcement_id,profile_id" });
@@ -128,7 +140,7 @@ export function CoachPlan({ client, profile, groups }: Props) {
   if (!groups.length) return <><WorkspaceHeader title="План" description="Події, присутність і календар" /><EmptyState title="Команди ще не призначені">Адміністратор має призначити вам щонайменше одну команду.</EmptyState></>;
 
   return <div className="workspace-stack">
-    <WorkspaceHeader eyebrow="Робочий день" title="План" description="Події всіх ваших команд і календар вибраної команди" actions={<button className="primary-action" type="button" onClick={() => setEventMode({ kind: "create", date: toDateInput(new Date()) })}><CalendarPlus size={18} />Запланувати</button>} />
+    <WorkspaceHeader eyebrow="Робочий день" title="План" description="Події всіх ваших команд і календар вибраної команди" actions={<button className="primary-action" type="button" onClick={() => setEventMode({ kind: "create", date: toKyivDateInput(new Date()) })}><CalendarPlus size={18} />Запланувати</button>} />
     {error && <StatusMessage kind="error">{error}</StatusMessage>}
     <MonthlyStarThemeBanner client={client} />
     {announcements.length > 0 && <section className="announcement-list" aria-label="Оголошення адміністратора">{announcements.map((announcement) => <article key={announcement.id} className="announcement-card"><div><Pill tone="plum">Оголошення</Pill><h2>{announcement.title}</h2><p>{announcement.body}</p>{announcement.ends_at && <small>До {formatDate(announcement.ends_at)}</small>}</div>{announcement.require_acknowledgement && !(announcement.announcement_reads ?? []).length && <button type="button" className="secondary-action" onClick={() => void acknowledge(announcement.id)}><Check size={17} />Ознайомився</button>}</article>)}</section>}
@@ -139,9 +151,10 @@ export function CoachPlan({ client, profile, groups }: Props) {
 
     <section className="panel-section calendar-panel"><div className="section-title-row calendar-tools"><div><p className="eyebrow">Планування окремої команди</p><h2>Моя команда</h2></div><GroupSelect groups={groups} value={selectedGroupId} onChange={setSelectedGroupId} /></div><div className="month-switcher"><button type="button" aria-label="Попередній місяць" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))}><ChevronLeft /></button><strong>{new Intl.DateTimeFormat("uk-UA", { month: "long", year: "numeric" }).format(month)}</strong><button type="button" aria-label="Наступний місяць" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))}><ChevronRight /></button></div><Calendar month={month} events={monthEvents} onCreate={(date) => setEventMode({ kind: "create", date })} onEdit={(event) => setEventMode({ kind: "edit", event })} /></section>
 
-    {eventMode?.kind === "view" && eventMode.event && <EventDetails client={client} event={eventMode.event} onClose={() => setEventMode(null)} onAttendance={() => { setAttendanceEvent(eventMode.event ?? null); setEventMode(null); }} />}
-    {(eventMode?.kind === "create" || eventMode?.kind === "edit") && <EventEditor key={`${eventMode.kind}:${eventMode.event?.id ?? eventMode.date ?? "new"}`} client={client} profile={profile} group={selectedGroup} event={eventMode.event} isCreating={eventMode.kind === "create"} initialDate={eventMode.date} venues={venues} tasks={tasks.filter((task) => selectedGroup?.age != null && task.age_from <= selectedGroup.age && task.age_to >= selectedGroup.age)} onClose={() => setEventMode(null)} onCreateSimilar={(source) => setEventMode({ kind: "create", event: source, date: toDateInput(new Date()) })} onSaved={() => { setEventMode(null); void load(); }} onAttendance={(event) => { setEventMode(null); setAttendanceEvent(event); }} />}
+    {eventMode?.kind === "view" && eventMode.event && <EventDetails client={client} event={eventMode.event} onClose={() => setEventMode(null)} onAttendance={() => { setAttendanceEvent(eventMode.event ?? null); setEventMode(null); }} onBehaviorCards={() => { setBehaviorEvent(eventMode.event ?? null); setEventMode(null); }} />}
+    {(eventMode?.kind === "create" || eventMode?.kind === "edit") && <EventEditor key={`${eventMode.kind}:${eventMode.event?.id ?? eventMode.date ?? "new"}`} client={client} profile={profile} group={selectedGroup} event={eventMode.event} isCreating={eventMode.kind === "create"} initialDate={eventMode.date} venues={venues} tasks={tasks.filter((task) => selectedGroup?.age != null && task.age_from <= selectedGroup.age && task.age_to >= selectedGroup.age)} onClose={() => setEventMode(null)} onCreateSimilar={(source) => setEventMode({ kind: "create", event: source, date: toKyivDateInput(new Date()) })} onSaved={() => { setEventMode(null); void load(); }} onAttendance={(event) => { setEventMode(null); setAttendanceEvent(event); }} onBehaviorCards={(event) => { setEventMode(null); setBehaviorEvent(event); }} />}
     {attendanceEvent && <AttendanceModal client={client} profile={profile} event={attendanceEvent} onClose={() => setAttendanceEvent(null)} onSaved={() => { setAttendanceEvent(null); void load(); }} />}
+    {behaviorEvent && <BehaviorCardsModal client={client} profile={profile} event={behaviorEvent} onClose={() => setBehaviorEvent(null)} />}
   </div>;
 }
 
@@ -153,13 +166,14 @@ function Calendar({ month, events, onCreate, onEdit }: { month: Date; events: Ev
   const cells = calendarCells(month);
   return <div className="calendar-wrap"><div className="calendar-weekdays">{["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд"].map((day) => <span key={day}>{day}</span>)}</div><div className="calendar-grid">{cells.map((date, index) => {
     if (!date) return <div className="calendar-day empty" key={`empty-${index}`} />;
-    const dayEvents = events.filter((event) => sameDay(new Date(event.start_at), date));
-    const isToday = sameDay(date, new Date());
-    return <div className={`calendar-day${isToday ? " today" : ""}`} key={date.toISOString()}><div className="calendar-date-row"><span>{date.getDate()}</span><button type="button" className="calendar-plus" aria-label={`Додати подію ${formatDate(date)}`} onClick={() => onCreate(toDateInput(date))}><Plus /></button></div><div className="calendar-events">{dayEvents.map((event) => <button type="button" className={`calendar-event ${event.event_type}`} key={event.id} onClick={() => onEdit(event)}><b>{formatTime(event.start_at)}</b><span>{EVENT_LABELS[event.event_type]}</span><small>{event.groups?.code}</small></button>)}</div></div>;
+    const dateKey = plainDateKey(date);
+    const dayEvents = events.filter((event) => kyivDateKey(event.start_at) === dateKey);
+    const isToday = dateKey === kyivDateKey(new Date());
+    return <div className={`calendar-day${isToday ? " today" : ""}`} key={dateKey}><div className="calendar-date-row"><span>{date.getDate()}</span><button type="button" className="calendar-plus" aria-label={`Додати подію ${formatDate(`${dateKey}T12:00:00Z`)}`} onClick={() => onCreate(dateKey)}><Plus /></button></div><div className="calendar-events">{dayEvents.map((event) => <button type="button" className={`calendar-event ${event.event_type}`} key={event.id} onClick={() => onEdit(event)}><b>{formatTime(event.start_at)}</b><span>{EVENT_LABELS[event.event_type]}</span><small>{event.groups?.code}</small></button>)}</div></div>;
   })}</div></div>;
 }
 
-function EventDetails({ client, event, onClose, onAttendance }: { client: SupabaseClient; event: EventItem; onClose: () => void; onAttendance: () => void }) {
+function EventDetails({ client, event, onClose, onAttendance, onBehaviorCards }: { client: SupabaseClient; event: EventItem; onClose: () => void; onAttendance: () => void; onBehaviorCards: () => void }) {
   const [assets, setAssets] = useState<FileAsset[]>([]);
   useEffect(() => {
     let active = true;
@@ -175,13 +189,17 @@ function EventDetails({ client, event, onClose, onAttendance }: { client: Supaba
     });
     return () => { active = false; };
   }, [client, event.id, event.task_id]);
-  return <Modal title={`${EVENT_LABELS[event.event_type]} · ${event.groups?.code ?? ""}`} onClose={onClose} footer={<><button type="button" className="secondary-action" onClick={onClose}>Закрити</button>{event.event_type === "training" && <button type="button" className="primary-action" onClick={onAttendance}><Users size={18} />Присутність</button>}</>}><div className="detail-list"><div><Clock3 /><span><b>{formatDateTime(event.start_at)}</b><small>{event.duration_minutes} хвилин</small></span></div><div><MapPin /><span><b>{event.venues?.name ?? "Майданчик не вказано"}</b></span></div><div><FileText /><span><b>{event.groups?.group_kind === "goalkeeper" ? "Завдання заняття" : "Навчальне завдання"}</b><small>{event.methodology_tasks?.title ?? event.title ?? "Не вибрано"}</small></span></div></div>{event.notes && <div className="text-block"><h3>Уточнення тренера</h3><p>{event.notes}</p></div>}{event.organizational_need && <div className="text-block"><h3>Організаційні потреби</h3><p>{event.organizational_need}</p></div>}<div className="text-block"><h3>Матеріали</h3>{assets.length ? <div className="file-list">{assets.map((asset) => <button type="button" key={asset.id} onClick={() => void openPrivateFile(client, asset)}><Paperclip size={17} /><span>{asset.original_name}</span></button>)}</div> : <p className="muted">Документів немає.</p>}</div></Modal>;
+  const footer = <div className="event-tracking-actions">
+    <button type="button" className="primary-action" onClick={onAttendance}><Users size={18} />Присутність</button>
+    {supportsBehaviorCards(event.event_type) && <button type="button" className="warning-action" onClick={onBehaviorCards}><ShieldAlert size={18} />Жовті картки</button>}
+  </div>;
+  return <Modal title={`${EVENT_LABELS[event.event_type]} · ${event.groups?.code ?? ""}`} onClose={onClose} footer={footer}><div className="detail-list"><div><Clock3 /><span><b>{formatDateTime(event.start_at)}</b><small>{event.duration_minutes} хвилин · час за Києвом</small></span></div><div><MapPin /><span><b>{event.venues?.name ?? "Майданчик не вказано"}</b></span></div><div><FileText /><span><b>{event.groups?.group_kind === "goalkeeper" ? "Завдання заняття" : "Навчальне завдання"}</b><small>{event.methodology_tasks?.title ?? event.title ?? "Не вибрано"}</small></span></div></div>{event.notes && <div className="text-block"><h3>Уточнення тренера</h3><p>{event.notes}</p></div>}{event.organizational_need && <div className="text-block"><h3>Організаційні потреби</h3><p>{event.organizational_need}</p></div>}<div className="text-block"><h3>Матеріали</h3>{assets.length ? <div className="file-list">{assets.map((asset) => <button type="button" key={asset.id} onClick={() => void openPrivateFile(client, asset)}><Paperclip size={17} /><span>{asset.original_name}</span></button>)}</div> : <p className="muted">Документів немає.</p>}</div></Modal>;
 }
 
-function EventEditor({ client, profile, group, event, isCreating, initialDate, venues, tasks, onClose, onCreateSimilar, onSaved, onAttendance }: { client: SupabaseClient; profile: Profile; group?: GroupSummary; event?: EventItem; isCreating: boolean; initialDate?: string; venues: Venue[]; tasks: MethodologyTask[]; onClose: () => void; onCreateSimilar: (event: EventItem) => void; onSaved: () => void; onAttendance: (event: EventItem) => void }) {
+function EventEditor({ client, profile, group, event, isCreating, initialDate, venues, tasks, onClose, onCreateSimilar, onSaved, onAttendance, onBehaviorCards }: { client: SupabaseClient; profile: Profile; group?: GroupSummary; event?: EventItem; isCreating: boolean; initialDate?: string; venues: Venue[]; tasks: MethodologyTask[]; onClose: () => void; onCreateSimilar: (event: EventItem) => void; onSaved: () => void; onAttendance: (event: EventItem) => void; onBehaviorCards: (event: EventItem) => void }) {
   const [eventType, setEventType] = useState<EventItem["event_type"]>(event?.event_type ?? "training");
-  const [date, setDate] = useState(isCreating && initialDate ? initialDate : event ? toDateInput(event.start_at) : toDateInput(new Date()));
-  const [time, setTime] = useState(event ? new Date(event.start_at).toTimeString().slice(0, 5) : "17:00");
+  const [date, setDate] = useState(isCreating && initialDate ? initialDate : event ? toKyivDateInput(event.start_at) : toKyivDateInput(new Date()));
+  const [time, setTime] = useState(event ? toKyivTimeInput(event.start_at) : "17:00");
   const [duration, setDuration] = useState(event?.duration_minutes ?? 75);
   const [venueId, setVenueId] = useState(event?.venue_id ?? venues[0]?.id ?? "");
   const [taskId, setTaskId] = useState(event?.task_id ?? "");
@@ -197,7 +215,6 @@ function EventEditor({ client, profile, group, event, isCreating, initialDate, v
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const conflictNoticeRef = useRef<HTMLDivElement>(null);
-  const [openedAt] = useState(() => Date.now());
   const isConflict = message?.startsWith("Конфлікт:") ?? false;
 
   useEffect(() => {
@@ -220,7 +237,7 @@ function EventEditor({ client, profile, group, event, isCreating, initialDate, v
     if (!group) return;
     setBusy(true); setMessage(null);
     const creating = isCreating || !event;
-    const nextStart = combineLocalDateTime(date, time);
+    const nextStart = combineKyivDateTime(date, time);
     const rescheduled = !creating && !!event && new Date(nextStart).getTime() !== new Date(event.start_at).getTime();
     const organizationalNeed = supportsOrganizationalNeeds(eventType) ? serializeOrganizationalNeeds(selectedNeeds, otherNeed) : "";
     const payload = {
@@ -290,91 +307,153 @@ function EventEditor({ client, profile, group, event, isCreating, initialDate, v
   }
 
   const footer = <><button type="button" className="secondary-action" onClick={onClose}>Скасувати</button>{event && !isCreating && <button type="button" className="danger-action" onClick={() => void remove()} disabled={busy}><Trash2 size={17} />Видалити</button>}{event && !isCreating && <button type="button" className="secondary-action" onClick={() => onCreateSimilar(event)} disabled={busy}><Repeat2 size={17} />Створити подібне</button>}<button form="event-form" className="primary-action" disabled={busy}>{busy ? "Збереження…" : isCreating ? "Створити подію" : "Зберегти зміни"}</button></>;
-  return <Modal title={event && !isCreating ? `Редагування · ${group?.code ?? ""}` : `Нова подія · ${group?.code ?? ""}`} onClose={onClose} wide footer={footer}><form id="event-form" className="form-grid" onSubmit={save}>{message && <div ref={conflictNoticeRef} className={`span-2${isConflict ? " conflict-notice" : ""}`} tabIndex={isConflict ? -1 : undefined}><StatusMessage kind={isConflict ? "error" : "warning"}>{message}</StatusMessage></div>}<label><span>Тип події</span><select value={eventType} onChange={(e) => setEventType(e.target.value as EventItem["event_type"])}>{Object.entries(EVENT_LABELS).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label><label><span>Дата</span><input type="date" value={date} onChange={(e) => setDate(e.target.value)} required /></label><label><span>Час</span><input type="time" value={time} onChange={(e) => setTime(e.target.value)} required /></label><label><span>Тривалість, хв</span><input type="number" min={15} max={360} value={duration} onChange={(e) => setDuration(Number(e.target.value))} required /></label><label className="span-2"><span>Поле або майданчик</span><select value={venueId} onChange={(e) => setVenueId(e.target.value)}><option value="">Не вказано</option>{venues.map((venue) => <option key={venue.id} value={venue.id}>{venue.name}</option>)}</select></label>{eventType === "training" && <>{group?.group_kind === "goalkeeper" ? <label className="span-2"><span>Завдання заняття</span><input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Наприклад, гра на виходах" /></label> : <label className="span-2"><span>Навчальне завдання</span><select value={taskId} onChange={(e) => setTaskId(e.target.value)}><option value="">Не вибрано</option>{tasks.map((task) => <option key={task.id} value={task.id}>{task.title}</option>)}</select>{taskId && <small className="field-hint">Ця команда вже використовувала завдання {usageCount} разів.</small>}</label>}<label className="span-2"><span>Документ із вправами</span><input type="file" accept=".pdf,.docx,.jpg,.jpeg,.png" disabled={group?.group_kind !== "goalkeeper" && !taskId} onChange={(e) => setFile(e.target.files?.[0] ?? null)} />{group?.group_kind !== "goalkeeper" && !taskId && <small className="field-hint">Спочатку виберіть навчальне завдання.</small>}</label></>}<label className="span-2"><span>Уточнення тренера</span><textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} /></label>{supportsOrganizationalNeeds(eventType) && <fieldset className="span-2 organizational-needs"><legend>Організаційні потреби</legend><p>Позначте все, що потрібно підготувати для цієї події.</p><div className="checkbox-grid">{ORGANIZATIONAL_NEED_OPTIONS.map((option) => <label className="check-field" key={option}><input type="checkbox" checked={selectedNeeds.includes(option)} onChange={(input) => setSelectedNeeds((current) => input.target.checked ? [...current, option] : current.filter((item) => item !== option))} /><span>{option}</span></label>)}</div>{selectedNeeds.includes("Інше") && <label className="other-need"><span>Уточніть іншу потребу</span><input value={otherNeed} onChange={(input) => setOtherNeed(input.target.value)} required /></label>}</fieldset>}<label className="span-2"><span>Додатковий коментар</span><textarea value={comment} onChange={(e) => setComment(e.target.value)} rows={2} /></label><label className="check-field span-2"><input type="checkbox" checked={needsSubstitute} onChange={(e) => setNeedsSubstitute(e.target.checked)} /><span>Потрібна заміна тренера</span></label>{event && event.event_type === "training" && new Date(event.start_at).getTime() < openedAt && <div className="span-2"><button type="button" className="secondary-action" onClick={() => onAttendance(event)}><Users size={18} />Відмітити присутність</button></div>}</form></Modal>;
+  return <Modal title={event && !isCreating ? `Редагування · ${group?.code ?? ""}` : `Нова подія · ${group?.code ?? ""}`} onClose={onClose} wide footer={footer}><form id="event-form" className="form-grid" onSubmit={save}>{message && <div ref={conflictNoticeRef} className={`span-2${isConflict ? " conflict-notice" : ""}`} tabIndex={isConflict ? -1 : undefined}><StatusMessage kind={isConflict ? "error" : "warning"}>{message}</StatusMessage></div>}<label><span>Тип події</span><select value={eventType} onChange={(e) => setEventType(e.target.value as EventItem["event_type"])}>{Object.entries(EVENT_LABELS).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label><label><span>Дата</span><input type="date" value={date} onChange={(e) => setDate(e.target.value)} required /></label><label><span>Час (Київ)</span><input type="time" value={time} onChange={(e) => setTime(e.target.value)} required /></label><label><span>Тривалість, хв</span><input type="number" min={15} max={360} value={duration} onChange={(e) => setDuration(Number(e.target.value))} required /></label><label className="span-2"><span>Поле або майданчик</span><select value={venueId} onChange={(e) => setVenueId(e.target.value)}><option value="">Не вказано</option>{venues.map((venue) => <option key={venue.id} value={venue.id}>{venue.name}</option>)}</select></label>{eventType === "training" && <>{group?.group_kind === "goalkeeper" ? <label className="span-2"><span>Завдання заняття</span><input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Наприклад, гра на виходах" /></label> : <label className="span-2"><span>Навчальне завдання</span><select value={taskId} onChange={(e) => setTaskId(e.target.value)}><option value="">Не вибрано</option>{tasks.map((task) => <option key={task.id} value={task.id}>{task.title}</option>)}</select>{taskId && <small className="field-hint">Ця команда вже використовувала завдання {usageCount} разів.</small>}</label>}<label className="span-2"><span>Документ із вправами</span><input type="file" accept=".pdf,.docx,.jpg,.jpeg,.png" disabled={group?.group_kind !== "goalkeeper" && !taskId} onChange={(e) => setFile(e.target.files?.[0] ?? null)} />{group?.group_kind !== "goalkeeper" && !taskId && <small className="field-hint">Спочатку виберіть навчальне завдання.</small>}</label></>}<label className="span-2"><span>Уточнення тренера</span><textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} /></label>{supportsOrganizationalNeeds(eventType) && <fieldset className="span-2 organizational-needs"><legend>Організаційні потреби</legend><p>Позначте все, що потрібно підготувати для цієї події.</p><div className="checkbox-grid">{ORGANIZATIONAL_NEED_OPTIONS.map((option) => <label className="check-field" key={option}><input type="checkbox" checked={selectedNeeds.includes(option)} onChange={(input) => setSelectedNeeds((current) => input.target.checked ? [...current, option] : current.filter((item) => item !== option))} /><span>{option}</span></label>)}</div>{selectedNeeds.includes("Інше") && <label className="other-need"><span>Уточніть іншу потребу</span><input value={otherNeed} onChange={(input) => setOtherNeed(input.target.value)} required /></label>}</fieldset>}<label className="span-2"><span>Додатковий коментар</span><textarea value={comment} onChange={(e) => setComment(e.target.value)} rows={2} /></label><label className="check-field span-2"><input type="checkbox" checked={needsSubstitute} onChange={(e) => setNeedsSubstitute(e.target.checked)} /><span>Потрібна заміна тренера</span></label>{event && !isCreating && <div className="span-2 event-tracking-actions"><button type="button" className="primary-action" onClick={() => onAttendance(event)}><Users size={18} />Присутність</button>{supportsBehaviorCards(event.event_type) && <button type="button" className="warning-action" onClick={() => onBehaviorCards(event)}><ShieldAlert size={18} />Жовті картки</button>}</div>}</form></Modal>;
 }
 
 function AttendanceModal({ client, profile, event, onClose, onSaved }: { client: SupabaseClient; profile: Profile; event: EventItem; onClose: () => void; onSaved: () => void }) {
   const [players, setPlayers] = useState<Array<{ id: string; full_name: string }>>([]);
-  const [records, setRecords] = useState<Record<string, { status: "present" | "absent"; note: string }>>({});
-  const [cardedPlayerIds, setCardedPlayerIds] = useState<Set<string>>(new Set());
+  const [records, setRecords] = useState<Record<string, "present" | "absent">>({});
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+
   useEffect(() => {
     let active = true;
     void Promise.all([
       client.from("players").select("id, full_name").eq("group_id", event.group_id).eq("is_active", true).order("full_name"),
-      client.from("attendance_sessions").select("id, attendance_records(player_id, status, note)").eq("event_id", event.id).maybeSingle(),
-      client.from("player_behavior_cards").select("player_id").eq("event_id", event.id).eq("is_voided", false),
-    ]).then(([playerResult, sessionResult, cardResult]) => {
+      client.from("attendance_sessions").select("id, attendance_records(player_id, status)").eq("event_id", event.id).maybeSingle(),
+    ]).then(([playerResult, sessionResult]) => {
       if (!active) return;
       const list = (playerResult.data ?? []) as Array<{ id: string; full_name: string }>;
-      const existing = ((sessionResult.data as unknown as { attendance_records?: Array<{ player_id: string; status: "present" | "absent"; note?: string | null }> } | null)?.attendance_records ?? []);
-      const initial: Record<string, { status: "present" | "absent"; note: string }> = {};
-      for (const player of list) { const row = existing.find((item) => item.player_id === player.id); initial[player.id] = { status: row?.status ?? "present", note: row?.note ?? "" }; }
+      const existing = ((sessionResult.data as unknown as { attendance_records?: Array<{ player_id: string; status: "present" | "absent" }> } | null)?.attendance_records ?? []);
+      const initial: Record<string, "present" | "absent"> = {};
+      for (const player of list) {
+        initial[player.id] = existing.find((item) => item.player_id === player.id)?.status ?? "present";
+      }
       setPlayers(list);
       setRecords(initial);
-      setCardedPlayerIds(new Set((cardResult.data ?? []).map((card) => card.player_id as string)));
-      if (playerResult.error || sessionResult.error || cardResult.error) setMessage("Частину попередніх відміток не вдалося завантажити. Перевірте список перед збереженням.");
+      if (playerResult.error || sessionResult.error) {
+        setMessage("Попередні відмітки завантажено не повністю. Перевірте список перед збереженням.");
+      }
       setLoading(false);
     });
     return () => { active = false; };
   }, [client, event.group_id, event.id]);
 
-  function setStatus(playerId: string, status: "present" | "absent") {
-    setRecords((value) => ({
-      ...value,
-      [playerId]: { ...value[playerId], status, note: status === "present" ? "" : value[playerId]?.note ?? "" },
-    }));
-  }
-
   function markAllPresent() {
-    setRecords((value) => Object.fromEntries(players.map((player) => [player.id, { ...value[player.id], status: "present", note: "" }])));
+    setRecords(Object.fromEntries(players.map((player) => [player.id, "present"])));
   }
 
   async function save() {
-    setBusy(true); setMessage(null);
-    const item: AttendanceQueueItem = { idempotencyKey: crypto.randomUUID(), eventId: event.id, completedBy: profile.id, createdAt: new Date().toISOString(), records: players.map((player) => ({ player_id: player.id, ...records[player.id] })) };
+    setBusy(true);
+    setMessage(null);
+    const item: AttendanceQueueItem = {
+      idempotencyKey: crypto.randomUUID(),
+      eventId: event.id,
+      completedBy: profile.id,
+      createdAt: new Date().toISOString(),
+      records: players.map((player) => ({
+        player_id: player.id,
+        status: records[player.id] ?? "present",
+        note: "",
+      })),
+    };
     if (!navigator.onLine) {
-      try { await enqueueAttendance(item); setMessage("Збережено офлайн. Дані синхронізуються після відновлення мережі."); window.setTimeout(onSaved, 800); }
-      catch { setMessage("Не вдалося створити офлайн-чергу на цьому пристрої. Не закривайте вікно та повторіть після відновлення мережі."); }
-      setBusy(false); return;
+      try {
+        await enqueueAttendance(item);
+        setMessage("Збережено офлайн. Дані синхронізуються після відновлення мережі.");
+        window.setTimeout(onSaved, 800);
+      } catch {
+        setMessage("Не вдалося створити офлайн-чергу. Не закривайте вікно та повторіть після відновлення мережі.");
+      }
+      setBusy(false);
+      return;
     }
-    try { await persistAttendance(client, item); setBusy(false); onSaved(); }
-    catch {
-      try { await enqueueAttendance(item); setMessage("Сервер недоступний. Присутність безпечно додано до черги синхронізації."); window.setTimeout(onSaved, 1000); }
-      catch { setMessage("Сервер і офлайн-черга недоступні. Дані не втрачено на екрані — повторіть збереження після відновлення мережі."); }
+    try {
+      await persistAttendance(client, item);
+      setBusy(false);
+      onSaved();
+    } catch {
+      try {
+        await enqueueAttendance(item);
+        setMessage("Сервер недоступний. Присутність безпечно додано до черги синхронізації.");
+        window.setTimeout(onSaved, 1000);
+      } catch {
+        setMessage("Сервер і офлайн-черга недоступні. Дані залишилися на екрані — повторіть збереження після відновлення мережі.");
+      }
       setBusy(false);
     }
   }
 
-  const presentCount = Object.values(records).filter((record) => record.status === "present").length;
+  const presentCount = Object.values(records).filter((status) => status === "present").length;
   const absentCount = Math.max(0, players.length - presentCount);
 
-  return <Modal title={`Присутність і картки · ${event.groups?.code ?? ""}`} onClose={onClose} wide footer={<><button className="secondary-action" type="button" onClick={onClose}>Скасувати</button><button className="primary-action" type="button" onClick={() => void save()} disabled={busy || loading}>{busy ? "Збереження…" : "Зберегти присутність"}</button></>}>
+  return <Modal title={`Присутність · ${event.groups?.code ?? ""}`} onClose={onClose} wide footer={<><button className="secondary-action" type="button" onClick={onClose}>Скасувати</button><button className="primary-action" type="button" onClick={() => void save()} disabled={busy || loading}>{busy ? "Збереження…" : "Зберегти присутність"}</button></>}>
     {loading ? <LoadingState /> : players.length ? <div className="attendance-list">
       <div className="attendance-help">
-        <div><b>Відмітьте кожного гравця</b><p>Виберіть «Присутній» або «Відсутній». Жовта картка доступна тут один раз для кожного гравця в цій події.</p></div>
+        <div><b>Відмітьте кожного гравця</b><p>Присутність можна зберегти до початку, на початку або після події.</p></div>
         <div className="attendance-summary"><Pill tone="teal">{presentCount} присутні</Pill><Pill tone={absentCount ? "warning" : "neutral"}>{absentCount} відсутні</Pill></div>
         <button className="secondary-action small" type="button" onClick={markAllPresent}><Check size={16} />Усі присутні</button>
       </div>
       {players.map((player) => {
-        const record = records[player.id] ?? { status: "present" as const, note: "" };
-        const hasCard = cardedPlayerIds.has(player.id);
-        return <article className={`attendance-row ${record.status}`} key={player.id}>
-          <div className="attendance-player-name"><b>{player.full_name}</b><small>{record.status === "present" ? "На занятті" : "Не був на занятті"}</small></div>
+        const status = records[player.id] ?? "present";
+        return <article className={`attendance-row ${status}`} key={player.id}>
+          <div className="attendance-player-name"><b>{player.full_name}</b><small>{status === "present" ? "Присутній" : "Відсутній"}</small></div>
           <div className="attendance-status-choice" role="group" aria-label={`Присутність · ${player.full_name}`}>
-            <button type="button" className={record.status === "present" ? "selected present" : ""} aria-pressed={record.status === "present"} onClick={() => setStatus(player.id, "present")}><Check size={16} />Присутній</button>
-            <button type="button" className={record.status === "absent" ? "selected absent" : ""} aria-pressed={record.status === "absent"} onClick={() => setStatus(player.id, "absent")}>Відсутній</button>
+            <button type="button" className={status === "present" ? "selected present" : ""} aria-pressed={status === "present"} onClick={() => setRecords((value) => ({ ...value, [player.id]: "present" }))}><Check size={16} />Присутній</button>
+            <button type="button" className={status === "absent" ? "selected absent" : ""} aria-pressed={status === "absent"} onClick={() => setRecords((value) => ({ ...value, [player.id]: "absent" }))}>Відсутній</button>
           </div>
-          <div className="attendance-card-control">
-            {hasCard ? <span className="attendance-card-recorded"><Check size={16} />Картку зафіксовано</span> : record.status === "present" ? <BehaviorCardAction client={client} profile={profile} player={player} groupId={event.group_id} eventId={event.id} occurredOn={kyivDateKey(new Date(event.start_at))} label="Жовта картка" className="yellow-card-action small" onSaved={() => setCardedPlayerIds((current) => new Set(current).add(player.id))} /> : <span className="attendance-card-unavailable">Картка недоступна для відсутнього</span>}
-          </div>
-          {record.status === "absent" && <label className="attendance-note"><span>Причина або примітка — необов’язково</span><input value={record.note} onChange={(input) => setRecords((value) => ({ ...value, [player.id]: { ...value[player.id], note: input.target.value } }))} placeholder="Наприклад, хворіє" /></label>}
         </article>;
       })}
-      <p className="attendance-card-note">Жовта картка зберігається одразу після підтвердження. Присутність збережеться кнопкою внизу.</p>
     </div> : <EmptyState title="У команді немає активних гравців" />}
     {message && <StatusMessage kind="warning">{message}</StatusMessage>}
+  </Modal>;
+}
+
+function BehaviorCardsModal({ client, profile, event, onClose }: { client: SupabaseClient; profile: Profile; event: EventItem; onClose: () => void }) {
+  const [players, setPlayers] = useState<Array<{ id: string; full_name: string }>>([]);
+  const [attendance, setAttendance] = useState<Record<string, "present" | "absent">>({});
+  const [cardedPlayerIds, setCardedPlayerIds] = useState<Set<string>>(new Set());
+  const [hasAttendance, setHasAttendance] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    void Promise.all([
+      client.from("players").select("id, full_name").eq("group_id", event.group_id).eq("is_active", true).order("full_name"),
+      client.from("attendance_sessions").select("id, attendance_records(player_id, status)").eq("event_id", event.id).maybeSingle(),
+      client.from("player_behavior_cards").select("player_id").eq("event_id", event.id).eq("is_voided", false),
+    ]).then(([playerResult, sessionResult, cardResult]) => {
+      if (!active) return;
+      const list = (playerResult.data ?? []) as Array<{ id: string; full_name: string }>;
+      const session = sessionResult.data as unknown as { id: string; attendance_records?: Array<{ player_id: string; status: "present" | "absent" }> } | null;
+      setPlayers(list);
+      setHasAttendance(Boolean(session?.id));
+      setAttendance(Object.fromEntries((session?.attendance_records ?? []).map((record) => [record.player_id, record.status])));
+      setCardedPlayerIds(new Set((cardResult.data ?? []).map((card) => card.player_id as string)));
+      if (playerResult.error || sessionResult.error || cardResult.error) {
+        setMessage("Не вдалося повністю завантажити відмітки. Закрийте вікно та повторіть.");
+      }
+      setLoading(false);
+    });
+    return () => { active = false; };
+  }, [client, event.group_id, event.id]);
+
+  return <Modal title={`Жовті картки · ${event.groups?.code ?? ""}`} onClose={onClose} wide footer={<button type="button" className="primary-action" onClick={onClose}>Закрити</button>}>
+    {!supportsBehaviorCards(event.event_type) ? <StatusMessage kind="warning">Жовті картки поведінки доступні лише для тренувань.</StatusMessage> : loading ? <LoadingState /> : <>
+      {!hasAttendance && <StatusMessage kind="warning">Спочатку збережіть присутність для цього тренування.</StatusMessage>}
+      {message && <StatusMessage kind="error">{message}</StatusMessage>}
+      {players.length ? <div className="behavior-card-list">
+        {players.map((player) => {
+          const status = attendance[player.id];
+          const hasCard = cardedPlayerIds.has(player.id);
+          return <article className="behavior-card-row" key={player.id}>
+            <div><b>{player.full_name}</b><small>{status === "present" ? "Присутній на тренуванні" : status === "absent" ? "Відсутній на тренуванні" : "Присутність ще не вказано"}</small></div>
+            {hasCard ? <span className="attendance-card-recorded"><Check size={16} />Картку зафіксовано</span> : hasAttendance && status === "present" ? <BehaviorCardAction client={client} profile={profile} player={player} groupId={event.group_id} eventId={event.id} occurredOn={kyivDateKey(event.start_at)} label="Жовта картка" className="yellow-card-action small" onSaved={() => setCardedPlayerIds((current) => new Set(current).add(player.id))} /> : <span className="attendance-card-unavailable">{status === "absent" ? "Недоступно для відсутнього" : "Спочатку збережіть присутність"}</span>}
+          </article>;
+        })}
+      </div> : <EmptyState title="У команді немає активних гравців" />}
+    </>}
   </Modal>;
 }

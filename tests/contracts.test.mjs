@@ -82,6 +82,9 @@ const adminUsersFunctionUrl = new URL("../supabase/functions/admin-users/index.t
 const conflictCleanupMigrationUrl = new URL("../supabase/migrations/20260920085722_cleanup_transient_schedule_conflicts.sql", import.meta.url);
 const ageExtensionMigrationUrl = new URL("../supabase/migrations/20260927103625_extend_groups_and_player_characteristics.sql", import.meta.url);
 const coachPhotoCardScopeMigrationUrl = new URL("../supabase/migrations/20260927194151_coach_photo_attendance_card_scope.sql", import.meta.url);
+const coachPhotoTrainingRulesMigrationUrl = new URL("../supabase/migrations/20260928092916_coach_photo_and_training_card_rules.sql", import.meta.url);
+const behaviorCardPolicyScopeMigrationUrl = new URL("../supabase/migrations/20260928093957_qualify_behavior_card_policy_scope.sql", import.meta.url);
+const playerPhotoAssetRegistrationMigrationUrl = new URL("../supabase/migrations/20260928172946_register_player_photo_asset.sql", import.meta.url);
 const ageGroupsDomainUrl = new URL("../lib/domain/age-groups.ts", import.meta.url);
 const workingModulesSchemaUrl = new URL("../supabase/migrations/20260917154737_working_modules_schema_0_2_2.sql", import.meta.url);
 
@@ -256,6 +259,17 @@ test("calendar supports large add target and real create-similar action", async 
   assert.match(source, /onClick=\{\(\) => onCreateSimilar\(event\)\}/);
   assert.match(source, /Створити подібне/);
   assert.match(styles, /\.calendar-plus\s*\{[^}]*width:\s*48px[^}]*height:\s*48px/is);
+  assert.match(styles, /@media \(max-width: 760px\)[\s\S]*?\.calendar-weekdays, \.calendar-grid \{ min-width: 0; \}/);
+});
+
+test("event date and time round-trip in the Kyiv time zone", async () => {
+  const { combineKyivDateTime, toKyivDateInput, toKyivTimeInput } = await import("../lib/domain/format.ts");
+  const winter = combineKyivDateTime("2026-01-15", "17:00");
+  const summer = combineKyivDateTime("2026-09-28", "17:00");
+  assert.equal(winter, "2026-01-15T15:00:00.000Z");
+  assert.equal(summer, "2026-09-28T14:00:00.000Z");
+  assert.equal(toKyivDateInput(summer), "2026-09-28");
+  assert.equal(toKyivTimeInput(summer), "17:00");
 });
 
 test("public header uses only the agreed CHAMPION name", async () => {
@@ -408,7 +422,7 @@ test("coach planning uses the agreed organizational-needs checklist", async () =
     assert.match(source, new RegExp(need));
   }
   assert.match(source, /supportsOrganizationalNeeds/);
-  const supportFunction = source.slice(source.indexOf("function supportsOrganizationalNeeds"), source.indexOf("function parseOrganizationalNeeds"));
+  const supportFunction = source.slice(source.indexOf("function supportsOrganizationalNeeds"), source.indexOf("function supportsBehaviorCards"));
   assert.doesNotMatch(supportFunction, /eventType === "training"/);
   assert.match(source, /eventType === "oblast"/);
   assert.match(source, /eventType === "ukraine"/);
@@ -434,6 +448,8 @@ test("coach conflict feedback stays visible and formats database time for Kyiv",
   assert.match(plan, /scrollIntoView\(\{ behavior: "smooth", block: "center" \}\)/);
   assert.match(plan, /className=\{`span-2\$\{isConflict \? " conflict-notice"/);
   assert.match(format, /timeZone: "Europe\/Kyiv"/);
+  assert.match(plan, /Час \(Київ\)/);
+  assert.match(plan, /combineKyivDateTime/);
   assert.match(styles, /\.conflict-notice \{[^}]*position: sticky/);
 });
 
@@ -634,6 +650,10 @@ test("batch import detects duplicates and confirms through one MFA transaction",
   assert.match(source, /rpc\("confirm_import_job"/);
   assert.match(source, /champion-import-template\.xlsx/);
   assert.match(source, /champion-import-template\.docx/);
+  assert.match(source, /champion-import-physical-tests\.xlsx/);
+  assert.match(source, /Спільна дата тестування/);
+  assert.match(source, /default_date:/);
+  assert.match(source, /uniqueMessages/);
   assert.match(source, /accept="\.csv,\.xlsx,\.docx"/);
   assert.match(source, /physical_tests: \["group", "player", "date", "metric", "field", "value"\]/);
   assert.match(source, /game_activity: \["group", "player", "period", "metric", "value"\]/);
@@ -645,6 +665,9 @@ test("batch import detects duplicates and confirms through one MFA transaction",
   assert.match(groupScopedSql, /players_group_lower_name_active_idx/i);
   assert.match(preview, /physical_tests: \["group", "player", "date", "metric", "field", "value"\]/);
   assert.match(preview, /collectSessionMetadata/);
+  assert.match(preview, /normalizeDate/);
+  assert.match(preview, /default_date\?: string/);
+  assert.match(preview, /cellDates: true/);
   assert.match(preview, /npm:jszip@3\.10\.1/);
   assert.match(preview, /word\/document\.xml/);
   assert.match(preview, /workbook\.SheetNames\.flatMap/);
@@ -810,12 +833,15 @@ test("monthly star workflow is complete without public rankings or player voting
 });
 
 test("coach photo, attendance and card workflow is mobile-friendly and admin read-only", async () => {
-  const [coachPlayers, coachPlan, monthlyStarUi, adminMonthlyStar, scopeSql, files] = await Promise.all([
+  const [coachPlayers, coachPlan, monthlyStarUi, adminMonthlyStar, scopeSql, trainingRulesSql, policyScopeSql, photoRegistrationSql, files] = await Promise.all([
     readFile(coachPlayersUrl, "utf8"),
     readFile(coachPlanUrl, "utf8"),
     readFile(monthlyStarUiUrl, "utf8"),
     readFile(monthlyStarManagementUrl, "utf8"),
     readFile(coachPhotoCardScopeMigrationUrl, "utf8"),
+    readFile(coachPhotoTrainingRulesMigrationUrl, "utf8"),
+    readFile(behaviorCardPolicyScopeMigrationUrl, "utf8"),
+    readFile(playerPhotoAssetRegistrationMigrationUrl, "utf8"),
     readFile(fileUploadUrl, "utf8"),
   ]);
 
@@ -826,16 +852,21 @@ test("coach photo, attendance and card workflow is mobile-friendly and admin rea
   assert.match(coachPlayers, /set_player_photo/);
   assert.match(coachPlayers, /player_photos\(is_current/);
   assert.match(coachPlayers, /find\(\(photo\) => photo\.is_current\)/);
+  assert.match(coachPlayers, /className="player-photo-trigger"/);
+  assert.match(coachPlayers, /age: null/);
   assert.match(files, /deletePrivateFile/);
+  assert.match(files, /rpc\("register_player_photo_asset"/);
 
-  assert.match(coachPlan, /Присутність і картки/);
+  assert.match(coachPlan, /Присутність ·/);
+  assert.match(coachPlan, /Жовті картки ·/);
   assert.match(coachPlan, /Присутній/);
   assert.match(coachPlan, /Відсутній/);
   assert.match(coachPlan, /Усі присутні/);
   assert.match(coachPlan, /Картку зафіксовано/);
-  assert.match(coachPlan, /occurredOn=\{kyivDateKey\(new Date\(event\.start_at\)\)\}/);
+  assert.match(coachPlan, /occurredOn=\{kyivDateKey\(event\.start_at\)\}/);
+  assert.doesNotMatch(coachPlan, /Причина або примітка — необов’язково/);
   assert.equal((coachPlayers.match(/BehaviorCardAction/g) ?? []).length, 0, "the player list and profile must not duplicate card assignment");
-  assert.equal((coachPlan.match(/<BehaviorCardAction/g) ?? []).length, 1, "attendance is the single coach card-assignment point");
+  assert.equal((coachPlan.match(/<BehaviorCardAction/g) ?? []).length, 1, "the separate training-card screen is the single coach card-assignment point");
   assert.doesNotMatch(monthlyStarUi, /label="Додати картку"/);
   assert.doesNotMatch(monthlyStarUi, /label="Картка"/);
 
@@ -852,6 +883,14 @@ test("coach photo, attendance and card workflow is mobile-friendly and admin rea
   assert.match(scopeSql, /drop policy if exists monthly_star_awards_admin_all/i);
   assert.match(scopeSql, /profile\.role = 'coach'/);
   assert.match(scopeSql, /event_id is not null/);
+  assert.match(trainingRulesSql, /context_type = 'player_photo'/);
+  assert.match(trainingRulesSql, /context_age is null/);
+  assert.match(trainingRulesSql, /BEHAVIOR_CARD_TRAINING_ONLY/);
+  assert.match(trainingRulesSql, /event_row\.event_type = 'training'/);
+  assert.match(policyScopeSql, /event_row\.group_id = player_behavior_cards\.group_id/);
+  assert.match(photoRegistrationSql, /create or replace function public\.register_player_photo_asset/i);
+  assert.match(photoRegistrationSql, /private\.has_group\(p_group_id\)/);
+  assert.match(photoRegistrationSql, /p_object_path !~/);
 });
 
 test("monthly star export places two A5 awards on one A4 sheet and blocks incomplete photo sets", async () => {

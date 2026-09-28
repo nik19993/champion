@@ -38,6 +38,7 @@ const dateFormatter = new Intl.DateTimeFormat("uk-UA", { day: "2-digit", month: 
 const dateTimeFormatter = new Intl.DateTimeFormat("uk-UA", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", timeZone: KYIV_TIME_ZONE });
 const timeFormatter = new Intl.DateTimeFormat("uk-UA", { hour: "2-digit", minute: "2-digit", timeZone: KYIV_TIME_ZONE });
 const kyivDateKeyFormatter = new Intl.DateTimeFormat("en-CA", { year: "numeric", month: "2-digit", day: "2-digit", timeZone: KYIV_TIME_ZONE });
+const kyivTimeKeyFormatter = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: KYIV_TIME_ZONE });
 
 function kyivOffsetMs(instant: Date) {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -92,13 +93,41 @@ export function toDateInput(value: string | Date) {
   return local.toISOString().slice(0, 10);
 }
 
+export function toKyivDateInput(value: string | Date) {
+  return kyivDateKey(value);
+}
+
+export function toKyivTimeInput(value: string | Date) {
+  const parts = kyivTimeKeyFormatter.formatToParts(value instanceof Date ? value : new Date(value));
+  const fields = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${fields.hour}:${fields.minute}`;
+}
+
 export function toMonthInput(value = new Date()) {
   const local = new Date(value.getTime() - value.getTimezoneOffset() * 60_000);
   return local.toISOString().slice(0, 7);
 }
 
+export function combineKyivDateTime(date: string, time: string) {
+  const dateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+  const timeMatch = /^(\d{2}):(\d{2})$/.exec(time || "00:00");
+  if (!dateMatch || !timeMatch) throw new Error("INVALID_KYIV_DATE_TIME");
+  const target = Date.UTC(
+    Number(dateMatch[1]),
+    Number(dateMatch[2]) - 1,
+    Number(dateMatch[3]),
+    Number(timeMatch[1]),
+    Number(timeMatch[2]),
+  );
+  let instant = target;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    instant = target - kyivOffsetMs(new Date(instant));
+  }
+  return new Date(instant).toISOString();
+}
+
 export function combineLocalDateTime(date: string, time: string) {
-  return new Date(`${date}T${time || "00:00"}:00`).toISOString();
+  return combineKyivDateTime(date, time);
 }
 
 export function normalizedSearch(value: string) {
