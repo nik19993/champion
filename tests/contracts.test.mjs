@@ -854,6 +854,7 @@ test("coach photo, attendance and card workflow is mobile-friendly and admin rea
   assert.match(coachPlayers, /find\(\(photo\) => photo\.is_current\)/);
   assert.match(coachPlayers, /className="player-photo-trigger"/);
   assert.match(coachPlayers, /age: null/);
+  assert.ok(coachPlayers.indexOf("parent-contacts-priority") < coachPlayers.indexOf("coach-characteristic"), "parent contacts must appear immediately after the player's basic photo information");
   assert.match(files, /deletePrivateFile/);
   assert.match(files, /rpc\("register_player_photo_asset"/);
 
@@ -863,12 +864,27 @@ test("coach photo, attendance and card workflow is mobile-friendly and admin rea
   assert.match(coachPlan, /Відсутній/);
   assert.match(coachPlan, /Усі присутні/);
   assert.match(coachPlan, /Картку зафіксовано/);
+  assert.ok(coachPlan.includes("onSaved={(attendanceSynced)"));
+  assert.match(coachPlan, /setBehaviorAfterAttendance\(true\)/);
+  assert.match(coachPlan, /setEventMode\(\{ kind: "view", event: closedEvent \}\)/);
+  assert.match(coachPlan, /Присутність збережено\. За потреби додайте жовті картки/);
+  assert.ok((coachPlan.match(/void load\(true\)/g) ?? []).length >= 2, "attendance/card transitions refresh data without hiding the active workflow");
+  assert.match(coachPlan, /onSaved\(true\)/);
+  assert.match(coachPlan, /onSaved\(false\)/);
   assert.match(coachPlan, /occurredOn=\{kyivDateKey\(event\.start_at\)\}/);
   assert.doesNotMatch(coachPlan, /Причина або примітка — необов’язково/);
   assert.equal((coachPlayers.match(/BehaviorCardAction/g) ?? []).length, 0, "the player list and profile must not duplicate card assignment");
   assert.equal((coachPlan.match(/<BehaviorCardAction/g) ?? []).length, 1, "the separate training-card screen is the single coach card-assignment point");
   assert.doesNotMatch(monthlyStarUi, /label="Додати картку"/);
   assert.doesNotMatch(monthlyStarUi, /label="Картка"/);
+  assert.doesNotMatch(monthlyStarUi, /window\.prompt/);
+  assert.match(monthlyStarUi, /function VoidBehaviorCardAction/);
+  assert.match(monthlyStarUi, /Активні жовті картки/);
+  assert.match(monthlyStarUi, /Причина:<\/strong>/);
+  assert.match(monthlyStarUi, /Анулювати помилкову/);
+  const playerBehavior = monthlyStarUi.slice(monthlyStarUi.indexOf("export function PlayerAchievementBehavior"), monthlyStarUi.indexOf("export function MonthlyStarGroupPanel"));
+  assert.doesNotMatch(playerBehavior, /rpc\("void_behavior_card"|<VoidBehaviorCardAction/);
+  assert.match(playerBehavior, /анулювання помилкових карток виконується у вкладці «Зірка місяця»/);
 
   assert.match(adminMonthlyStar, /AdminMonthlyStarResults/);
   assert.match(adminMonthlyStar, /Адміністратор переглядає результат/);

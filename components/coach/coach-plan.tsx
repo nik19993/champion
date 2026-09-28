@@ -84,6 +84,7 @@ export function CoachPlan({ client, profile, groups }: Props) {
   const [eventMode, setEventMode] = useState<EventMode | null>(null);
   const [attendanceEvent, setAttendanceEvent] = useState<EventItem | null>(null);
   const [behaviorEvent, setBehaviorEvent] = useState<EventItem | null>(null);
+  const [behaviorAfterAttendance, setBehaviorAfterAttendance] = useState(false);
   const [openedAt] = useState(() => Date.now());
 
   useEffect(() => {
@@ -91,9 +92,9 @@ export function CoachPlan({ client, profile, groups }: Props) {
     if (selectedGroupId && !groups.some((group) => group.id === selectedGroupId)) setSelectedGroupId(groups[0]?.id ?? "");
   }, [groups, selectedGroupId]);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (silent = false) => {
     if (!groups.length) { setLoading(false); return; }
-    setLoading(true);
+    if (!silent) setLoading(true);
     setError(null);
     const today = new Date();
     const selectedBounds = kyivMonthBounds(month);
@@ -151,10 +152,26 @@ export function CoachPlan({ client, profile, groups }: Props) {
 
     <section className="panel-section calendar-panel"><div className="section-title-row calendar-tools"><div><p className="eyebrow">Планування окремої команди</p><h2>Моя команда</h2></div><GroupSelect groups={groups} value={selectedGroupId} onChange={setSelectedGroupId} /></div><div className="month-switcher"><button type="button" aria-label="Попередній місяць" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))}><ChevronLeft /></button><strong>{new Intl.DateTimeFormat("uk-UA", { month: "long", year: "numeric" }).format(month)}</strong><button type="button" aria-label="Наступний місяць" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))}><ChevronRight /></button></div><Calendar month={month} events={monthEvents} onCreate={(date) => setEventMode({ kind: "create", date })} onEdit={(event) => setEventMode({ kind: "edit", event })} /></section>
 
-    {eventMode?.kind === "view" && eventMode.event && <EventDetails client={client} event={eventMode.event} onClose={() => setEventMode(null)} onAttendance={() => { setAttendanceEvent(eventMode.event ?? null); setEventMode(null); }} onBehaviorCards={() => { setBehaviorEvent(eventMode.event ?? null); setEventMode(null); }} />}
-    {(eventMode?.kind === "create" || eventMode?.kind === "edit") && <EventEditor key={`${eventMode.kind}:${eventMode.event?.id ?? eventMode.date ?? "new"}`} client={client} profile={profile} group={selectedGroup} event={eventMode.event} isCreating={eventMode.kind === "create"} initialDate={eventMode.date} venues={venues} tasks={tasks.filter((task) => selectedGroup?.age != null && task.age_from <= selectedGroup.age && task.age_to >= selectedGroup.age)} onClose={() => setEventMode(null)} onCreateSimilar={(source) => setEventMode({ kind: "create", event: source, date: toKyivDateInput(new Date()) })} onSaved={() => { setEventMode(null); void load(); }} onAttendance={(event) => { setEventMode(null); setAttendanceEvent(event); }} onBehaviorCards={(event) => { setEventMode(null); setBehaviorEvent(event); }} />}
-    {attendanceEvent && <AttendanceModal client={client} profile={profile} event={attendanceEvent} onClose={() => setAttendanceEvent(null)} onSaved={() => { setAttendanceEvent(null); void load(); }} />}
-    {behaviorEvent && <BehaviorCardsModal client={client} profile={profile} event={behaviorEvent} onClose={() => setBehaviorEvent(null)} />}
+    {eventMode?.kind === "view" && eventMode.event && <EventDetails client={client} event={eventMode.event} onClose={() => setEventMode(null)} onAttendance={() => { setAttendanceEvent(eventMode.event ?? null); setEventMode(null); }} onBehaviorCards={() => { setBehaviorAfterAttendance(false); setBehaviorEvent(eventMode.event ?? null); setEventMode(null); }} />}
+    {(eventMode?.kind === "create" || eventMode?.kind === "edit") && <EventEditor key={`${eventMode.kind}:${eventMode.event?.id ?? eventMode.date ?? "new"}`} client={client} profile={profile} group={selectedGroup} event={eventMode.event} isCreating={eventMode.kind === "create"} initialDate={eventMode.date} venues={venues} tasks={tasks.filter((task) => selectedGroup?.age != null && task.age_from <= selectedGroup.age && task.age_to >= selectedGroup.age)} onClose={() => setEventMode(null)} onCreateSimilar={(source) => setEventMode({ kind: "create", event: source, date: toKyivDateInput(new Date()) })} onSaved={() => { setEventMode(null); void load(); }} onAttendance={(event) => { setEventMode(null); setAttendanceEvent(event); }} onBehaviorCards={(event) => { setBehaviorAfterAttendance(false); setEventMode(null); setBehaviorEvent(event); }} />}
+    {attendanceEvent && <AttendanceModal client={client} profile={profile} event={attendanceEvent} onClose={() => setAttendanceEvent(null)} onSaved={(attendanceSynced) => {
+      const savedEvent = attendanceEvent;
+      setAttendanceEvent(null);
+      void load(true);
+      if (attendanceSynced && supportsBehaviorCards(savedEvent.event_type)) {
+        setBehaviorAfterAttendance(true);
+        setBehaviorEvent(savedEvent);
+      } else {
+        setEventMode({ kind: "view", event: savedEvent });
+      }
+    }} />}
+    {behaviorEvent && <BehaviorCardsModal client={client} profile={profile} event={behaviorEvent} afterAttendance={behaviorAfterAttendance} onClose={() => {
+      const closedEvent = behaviorEvent;
+      setBehaviorEvent(null);
+      setBehaviorAfterAttendance(false);
+      setEventMode({ kind: "view", event: closedEvent });
+      void load(true);
+    }} />}
   </div>;
 }
 
@@ -310,7 +327,7 @@ function EventEditor({ client, profile, group, event, isCreating, initialDate, v
   return <Modal title={event && !isCreating ? `Редагування · ${group?.code ?? ""}` : `Нова подія · ${group?.code ?? ""}`} onClose={onClose} wide footer={footer}><form id="event-form" className="form-grid" onSubmit={save}>{message && <div ref={conflictNoticeRef} className={`span-2${isConflict ? " conflict-notice" : ""}`} tabIndex={isConflict ? -1 : undefined}><StatusMessage kind={isConflict ? "error" : "warning"}>{message}</StatusMessage></div>}<label><span>Тип події</span><select value={eventType} onChange={(e) => setEventType(e.target.value as EventItem["event_type"])}>{Object.entries(EVENT_LABELS).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label><label><span>Дата</span><input type="date" value={date} onChange={(e) => setDate(e.target.value)} required /></label><label><span>Час (Київ)</span><input type="time" value={time} onChange={(e) => setTime(e.target.value)} required /></label><label><span>Тривалість, хв</span><input type="number" min={15} max={360} value={duration} onChange={(e) => setDuration(Number(e.target.value))} required /></label><label className="span-2"><span>Поле або майданчик</span><select value={venueId} onChange={(e) => setVenueId(e.target.value)}><option value="">Не вказано</option>{venues.map((venue) => <option key={venue.id} value={venue.id}>{venue.name}</option>)}</select></label>{eventType === "training" && <>{group?.group_kind === "goalkeeper" ? <label className="span-2"><span>Завдання заняття</span><input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Наприклад, гра на виходах" /></label> : <label className="span-2"><span>Навчальне завдання</span><select value={taskId} onChange={(e) => setTaskId(e.target.value)}><option value="">Не вибрано</option>{tasks.map((task) => <option key={task.id} value={task.id}>{task.title}</option>)}</select>{taskId && <small className="field-hint">Ця команда вже використовувала завдання {usageCount} разів.</small>}</label>}<label className="span-2"><span>Документ із вправами</span><input type="file" accept=".pdf,.docx,.jpg,.jpeg,.png" disabled={group?.group_kind !== "goalkeeper" && !taskId} onChange={(e) => setFile(e.target.files?.[0] ?? null)} />{group?.group_kind !== "goalkeeper" && !taskId && <small className="field-hint">Спочатку виберіть навчальне завдання.</small>}</label></>}<label className="span-2"><span>Уточнення тренера</span><textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} /></label>{supportsOrganizationalNeeds(eventType) && <fieldset className="span-2 organizational-needs"><legend>Організаційні потреби</legend><p>Позначте все, що потрібно підготувати для цієї події.</p><div className="checkbox-grid">{ORGANIZATIONAL_NEED_OPTIONS.map((option) => <label className="check-field" key={option}><input type="checkbox" checked={selectedNeeds.includes(option)} onChange={(input) => setSelectedNeeds((current) => input.target.checked ? [...current, option] : current.filter((item) => item !== option))} /><span>{option}</span></label>)}</div>{selectedNeeds.includes("Інше") && <label className="other-need"><span>Уточніть іншу потребу</span><input value={otherNeed} onChange={(input) => setOtherNeed(input.target.value)} required /></label>}</fieldset>}<label className="span-2"><span>Додатковий коментар</span><textarea value={comment} onChange={(e) => setComment(e.target.value)} rows={2} /></label><label className="check-field span-2"><input type="checkbox" checked={needsSubstitute} onChange={(e) => setNeedsSubstitute(e.target.checked)} /><span>Потрібна заміна тренера</span></label>{event && !isCreating && <div className="span-2 event-tracking-actions"><button type="button" className="primary-action" onClick={() => onAttendance(event)}><Users size={18} />Присутність</button>{supportsBehaviorCards(event.event_type) && <button type="button" className="warning-action" onClick={() => onBehaviorCards(event)}><ShieldAlert size={18} />Жовті картки</button>}</div>}</form></Modal>;
 }
 
-function AttendanceModal({ client, profile, event, onClose, onSaved }: { client: SupabaseClient; profile: Profile; event: EventItem; onClose: () => void; onSaved: () => void }) {
+function AttendanceModal({ client, profile, event, onClose, onSaved }: { client: SupabaseClient; profile: Profile; event: EventItem; onClose: () => void; onSaved: (attendanceSynced: boolean) => void }) {
   const [players, setPlayers] = useState<Array<{ id: string; full_name: string }>>([]);
   const [records, setRecords] = useState<Record<string, "present" | "absent">>({});
   const [loading, setLoading] = useState(true);
@@ -362,7 +379,7 @@ function AttendanceModal({ client, profile, event, onClose, onSaved }: { client:
       try {
         await enqueueAttendance(item);
         setMessage("Збережено офлайн. Дані синхронізуються після відновлення мережі.");
-        window.setTimeout(onSaved, 800);
+        window.setTimeout(() => onSaved(false), 800);
       } catch {
         setMessage("Не вдалося створити офлайн-чергу. Не закривайте вікно та повторіть після відновлення мережі.");
       }
@@ -372,12 +389,12 @@ function AttendanceModal({ client, profile, event, onClose, onSaved }: { client:
     try {
       await persistAttendance(client, item);
       setBusy(false);
-      onSaved();
+      onSaved(true);
     } catch {
       try {
         await enqueueAttendance(item);
         setMessage("Сервер недоступний. Присутність безпечно додано до черги синхронізації.");
-        window.setTimeout(onSaved, 1000);
+        window.setTimeout(() => onSaved(false), 1000);
       } catch {
         setMessage("Сервер і офлайн-черга недоступні. Дані залишилися на екрані — повторіть збереження після відновлення мережі.");
       }
@@ -410,7 +427,7 @@ function AttendanceModal({ client, profile, event, onClose, onSaved }: { client:
   </Modal>;
 }
 
-function BehaviorCardsModal({ client, profile, event, onClose }: { client: SupabaseClient; profile: Profile; event: EventItem; onClose: () => void }) {
+function BehaviorCardsModal({ client, profile, event, afterAttendance, onClose }: { client: SupabaseClient; profile: Profile; event: EventItem; afterAttendance: boolean; onClose: () => void }) {
   const [players, setPlayers] = useState<Array<{ id: string; full_name: string }>>([]);
   const [attendance, setAttendance] = useState<Record<string, "present" | "absent">>({});
   const [cardedPlayerIds, setCardedPlayerIds] = useState<Set<string>>(new Set());
@@ -440,8 +457,9 @@ function BehaviorCardsModal({ client, profile, event, onClose }: { client: Supab
     return () => { active = false; };
   }, [client, event.group_id, event.id]);
 
-  return <Modal title={`Жовті картки · ${event.groups?.code ?? ""}`} onClose={onClose} wide footer={<button type="button" className="primary-action" onClick={onClose}>Закрити</button>}>
+  return <Modal title={`Жовті картки · ${event.groups?.code ?? ""}`} onClose={onClose} wide footer={<button type="button" className="primary-action" onClick={onClose}>{afterAttendance ? "Завершити" : "Повернутися до події"}</button>}>
     {!supportsBehaviorCards(event.event_type) ? <StatusMessage kind="warning">Жовті картки поведінки доступні лише для тренувань.</StatusMessage> : loading ? <LoadingState /> : <>
+      {afterAttendance && <StatusMessage kind="success">Присутність збережено. За потреби додайте жовті картки; якщо карток немає — натисніть «Завершити».</StatusMessage>}
       {!hasAttendance && <StatusMessage kind="warning">Спочатку збережіть присутність для цього тренування.</StatusMessage>}
       {message && <StatusMessage kind="error">{message}</StatusMessage>}
       {players.length ? <div className="behavior-card-list">

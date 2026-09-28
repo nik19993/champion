@@ -77,6 +77,24 @@ function BehaviorCardModal({ client, profile, player, groupId, eventId, occurred
   return <Modal title={`Жовта картка · ${player.full_name}`} onClose={onClose} footer={<><button type="button" className="secondary-action" onClick={onClose}>Скасувати</button><button form="behavior-card-form" className="warning-action" disabled={busy}>{busy ? "Збереження…" : "Зафіксувати картку"}</button></>}><form id="behavior-card-form" className="form-stack" onSubmit={save}><label><span>Причина</span><select value={reason} onChange={(event) => setReason(event.target.value as BehaviorCardReason)}>{Object.entries(BEHAVIOR_REASON_LABELS).map(([value, text]) => <option value={value} key={value}>{text}</option>)}</select></label><label><span>{reason === "other" ? "Коротке пояснення" : "Коментар — необов’язково"}</span><textarea rows={3} value={comment} onChange={(event) => setComment(event.target.value)} required={reason === "other"} maxLength={500} /></label><p className="muted">Картка належить цьому гравцеві, групі та даті цієї події. Для одного гравця в одній події можна зафіксувати лише одну активну картку; помилковий запис анулюється із зазначенням причини.</p>{error && <StatusMessage kind="error">{error}</StatusMessage>}</form></Modal>;
 }
 
+function VoidBehaviorCardAction({ client, card, playerName, onSaved }: { client: SupabaseClient; card: PlayerBehaviorCard; playerName: string; onSaved: () => void | Promise<void> }) {
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (reason.trim().length < 2) { setError("Вкажіть коротку причину анулювання."); return; }
+    setBusy(true); setError(null);
+    const result = await client.rpc("void_behavior_card", { p_card_id: card.id, p_reason: reason.trim() });
+    setBusy(false);
+    if (result.error) { setError("Картку не анульовано. Перевірте доступ і повторіть дію."); return; }
+    setOpen(false); setReason("");
+    await onSaved();
+  }
+  return <><button type="button" className="text-action" onClick={() => setOpen(true)}><Undo2 size={14} />Анулювати помилкову</button>{open && <Modal title={`Анулювання картки · ${playerName}`} onClose={() => setOpen(false)} footer={<><button type="button" className="secondary-action" onClick={() => setOpen(false)}>Скасувати</button><button form={`void-card-${card.id}`} className="warning-action" disabled={busy}>{busy ? "Анулювання…" : "Підтвердити анулювання"}</button></>}><form id={`void-card-${card.id}`} className="form-stack" onSubmit={submit}><div className="behavior-card-context"><b>Причина картки: {BEHAVIOR_REASON_LABELS[card.reason]}</b><span>{formatDate(card.occurred_on)} · {card.coach_name_snapshot}</span>{card.comment && <small>Пояснення: {card.comment}</small>}</div><label><span>Причина анулювання</span><textarea rows={3} value={reason} onChange={(event) => setReason(event.target.value)} required minLength={2} maxLength={500} placeholder="Наприклад, картку виставлено помилково" /></label>{error && <StatusMessage kind="error">{error}</StatusMessage>}</form></Modal>}</>;
+}
+
 function ParentContactAction({ client, profile, player, groupId, month, onSaved }: { client: SupabaseClient; profile: Profile; player: Pick<Player, "id" | "full_name">; groupId: string; month: string; onSaved: () => void }) {
   const [open, setOpen] = useState(false);
   const [date, setDate] = useState(kyivDateKey(new Date()));
@@ -107,7 +125,6 @@ export function PlayerAchievementBehavior({ client, profile, player }: { client:
   const [contacts, setContacts] = useState<ParentContactAction[]>([]);
   const [awards, setAwards] = useState<MonthlyStarAward[]>([]);
   const [loading, setLoading] = useState(true);
-  const [message, setMessage] = useState<string | null>(null);
   const month = currentMonth();
   const load = useCallback(async () => {
     setLoading(true);
@@ -124,15 +141,7 @@ export function PlayerAchievementBehavior({ client, profile, player }: { client:
   useEffect(() => { void load(); }, [load]);
   const currentCards = cards.filter((card) => card.month === month && !card.is_voided);
   const contacted = contacts.some((contact) => contact.month === month);
-  async function voidCard(card: PlayerBehaviorCard) {
-    const reason = window.prompt("Вкажіть причину анулювання помилкової картки:");
-    if (!reason?.trim()) return;
-    const result = await client.rpc("void_behavior_card", { p_card_id: card.id, p_reason: reason.trim() });
-    if (result.error) { setMessage("Картку не анульовано."); return; }
-    setMessage("Помилкову картку анульовано; місячний підрахунок оновлено.");
-    await load();
-  }
-  return <section className="profile-section achievement-behavior"><div className="section-title-row"><div><p className="eyebrow">Особиста історія</p><h3>Досягнення та поведінка</h3></div></div>{message && <StatusMessage kind="success">{message}</StatusMessage>}{loading ? <LoadingState /> : <><div className="behavior-summary"><div><span>Жовті картки цього місяця</span><b>{currentCards.length}</b></div><div><span>Статус «Зірки місяця»</span><b>{currentCards.length >= 4 ? "Не допускається" : "Може брати участь"}</b></div></div>{currentCards.length >= 3 && !contacted && profile && <div className="parent-contact-alert"><AlertTriangle /><div><b>Необхідний контакт із батьками</b><span>Зафіксовано {currentCards.length} активні картки цього місяця.</span></div><ParentContactAction client={client} profile={profile} player={player} groupId={player.group_id} month={month} onSaved={() => void load()} /></div>}{contacted && <StatusMessage kind="success">Контакт із батьками за цей місяць зафіксовано.</StatusMessage>}<div className="achievement-grid"><div><h4><Trophy size={17} />Відзнаки</h4>{awards.filter((award) => !award.revoked_at).length ? <div className="history-list">{awards.filter((award) => !award.revoked_at).map((award) => { const theme = relationOne(award.monthly_star_themes); return <article key={award.id}><b>{AWARD_LABELS[award.award_type]}</b><span>{formatMonth(award.month)} · {theme?.title ?? "Тема не вказана"}</span></article>; })}</div> : <p className="muted">Відзнак ще немає.</p>}</div><div><h4><ShieldAlert size={17} />Картки</h4>{cards.length ? <div className="history-list">{cards.map((card) => <article key={card.id} className={card.is_voided ? "voided" : ""}><b>{BEHAVIOR_REASON_LABELS[card.reason]}</b><span>{formatDate(card.occurred_on)} · {card.coach_name_snapshot}</span>{card.comment && <small>{card.comment}</small>}{card.is_voided ? <small>Анульовано: {card.void_reason}</small> : profile && <button type="button" className="text-action" onClick={() => void voidCard(card)}><Undo2 size={14} />Анулювати помилкову</button>}</article>)}</div> : <p className="muted">Карток немає.</p>}</div></div>{contacts.length > 0 && <div><h4>Історія контактів із батьками</h4><div className="history-list">{contacts.map((contact) => <article key={contact.id}><b>{formatDate(contact.contacted_at)}</b><span>{contact.coach_name_snapshot}</span>{contact.comment && <small>{contact.comment}</small>}</article>)}</div></div>}</>}</section>;
+  return <section className="profile-section achievement-behavior"><div className="section-title-row"><div><p className="eyebrow">Особиста історія</p><h3>Досягнення та поведінка</h3></div></div>{loading ? <LoadingState /> : <><div className="behavior-summary"><div><span>Жовті картки цього місяця</span><b>{currentCards.length}</b></div><div><span>Статус «Зірки місяця»</span><b>{currentCards.length >= 4 ? "Не допускається" : "Може брати участь"}</b></div></div>{currentCards.length >= 3 && !contacted && profile && <div className="parent-contact-alert"><AlertTriangle /><div><b>Необхідний контакт із батьками</b><span>Зафіксовано {currentCards.length} активні картки цього місяця.</span></div><ParentContactAction client={client} profile={profile} player={player} groupId={player.group_id} month={month} onSaved={() => void load()} /></div>}{contacted && <StatusMessage kind="success">Контакт із батьками за цей місяць зафіксовано.</StatusMessage>}<div className="achievement-grid"><div><h4><Trophy size={17} />Відзнаки</h4>{awards.filter((award) => !award.revoked_at).length ? <div className="history-list">{awards.filter((award) => !award.revoked_at).map((award) => { const theme = relationOne(award.monthly_star_themes); return <article key={award.id}><b>{AWARD_LABELS[award.award_type]}</b><span>{formatMonth(award.month)} · {theme?.title ?? "Тема не вказана"}</span></article>; })}</div> : <p className="muted">Відзнак ще немає.</p>}</div><div><h4><ShieldAlert size={17} />Історія карток</h4>{cards.length ? <div className="history-list">{cards.map((card) => <article key={card.id} className={card.is_voided ? "voided" : ""}><b>{BEHAVIOR_REASON_LABELS[card.reason]}</b><span>{formatDate(card.occurred_on)} · {card.coach_name_snapshot}</span>{card.comment && <small>{card.comment}</small>}{card.is_voided && <small>Анульовано: {card.void_reason}</small>}</article>)}</div> : <p className="muted">Карток немає.</p>}<small className="behavior-management-note">Причини та історію видно тут; анулювання помилкових карток виконується у вкладці «Зірка місяця».</small></div></div>{contacts.length > 0 && <div><h4>Історія контактів із батьками</h4><div className="history-list">{contacts.map((contact) => <article key={contact.id}><b>{formatDate(contact.contacted_at)}</b><span>{contact.coach_name_snapshot}</span>{contact.comment && <small>{contact.comment}</small>}</article>)}</div></div>}</>}</section>;
 }
 
 export function MonthlyStarGroupPanel({ client, profile, group }: { client: SupabaseClient; profile: Profile; group: GroupSummary }) {
@@ -168,6 +177,8 @@ export function MonthlyStarGroupPanel({ client, profile, group }: { client: Supa
   }, [client, group.id, month]);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { setMessage(null); }, [group.id]);
+  const activeCards = useMemo(() => cards.filter((card) => !card.is_voided), [cards]);
+  const voidedCards = useMemo(() => cards.filter((card) => card.is_voided), [cards]);
   const cardCounts = useMemo(() => Object.fromEntries(players.map((player) => [player.id, cards.filter((card) => card.player_id === player.id && !card.is_voided).length])) as Record<string, number>, [cards, players]);
   const contacted = useMemo(() => new Set(contacts.map((item) => item.player_id)), [contacts]);
   const actionable = players.filter((player) => (cardCounts[player.id] ?? 0) >= 3 && !contacted.has(player.id));
@@ -181,17 +192,22 @@ export function MonthlyStarGroupPanel({ client, profile, group }: { client: Supa
     setMessage({ kind: "success", text: "Двох переможців місяця підтверджено." });
     await load();
   }
-  async function voidCard(card: PlayerBehaviorCard) {
-    const reason = window.prompt("Вкажіть причину анулювання помилкової картки:");
-    if (!reason?.trim()) return;
-    const result = await client.rpc("void_behavior_card", { p_card_id: card.id, p_reason: reason.trim() });
-    if (result.error) { setMessage({ kind: "error", text: "Картку не анульовано." }); return; }
-    await load();
-  }
   if (loading) return <LoadingState label="Завантажуємо «Зірку місяця»…" />;
   return <div className="monthly-star-group">
     <div className="monthly-star-group-theme"><Star /><div><p>Зірка місяця · {group.code}</p><h3>{theme ? `${formatMonth(theme.month).split(" ")[0]} — ${theme.title}` : "Тему місяця не визначено"}</h3>{theme && <span>{theme.description}</span>}</div></div>
     {message && <StatusMessage kind={message.kind}>{message.text}</StatusMessage>}
+    <section className="star-card-management">
+      <div className="section-title-row"><div><p className="eyebrow">Дисципліна групи</p><h3>Активні жовті картки</h3></div><Pill tone={activeCards.length ? "warning" : "neutral"}>{activeCards.length}</Pill></div>
+      {activeCards.length ? <div className="behavior-card-log">{activeCards.map((card) => {
+        const player = players.find((item) => item.id === card.player_id);
+        const playerName = player?.full_name ?? "Гравець";
+        return <article key={card.id}><div><b>{playerName}</b><span><strong>Причина:</strong> {BEHAVIOR_REASON_LABELS[card.reason]}</span><small>{formatDate(card.occurred_on)} · {card.coach_name_snapshot}</small>{card.comment && <small><strong>Пояснення:</strong> {card.comment}</small>}</div><VoidBehaviorCardAction client={client} card={card} playerName={playerName} onSaved={async () => { setMessage({ kind: "success", text: "Помилкову картку анульовано; місячний підрахунок оновлено." }); await load(); }} /></article>;
+      })}</div> : <p className="muted">Активних жовтих карток цього місяця немає.</p>}
+      {voidedCards.length > 0 && <details className="voided-card-history"><summary>Ануловані картки · {voidedCards.length}</summary><div className="behavior-card-log">{voidedCards.map((card) => {
+        const player = players.find((item) => item.id === card.player_id);
+        return <article key={card.id} className="voided"><div><b>{player?.full_name ?? "Гравець"}</b><span><strong>Причина:</strong> {BEHAVIOR_REASON_LABELS[card.reason]}</span><small>{formatDate(card.occurred_on)} · {card.coach_name_snapshot}</small><small><strong>Ануловано:</strong> {card.void_reason}</small></div></article>;
+      })}</div></details>}
+    </section>
     {actionable.length > 0 && <section className="star-action-list">
       <div className="section-title-row"><div><p className="eyebrow">Потребує дії</p><h3>Необхідний контакт із батьками</h3></div><Pill tone="danger">{actionable.length}</Pill></div>
       {actionable.map((player) => <article key={player.id}><div><b>{player.full_name}</b><span>{cardCounts[player.id]} активні картки цього місяця</span></div><ParentContactAction client={client} profile={profile} player={player} groupId={group.id} month={month} onSaved={() => void load()} /></article>)}
@@ -210,13 +226,6 @@ export function MonthlyStarGroupPanel({ client, profile, group }: { client: Supa
         <label><span>Вибір команди</span><select value={teamChoice} onChange={(event) => setTeamChoice(event.target.value)}><option value="">Оберіть гравця</option>{eligible.map((player) => <option key={player.id} value={player.id} disabled={player.id === coachChoice}>{player.full_name}</option>)}</select></label>
         <div className="span-2"><button type="button" className="primary-action" disabled={busy || !coachChoice || !teamChoice || coachChoice === teamChoice} onClick={() => void saveAwards()}><Trophy size={17} />{busy ? "Збереження…" : awards.length ? "Оновити вибір" : "Підтвердити двох переможців"}</button></div>
       </div> : <StatusMessage kind="warning">Спочатку адміністратор має визначити тему цього місяця.</StatusMessage>}
-    </section>
-    <section>
-      <div className="section-title-row"><div><p className="eyebrow">Приватна історія групи</p><h3>Картки цього місяця</h3></div><Pill tone="warning">{cards.filter((card) => !card.is_voided).length}</Pill></div>
-      {cards.length ? <div className="behavior-card-log">{cards.map((card) => {
-        const player = players.find((item) => item.id === card.player_id);
-        return <article key={card.id} className={card.is_voided ? "voided" : ""}><div><b>{player?.full_name ?? "Гравець"}</b><span>{BEHAVIOR_REASON_LABELS[card.reason]} · {formatDate(card.occurred_on)}</span>{card.comment && <small>{card.comment}</small>}{card.is_voided && <small>Анульовано: {card.void_reason}</small>}</div>{!card.is_voided && <button type="button" className="text-action" onClick={() => void voidCard(card)}><Undo2 size={14} />Анулювати</button>}</article>;
-      })}</div> : <p className="muted">Карток цього місяця немає.</p>}
     </section>
   </div>;
 }
