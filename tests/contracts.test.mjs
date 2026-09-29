@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { A4_LANDSCAPE_PDF_HEIGHT_PT, A4_LANDSCAPE_PDF_WIDTH_PT, buildA4AwardSheetsPdf } from "../lib/domain/monthly-star-award-pdf.ts";
+import { A4_REPORT_HEIGHT_PT, A4_REPORT_WIDTH_PT, buildA4ReportPdf } from "../lib/domain/report-pdf.ts";
 
 const migrationUrl = new URL("../supabase/migrations/20260917154528_foundation_0_2_2.sql", import.meta.url);
 const modulesMigrationUrls = [
@@ -41,6 +42,7 @@ const structureManagementUrl = new URL("../components/admin/structure-management
 const importManagementUrl = new URL("../components/admin/import-management.tsx", import.meta.url);
 const adminExportUrl = new URL("../components/admin/admin-export.tsx", import.meta.url);
 const monthlyStarAwardPdfUrl = new URL("../lib/domain/monthly-star-award-pdf.ts", import.meta.url);
+const reportPdfUrl = new URL("../lib/domain/report-pdf.ts", import.meta.url);
 const domainFormatUrl = new URL("../lib/domain/format.ts", import.meta.url);
 const fileUploadUrl = new URL("../lib/supabase/files.ts", import.meta.url);
 const fileValidationUrl = new URL("../supabase/functions/file-validate/index.ts", import.meta.url);
@@ -85,6 +87,7 @@ const coachPhotoCardScopeMigrationUrl = new URL("../supabase/migrations/20260927
 const coachPhotoTrainingRulesMigrationUrl = new URL("../supabase/migrations/20260928092916_coach_photo_and_training_card_rules.sql", import.meta.url);
 const behaviorCardPolicyScopeMigrationUrl = new URL("../supabase/migrations/20260928093957_qualify_behavior_card_policy_scope.sql", import.meta.url);
 const playerPhotoAssetRegistrationMigrationUrl = new URL("../supabase/migrations/20260928172946_register_player_photo_asset.sql", import.meta.url);
+const forwardPassCleanupMigrationUrl = new URL("../supabase/migrations/20260928184744_remove_forward_pass_test_metric.sql", import.meta.url);
 const ageGroupsDomainUrl = new URL("../lib/domain/age-groups.ts", import.meta.url);
 const workingModulesSchemaUrl = new URL("../supabase/migrations/20260917154737_working_modules_schema_0_2_2.sql", import.meta.url);
 
@@ -745,6 +748,20 @@ test("evaluation names come from administrator-managed catalogs", async () => {
   assert.match(exporter, /Тестування фізичної підготовленості/);
 });
 
+test("obsolete successful-forward-pass staging metric is removed from the catalog fixture", async () => {
+  const [fixture, migration] = await Promise.all([
+    readFile(stagingFixtureUrl, "utf8"),
+    readFile(forwardPassCleanupMigrationUrl, "utf8"),
+  ]);
+  assert.doesNotMatch(fixture, /Успішні передачі вперед/);
+  assert.match(fixture, /activity_metric_id/);
+  assert.match(fixture, /'Лідерські якості'/);
+  assert.match(migration, /delete from public\.evaluation_metrics/i);
+  assert.match(migration, /\[ТЕСТ\] Успішні передачі вперед/);
+  assert.match(migration, /update public\.game_activity_results/i);
+  assert.match(migration, /metric_name = 'Лідерські якості'/i);
+});
+
 test("physical batteries keep four tests with their exact result fields", async () => {
   const [sql, extensionSql, management, importer, coach, exporter, preview] = await Promise.all([
     readFile(physicalComponentsMigrationUrl, "utf8"),
@@ -923,6 +940,8 @@ test("monthly star export places two A5 awards on one A4 sheet and blocks incomp
   assert.match(exporter, /\.eq\("file_assets\.scan_status", "clean"\)/);
   assert.match(exporter, /PDF не сформовано\. Додайте фото у профілі:/);
   assert.ok(exporter.indexOf("missingPhotoAwards.length") < exporter.lastIndexOf("createMonthlyStarAwardPdf"), "all missing photos must block generation before the PDF call");
+  assert.match(exporter, /format: "pdf-empty"/);
+  assert.match(exporter, /emptyMessage: "Дані не внесено"/);
   assert.doesNotMatch(exporter, /award_type|Вибір тренера|Вибір команди/);
   for (const field of ["page.photo", "page.fullName", "page.groupCode", "page.themeTitle"]) assert.match(generator, new RegExp(field.replace(".", "\\.")));
   assert.match(generator, /ЗІРКА/);
@@ -946,6 +965,33 @@ test("monthly star export places two A5 awards on one A4 sheet and blocks incomp
   const singleAwardText = Buffer.from(await buildA4AwardSheetsPdf([[new Uint8Array(jpeg)]]).arrayBuffer()).toString("latin1");
   assert.equal((singleAwardText.match(/\/Subtype \/Image/g) ?? []).length, 1);
   assert.doesNotMatch(singleAwardText, /\/AwardRight Do/, "an incomplete pair must leave the second A5 half empty");
+});
+
+test("administrator reports download real PDFs and empty reports remain downloadable", async () => {
+  const [exporter, generator, format, jpeg] = await Promise.all([
+    readFile(adminExportUrl, "utf8"),
+    readFile(reportPdfUrl, "utf8"),
+    readFile(domainFormatUrl, "utf8"),
+    readFile(new URL("../public/champion-club-emblem.jpg", import.meta.url)),
+  ]);
+  assert.doesNotMatch(exporter, /window\.open|popup\.print|printTable/);
+  assert.match(exporter, /createTableReportPdf/);
+  assert.match(exporter, /Завантажити PDF/);
+  assert.match(exporter, /PDF профілю/);
+  assert.match(exporter, /Дані не внесено/);
+  assert.match(generator, /emptyMessage \?\? "Дані не внесено"/);
+  assert.match(generator, /Europe\/Kyiv/);
+  assert.match(format, /setTimeout\(\(\) => URL\.revokeObjectURL\(url\), 60_000\)/);
+
+  const pdf = buildA4ReportPdf([new Uint8Array(jpeg)]);
+  assert.equal(pdf.type, "application/pdf");
+  const pdfText = Buffer.from(await pdf.arrayBuffer()).toString("latin1");
+  assert.match(pdfText, /^%PDF-1\.4/);
+  assert.equal((pdfText.match(/\/Type \/Page\b/g) ?? []).length, 1);
+  assert.equal((pdfText.match(/\/Subtype \/Image/g) ?? []).length, 1);
+  assert.match(pdfText, new RegExp(`/MediaBox \\[0 0 ${A4_REPORT_WIDTH_PT} ${A4_REPORT_HEIGHT_PT}\\]`));
+  assert.match(pdfText, /\/ReportPage Do/);
+  assert.match(pdfText, /xref[\s\S]+startxref[\s\S]+%%EOF$/);
 });
 
 test("coach deletion is server-only, keeps history and queues future reassignment", async () => {

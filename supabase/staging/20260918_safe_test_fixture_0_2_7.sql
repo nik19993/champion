@@ -66,6 +66,7 @@ declare
   venue_id uuid;
   task_id uuid;
   catalog_item_id uuid;
+  activity_metric_id uuid;
 begin
   select id into strict group_id from public.groups where code = 'U15B';
   select id into strict venue_id from public.venues where is_active order by name limit 1;
@@ -78,6 +79,13 @@ begin
   from public.uniform_catalog_items
   where is_active
   order by sort_order, name
+  limit 1;
+  select id into strict activity_metric_id
+  from public.evaluation_metrics
+  where kind = 'game_activity'
+    and lower(name) = lower('Лідерські якості')
+    and is_active
+  order by sort_order, id
   limit 1;
 
   delete from public.announcement_targets where id = '11111111-1111-4111-8111-111111111901';
@@ -125,10 +133,7 @@ begin
   );
   delete from public.inventory_permissions where id = '11111111-1111-4111-8111-111111111850';
   delete from public.coach_group_assignments where id = '11111111-1111-4111-8111-111111111101';
-  delete from public.evaluation_metrics where id in (
-    '11111111-1111-4111-8111-111111111401',
-    '11111111-1111-4111-8111-111111111402'
-  );
+  delete from public.evaluation_metrics where id = '11111111-1111-4111-8111-111111111401';
 
   insert into public.coach_group_assignments (
     id, coach_id, group_id, assignment_role, is_active, created_by
@@ -138,9 +143,9 @@ begin
 
   insert into public.evaluation_metrics (
     id, kind, name, default_unit, description, sort_order, is_active, created_by, updated_by
-  ) values
-    ('11111111-1111-4111-8111-111111111401', 'physical_preparedness', '[ТЕСТ] Біг 20 м', 'с', 'Синтетичний показник для staging-перевірки.', 9001, true, admin_id, admin_id),
-    ('11111111-1111-4111-8111-111111111402', 'game_activity', '[ТЕСТ] Успішні передачі вперед', null, 'Синтетична складова ігрової діяльності для staging-перевірки.', 9002, true, admin_id, admin_id);
+  ) values (
+    '11111111-1111-4111-8111-111111111401', 'physical_preparedness', '[ТЕСТ] Біг 20 м', 'с', 'Синтетичний показник для staging-перевірки.', 9001, true, admin_id, admin_id
+  );
 
   insert into public.players (
     id, group_id, full_name, first_name, last_name, middle_name,
@@ -195,9 +200,9 @@ begin
     '11111111-1111-4111-8111-111111111402',
     '11111111-1111-4111-8111-111111111201',
     to_char(current_date, 'YYYY-MM'),
-    '11111111-1111-4111-8111-111111111402',
-    '[ТЕСТ] Успішні передачі вперед',
-    '12',
+    activity_metric_id,
+    'Лідерські якості',
+    '4',
     'staging_fixture',
     admin_id
   );
