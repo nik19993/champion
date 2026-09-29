@@ -1,3 +1,5 @@
+import { MONTHLY_STAR_EMBLEM_DATA_URL, MONTHLY_STAR_MARK_DATA_URL } from "./monthly-star-award-assets.ts";
+
 export const A5_PDF_WIDTH_PT = 419.527559;
 export const A5_PDF_HEIGHT_PT = 595.275591;
 export const A4_LANDSCAPE_PDF_WIDTH_PT = 841.889764;
@@ -107,10 +109,13 @@ function loadBlobImage(blob: Blob): Promise<LoadedImage> {
   });
 }
 
-async function fetchImage(path: string) {
-  const response = await fetch(path);
-  if (!response.ok) throw new Error("Не вдалося завантажити графіку нагороди.");
-  return loadBlobImage(await response.blob());
+function loadEmbeddedImage(src: string): Promise<LoadedImage> {
+  const image = new Image();
+  return new Promise((resolve, reject) => {
+    image.onload = () => resolve({ image, release: () => undefined });
+    image.onerror = () => reject(new Error("Не вдалося прочитати вбудовану графіку нагороди."));
+    image.src = src;
+  });
 }
 
 function canvasToJpeg(canvas: HTMLCanvasElement) {
@@ -381,8 +386,8 @@ export function buildA4AwardSheetsPdf(jpegSheets: Array<[Uint8Array, Uint8Array?
 export async function createMonthlyStarAwardPdf(pages: MonthlyStarAwardPage[]) {
   if (!pages.length) throw new Error("Немає нагород для формування PDF.");
   const [emblem, starMark] = await Promise.all([
-    fetchImage("/champion-club-emblem.jpg"),
-    fetchImage("/champion-star.svg"),
+    loadEmbeddedImage(MONTHLY_STAR_EMBLEM_DATA_URL),
+    loadEmbeddedImage(MONTHLY_STAR_MARK_DATA_URL),
   ]);
   try {
     const awardsByGroup = new Map<string, Uint8Array[]>();

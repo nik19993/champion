@@ -4,6 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { BellRing, ChevronDown, Copy, KeyRound, MapPinned, Pencil, RefreshCw, Trash2, Users } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { Accordion, EmptyState, LoadingState, Modal, Pill, StatusMessage, WorkspaceHeader } from "@/components/common/workspace-ui";
+import { SaveStateLabel, UndoLastChange, type SaveState } from "@/components/common/save-feedback";
 import { EvaluationManagement } from "@/components/admin/evaluation-management";
 import { InventoryManagement } from "@/components/admin/inventory-management";
 import { MethodologyManagement } from "@/components/admin/admin-management-methodology";
@@ -452,9 +453,85 @@ function VenueManagement({ client, profile }: { client: SupabaseClient; profile:
   const [venues, setVenues] = useState<Venue[]>([]);
   const [name, setName] = useState("");
   const [type, setType] = useState("field");
-  const load = useCallback(async () => { const result = await client.from("venues").select("id, name, venue_type, is_active").order("name"); setVenues((result.data ?? []) as Venue[]); }, [client]);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [saveState, setSaveState] = useState<SaveState>("idle");
+  const [message, setMessage] = useState<{ kind: "success" | "error"; text: string } | null>(null);
+  const [undoVenue, setUndoVenue] = useState<Venue | null>(null);
+  const load = useCallback(async () => {
+    const result = await client.from("venues").select("id, name, venue_type, is_active").order("name");
+    if (result.error) {
+      setMessage({ kind: "error", text: "Поля й майданчики не завантажено." });
+      return;
+    }
+    setVenues((result.data ?? []) as Venue[]);
+  }, [client]);
   useEffect(() => { void load(); }, [load]);
-  async function add(event: FormEvent) { event.preventDefault(); await client.from("venues").insert({ name: name.trim(), venue_type: type, is_active: true, created_by: profile.id }); setName(""); void load(); }
-  async function toggle(venue: Venue) { await client.from("venues").update({ is_active: !venue.is_active, updated_by: profile.id }).eq("id", venue.id); void load(); }
-  return <div className="management-grid"><form className="form-stack management-form" onSubmit={add}><h3>Додати поле або майданчик</h3><label><span>Назва</span><input value={name} onChange={(e) => setName(e.target.value)} required /></label><label><span>Тип</span><select value={type} onChange={(e) => setType(e.target.value)}><option value="field">Поле</option><option value="small_pitch">Малий майданчик</option><option value="hall">Зал</option><option value="other">Інший ресурс</option></select></label><button className="primary-action"><MapPinned size={18} />Додати</button></form><div className="compact-list">{venues.map((venue) => <article key={venue.id}><div><b>{venue.name}</b><small>{venue.venue_type}</small></div><button type="button" className="secondary-action small" onClick={() => void toggle(venue)}>{venue.is_active ? "Деактивувати" : "Активувати"}</button></article>)}</div></div>;
+
+  function resetEditor() {
+    setEditingId(null);
+    setName("");
+    setType("field");
+    setSaveState("idle");
+  }
+
+  function edit(venue: Venue) {
+    setEditingId(venue.id);
+    setName(venue.name);
+    setType(venue.venue_type);
+    setMessage(null);
+    setSaveState("dirty");
+  }
+
+  async function save(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setSaveState("saving");
+    setMessage(null);
+    const previous = editingId ? venues.find((venue) => venue.id === editingId) ?? null : null;
+    const result = editingId
+      ? await client.from("venues").update({ name: name.trim(), venue_type: type, updated_by: profile.id }).eq("id", editingId)
+      : await client.from("venues").insert({ name: name.trim(), venue_type: type, is_active: true, created_by: profile.id });
+    setBusy(false);
+    if (result.error) {
+      setSaveState("error");
+      setMessage({ kind: "error", text: "Поле або майданчик не збережено. Перевірте, чи немає активного запису з такою назвою." });
+      return;
+    }
+    setUndoVenue(previous);
+    setSaveState("saved");
+    setMessage({ kind: "success", text: editingId ? "Зміни поля або майданчика збережено." : "Нове поле або майданчик додано." });
+    setEditingId(null);
+    setName("");
+    setType("field");
+    await load();
+  }
+
+  async function undoLastEdit() {
+    if (!undoVenue) return;
+    setBusy(true);
+    const result = await client.from("venues").update({ name: undoVenue.name, venue_type: undoVenue.venue_type, updated_by: profile.id }).eq("id", undoVenue.id);
+    setBusy(false);
+    if (result.error) {
+      setMessage({ kind: "error", text: "Останнє редагування майданчика не скасовано." });
+      return;
+    }
+    setUndoVenue(null);
+    setSaveState("saved");
+    setMessage({ kind: "success", text: "Останнє редагування майданчика скасовано." });
+    await load();
+  }
+
+  async function toggle(venue: Venue) {
+    const result = await client.from("venues").update({ is_active: !venue.is_active, updated_by: profile.id }).eq("id", venue.id);
+    if (result.error) {
+      setMessage({ kind: "error", text: "Стан майданчика не змінено." });
+      return;
+    }
+    setMessage({ kind: "success", text: venue.is_active ? `«${venue.name}» деактивовано.` : `«${venue.name}» активовано.` });
+    await load();
+  }
+
+  const typeLabels: Record<string, string> = { field: "Поле", small_pitch: "Малий майданчик", hall: "Зал", other: "Інший ресурс" };
+  return <div className="venue-management"><div className="management-grid"><form className={`form-stack management-form save-surface ${saveState}`} onSubmit={save}><div className="form-title-row"><h3>{editingId ? "Редагувати поле або майданчик" : "Додати поле або майданчик"}</h3>{editingId && <button type="button" className="secondary-action small" onClick={resetEditor}>Скасувати редагування</button>}</div><label><span>Назва</span><input value={name} onChange={(event) => { setName(event.target.value); setSaveState("dirty"); }} required /></label><label><span>Тип</span><select value={type} onChange={(event) => { setType(event.target.value); setSaveState("dirty"); }}><option value="field">Поле</option><option value="small_pitch">Малий майданчик</option><option value="hall">Зал</option><option value="other">Інший ресурс</option></select></label><div className="save-control"><button className={`primary-action save-action ${saveState}`} disabled={busy}>{busy ? "Збереження…" : saveState === "saved" ? "Збережено" : editingId ? "Зберегти зміни" : "Додати"}<MapPinned size={18} /></button><SaveStateLabel state={saveState} /></div></form><div className="compact-list">{venues.map((venue) => <article className={!venue.is_active ? "inactive" : ""} key={venue.id}><div><b>{venue.name}</b><small>{typeLabels[venue.venue_type] ?? venue.venue_type}{venue.is_active ? "" : " · неактивний"}</small></div><div className="row-actions"><button type="button" className="secondary-action small" onClick={() => edit(venue)}><Pencil size={15} />Редагувати</button><button type="button" className="secondary-action small" onClick={() => void toggle(venue)}>{venue.is_active ? "Деактивувати" : "Активувати"}</button></div></article>)}</div></div>{message && <div className="save-message-row"><StatusMessage kind={message.kind}>{message.text}</StatusMessage>{undoVenue && message.kind === "success" && <UndoLastChange busy={busy} onUndo={undoLastEdit} />}</div>}</div>;
 }

@@ -1101,3 +1101,58 @@ textarea { resize: vertical; }
 .bulk-permissions button:hover { color: #111; border-color: #111; background: #fff4ae; }
 .tile-icon.plum { color: #111; background: #fff0a1; }
 .export-actions button { border-color: #d8d0aa; background: #fffdf2; }
+
+/* Clear persistence feedback for phone-first workflows. */
+.connection-status.synced { color: #1f6031; background: #edf8ee; }
+.connection-status.syncing { color: #70540f; background: #fff5d5; }
+.connection-status.drafts { color: #5b4707; border: 1px solid #ead27c; background: #fff9dd; }
+
+.save-state-label { display: inline-flex; align-items: center; gap: 5px; color: #6b5a22; font-size: 12px; font-weight: 780; }
+.save-state-label.saving svg,
+.spin { animation: status-spin .9s linear infinite; }
+.save-state-label.saved { color: var(--success); }
+.save-state-label.error { color: var(--danger); }
+.save-state-label.dirty { color: #816000; }
+@keyframes status-spin { to { transform: rotate(360deg); } }
+
+.draft-status { min-height: 42px; display: flex; align-items: center; gap: 8px; padding: 9px 11px; color: #5f4a0a; border: 1px solid #ead27c; border-radius: 11px; background: #fff9dd; font-size: 12px; font-weight: 700; }
+.draft-status.restored { color: #174c6b; border-color: #a8cee0; background: #eef8fc; }
+.draft-status.saved { color: var(--success); border-color: #b9d9bd; background: #edf8ee; }
+.draft-status > span { flex: 1; }
+.draft-status button,
+.undo-last-action { min-height: 34px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 6px 9px; color: #242424; border: 1px solid #cbb94f; border-radius: 9px; background: white; font-size: 12px; font-weight: 760; }
+.draft-status button:hover,
+.undo-last-action:hover:not(:disabled) { border-color: #111; background: #fff4ae; }
+
+.save-message-row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 9px; }
+.save-message-row > :first-child { flex: 1 1 320px; }
+.save-control { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
+.save-action { transition: color .18s, border-color .18s, background .18s, box-shadow .18s; }
+.save-action.dirty { color: #111; border-color: #d4ad00; background: #fff4ae; box-shadow: 0 0 0 3px rgba(255, 212, 0, .16); }
+.save-action.saving { color: #111; border-color: #d4ad00; background: #ffe577; }
+.save-action.saved { color: #fff; border-color: #236331; background: #236331; box-shadow: 0 0 0 3px rgba(35, 99, 49, .14); }
+.save-action.error { color: #fff; border-color: var(--danger); background: var(--danger); }
+.save-surface { transition: border-color .18s, background .18s, box-shadow .18s; }
+.save-surface.dirty { border-color: #d4ad00 !important; background: #fffdf0 !important; box-shadow: inset 4px 0 0 #ffd400; }
+.save-surface.saving { border-color: #d4ad00 !important; background: #fff9dd !important; }
+.save-surface.saved { border-color: #71a77a !important; background: #f4fbf5 !important; box-shadow: inset 4px 0 0 #3e8a4b; }
+.save-surface.error { border-color: #c85b54 !important; background: #fff4f3 !important; box-shadow: inset 4px 0 0 var(--danger); }
+
+.coach-characteristic-actions > span { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.venue-management { display: grid; gap: 12px; }
+.venue-management .compact-list article.inactive { opacity: .62; background: #f3f1e9; }
+
+@media (max-width: 600px) {
+  .connection-status { align-items: flex-start; }
+  .draft-status { align-items: flex-start; flex-wrap: wrap; }
+  .draft-status button,
+  .undo-last-action { width: 100%; }
+  .save-message-row { align-items: stretch; }
+  .save-control { align-items: stretch; flex-direction: column; }
+  .save-control > button { width: 100%; justify-content: center; }
+  .coach-characteristic-actions { align-items: stretch; flex-direction: column; }
+  .coach-characteristic-actions .secondary-action { width: 100%; margin-left: 0; justify-content: center; }
+  .venue-management .compact-list article { align-items: stretch; flex-direction: column; }
+  .venue-management .compact-list .row-actions { justify-content: stretch; }
+  .venue-management .compact-list .row-actions button { flex: 1 1 150px; justify-content: center; }
+}

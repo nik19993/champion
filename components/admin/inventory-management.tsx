@@ -9,6 +9,8 @@ import {
   Pill,
   StatusMessage,
 } from "@/components/common/workspace-ui";
+import { SaveStateLabel, UndoLastChange, type SaveState } from "@/components/common/save-feedback";
+import { clearDraft, draftKey, readDraft, writeDraft } from "@/lib/offline/drafts";
 import type {
   GroupSummary,
   InventoryItem,
@@ -31,6 +33,11 @@ interface Props {
 }
 
 type PermissionField = "can_edit_quantity" | "can_report_issues";
+type InventoryValues = Pick<InventoryItem, "quantity" | "damaged" | "lost" | "needed">;
+
+function inventoryValues(item: InventoryItem): InventoryValues {
+  return { quantity: item.quantity, damaged: item.damaged, lost: item.lost, needed: item.needed };
+}
 
 export function InventoryManagement({ client, profile, groups }: Props) {
   const [groupId, setGroupId] = useState(groups[0]?.id ?? "");
@@ -39,10 +46,16 @@ export function InventoryManagement({ client, profile, groups }: Props) {
   const [permissions, setPermissions] = useState<InventoryPermission[]>([]);
   const [newName, setNewName] = useState("");
   const [newQuantity, setNewQuantity] = useState(0);
+  const [savedItems, setSavedItems] = useState<Record<string, InventoryValues>>({});
+  const [saveStates, setSaveStates] = useState<Record<string, SaveState>>({});
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const [draftReady, setDraftReady] = useState(false);
+  const [undoItem, setUndoItem] = useState<{ id: string; name: string; previous: InventoryValues } | null>(null);
   const [message, setMessage] = useState<{
     kind: "success" | "error";
     text: string;
   } | null>(null);
+  const inventoryDraftKey = groupId ? draftKey(profile.id, `admin-inventory:${groupId}`) : "";
 
   const load = useCallback(async () => {
     if (!groupId) {
@@ -51,6 +64,7 @@ export function InventoryManagement({ client, profile, groups }: Props) {
       setPermissions([]);
       return;
     }
+    setDraftReady(false);
 
     const [itemResult, coachResult, permissionResult] = await Promise.all([
       client
@@ -73,11 +87,23 @@ export function InventoryManagement({ client, profile, groups }: Props) {
     ]);
 
     if (itemResult.error || coachResult.error || permissionResult.error) {
+      setItems([]);
+      setSavedItems({});
+      setSaveStates({});
+      setCoaches([]);
+      setPermissions([]);
       setMessage({ kind: "error", text: "Дані інвентарю не завантажено." });
       return;
     }
 
-    setItems((itemResult.data ?? []) as InventoryItem[]);
+    const serverItems = (itemResult.data ?? []) as InventoryItem[];
+    const baseline = Object.fromEntries(serverItems.map((item) => [item.id, inventoryValues(item)]));
+    const local = readDraft<Record<string, InventoryValues>>(draftKey(profile.id, `admin-inventory:${groupId}`));
+    const restored = local?.value ?? {};
+    setSavedItems(baseline);
+    setItems(serverItems.map((item) => restored[item.id] ? { ...item, ...restored[item.id] } : item));
+    setSaveStates(Object.fromEntries(Object.keys(restored).filter((id) => baseline[id]).map((id) => [id, "dirty" as SaveState])));
+    if (Object.keys(restored).some((id) => baseline[id])) setMessage({ kind: "success", text: "Відновлено незбережені зміни інвентарю з цього пристрою." });
     const assigned = ((coachResult.data ?? []) as unknown as CoachRow[]).filter(
       (coach) =>
         coach.coach_group_assignments?.some(
@@ -86,13 +112,38 @@ export function InventoryManagement({ client, profile, groups }: Props) {
     );
     setCoaches(assigned);
     setPermissions((permissionResult.data ?? []) as InventoryPermission[]);
-  }, [client, groupId]);
+    setDraftReady(true);
+  }, [client, groupId, profile.id]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
+  useEffect(() => {
+    if (!draftReady || !inventoryDraftKey) return;
+    const changed = Object.fromEntries(items.flatMap((item) => {
+      const baseline = savedItems[item.id];
+      const value = inventoryValues(item);
+      return baseline && JSON.stringify(value) !== JSON.stringify(baseline) ? [[item.id, value]] : [];
+    }));
+    if (Object.keys(changed).length) writeDraft(inventoryDraftKey, profile.id, changed);
+    else clearDraft(inventoryDraftKey);
+  }, [draftReady, inventoryDraftKey, items, profile.id, savedItems]);
+
+  function changeItem(id: string, field: keyof InventoryValues, value: number) {
+    const current = items.find((item) => item.id === id);
+    if (!current) return;
+    const next = { ...current, [field]: Math.max(0, value) };
+    const baseline = savedItems[id];
+    const state: SaveState = baseline && JSON.stringify(inventoryValues(next)) === JSON.stringify(baseline) ? "saved" : "dirty";
+    setItems((rows) => rows.map((row) => row.id === id ? next : row));
+    setSaveStates((states) => ({ ...states, [id]: state }));
+  }
+
   async function updateItem(item: InventoryItem) {
+    const previous = savedItems[item.id] ?? inventoryValues(item);
+    setSavingId(item.id);
+    setSaveStates((states) => ({ ...states, [item.id]: "saving" }));
     const result = await client
       .from("inventory_items")
       .update({
@@ -104,11 +155,39 @@ export function InventoryManagement({ client, profile, groups }: Props) {
       })
       .eq("id", item.id);
 
+    setSavingId(null);
+    if (!result.error) {
+      setSavedItems((values) => ({ ...values, [item.id]: inventoryValues(item) }));
+      setSaveStates((states) => ({ ...states, [item.id]: "saved" }));
+      setUndoItem({ id: item.id, name: item.name, previous });
+    } else {
+      setSaveStates((states) => ({ ...states, [item.id]: "error" }));
+    }
+
     setMessage(
       result.error
         ? { kind: "error", text: "Позицію не збережено." }
         : { kind: "success", text: `Позицію «${item.name}» оновлено.` },
     );
+  }
+
+  async function undoLastItem() {
+    if (!undoItem) return;
+    setSavingId(undoItem.id);
+    const result = await client
+      .from("inventory_items")
+      .update({ ...undoItem.previous, updated_by: profile.id })
+      .eq("id", undoItem.id);
+    setSavingId(null);
+    if (result.error) {
+      setMessage({ kind: "error", text: "Останню зміну інвентарю не скасовано." });
+      return;
+    }
+    setItems((rows) => rows.map((row) => row.id === undoItem.id ? { ...row, ...undoItem.previous } : row));
+    setSavedItems((values) => ({ ...values, [undoItem.id]: undoItem.previous }));
+    setSaveStates((states) => ({ ...states, [undoItem.id]: "saved" }));
+    setMessage({ kind: "success", text: `Останню зміну позиції «${undoItem.name}» скасовано.` });
+    setUndoItem(null);
   }
 
   async function deactivateItem(item: InventoryItem) {
@@ -125,6 +204,8 @@ export function InventoryManagement({ client, profile, groups }: Props) {
     }
 
     setItems((rows) => rows.filter((row) => row.id !== item.id));
+    setSavedItems((values) => Object.fromEntries(Object.entries(values).filter(([id]) => id !== item.id)));
+    setSaveStates((states) => Object.fromEntries(Object.entries(states).filter(([id]) => id !== item.id)));
     setMessage({
       kind: "success",
       text: `Позицію «${item.name}» прибрано з активного переліку.`,
@@ -154,7 +235,9 @@ export function InventoryManagement({ client, profile, groups }: Props) {
       return;
     }
 
-    setItems((rows) => [...rows, result.data as InventoryItem]);
+    const added = result.data as InventoryItem;
+    setItems((rows) => [...rows, added]);
+    setSavedItems((values) => ({ ...values, [added.id]: inventoryValues(added) }));
     setNewName("");
     setNewQuantity(0);
     setMessage({ kind: "success", text: "Нову позицію додано." });
@@ -242,7 +325,7 @@ export function InventoryManagement({ client, profile, groups }: Props) {
         <Pill tone="neutral">Дані синхронізуються з вкладкою тренера</Pill>
       </div>
 
-      {message && <StatusMessage kind={message.kind}>{message.text}</StatusMessage>}
+      {message && <div className="save-message-row"><StatusMessage kind={message.kind}>{message.text}</StatusMessage>{undoItem && message.kind === "success" && <UndoLastChange busy={savingId === undoItem.id} onUndo={undoLastItem} />}</div>}
 
       {items.length ? (
         <div className="responsive-table">
@@ -259,7 +342,7 @@ export function InventoryManagement({ client, profile, groups }: Props) {
             </thead>
             <tbody>
               {items.map((item) => (
-                <tr key={item.id}>
+                <tr className={`save-surface ${saveStates[item.id] ?? "idle"}`} key={item.id}>
                   <td>{item.name}</td>
                   {(["quantity", "damaged", "lost", "needed"] as const).map(
                     (field) => (
@@ -270,18 +353,7 @@ export function InventoryManagement({ client, profile, groups }: Props) {
                           type="number"
                           min={0}
                           value={item[field]}
-                          onChange={(event) =>
-                            setItems((rows) =>
-                              rows.map((row) =>
-                                row.id === item.id
-                                  ? {
-                                      ...row,
-                                      [field]: Math.max(0, Number(event.target.value)),
-                                    }
-                                  : row,
-                              ),
-                            )
-                          }
+                          onChange={(event) => changeItem(item.id, field, Number(event.target.value))}
                         />
                       </td>
                     ),
@@ -289,13 +361,15 @@ export function InventoryManagement({ client, profile, groups }: Props) {
                   <td>
                     <div className="row-actions">
                       <button
-                        className="secondary-action small"
+                        className={`secondary-action small save-action ${saveStates[item.id] ?? "idle"}`}
                         type="button"
                         onClick={() => void updateItem(item)}
+                        disabled={savingId === item.id || saveStates[item.id] === "saved" || saveStates[item.id] === "idle"}
                       >
                         <Save size={15} />
-                        Зберегти
+                        {savingId === item.id ? "Збереження…" : saveStates[item.id] === "saved" ? "Збережено" : saveStates[item.id] === "error" ? "Повторити" : "Зберегти"}
                       </button>
+                      <SaveStateLabel state={saveStates[item.id] ?? "idle"} />
                       <button
                         className="danger-action small"
                         type="button"

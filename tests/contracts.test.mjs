@@ -47,6 +47,9 @@ const domainFormatUrl = new URL("../lib/domain/format.ts", import.meta.url);
 const fileUploadUrl = new URL("../lib/supabase/files.ts", import.meta.url);
 const fileValidationUrl = new URL("../supabase/functions/file-validate/index.ts", import.meta.url);
 const attendanceQueueUrl = new URL("../lib/offline/attendance-queue.ts", import.meta.url);
+const draftsUrl = new URL("../lib/offline/drafts.ts", import.meta.url);
+const connectionStatusUrl = new URL("../components/common/connection-status.tsx", import.meta.url);
+const saveFeedbackUrl = new URL("../components/common/save-feedback.tsx", import.meta.url);
 const stylesUrl = new URL("../app/globals.css", import.meta.url);
 const layoutUrl = new URL("../app/layout.tsx", import.meta.url);
 const importPreviewUrl = new URL("../supabase/functions/import-preview/index.ts", import.meta.url);
@@ -90,6 +93,7 @@ const playerPhotoAssetRegistrationMigrationUrl = new URL("../supabase/migrations
 const forwardPassCleanupMigrationUrl = new URL("../supabase/migrations/20260928184744_remove_forward_pass_test_metric.sql", import.meta.url);
 const ageGroupsDomainUrl = new URL("../lib/domain/age-groups.ts", import.meta.url);
 const workingModulesSchemaUrl = new URL("../supabase/migrations/20260917154737_working_modules_schema_0_2_2.sql", import.meta.url);
+const monthlyStarAwardAssetsUrl = new URL("../lib/domain/monthly-star-award-assets.ts", import.meta.url);
 
 async function readModulesMigration() {
   return (await Promise.all(modulesMigrationUrls.map((url) => readFile(url, "utf8")))).join("\n");
@@ -153,6 +157,53 @@ test("coach characteristic is optional, attributed and group-scoped", async () =
   assert.match(coachPlayers, /rpc\("save_player_coach_note"/);
   assert.match(coachPlayers, /canEditCoachNote = profile\?\.role === "coach"/);
   assert.doesNotMatch(coachPlayers, /автоматично сформован.{0,30}характеристик/i);
+});
+
+test("phone workflows preserve drafts and expose clear synchronization and save states", async () => {
+  const [drafts, connection, feedback, plan, coachPlayers, coachInventory, adminInventory, adminUniform, styles] = await Promise.all([
+    readFile(draftsUrl, "utf8"),
+    readFile(connectionStatusUrl, "utf8"),
+    readFile(saveFeedbackUrl, "utf8"),
+    readFile(coachPlanUrl, "utf8"),
+    readFile(coachPlayersUrl, "utf8"),
+    readFile(coachInventoryUrl, "utf8"),
+    readFile(adminInventoryUrl, "utf8"),
+    readFile(adminUniformUrl, "utf8"),
+    readFile(stylesUrl, "utf8"),
+  ]);
+  assert.match(drafts, /champion:draft:/);
+  assert.match(drafts, /14 \* 24 \* 60 \* 60 \* 1000/);
+  assert.match(drafts, /window\.localStorage/);
+  assert.match(drafts, /profileId/);
+  assert.match(connection, /Онлайн · усі збережені дані синхронізовано/);
+  assert.match(connection, /ATTENDANCE_QUEUE_CHANGED_EVENT, refresh/);
+  assert.match(connection, /DRAFTS_CHANGED_EVENT/);
+  assert.match(feedback, /Скасувати останню зміну/);
+  assert.match(feedback, /Автоматично зберігаємо чернетку/);
+  assert.match(plan, /draftKey\(profile\.id, `event:/);
+  assert.match(coachPlayers, /draftKey\(profile\.id, `coach-note:/);
+  assert.match(coachPlayers, /draftKey\(profile\.id, `uniform-request:/);
+  for (const source of [coachInventory, adminInventory, adminUniform]) {
+    assert.match(source, /writeDraft/);
+    assert.match(source, /UndoLastChange/);
+    assert.match(source, /SaveStateLabel/);
+  }
+  assert.match(styles, /\.save-action\.saved/);
+  assert.match(styles, /\.save-surface\.dirty/);
+  assert.match(styles, /\.connection-status\.synced/);
+});
+
+test("player history is titled achievements and existing venues are editable", async () => {
+  const [monthlyStar, management] = await Promise.all([
+    readFile(monthlyStarUiUrl, "utf8"),
+    readFile(managementUrl, "utf8"),
+  ]);
+  const history = monthlyStar.slice(monthlyStar.indexOf("export function PlayerAchievementBehavior"), monthlyStar.indexOf("export function MonthlyStarGroupPanel"));
+  assert.match(history, /<h3>Досягнення<\/h3>/);
+  assert.doesNotMatch(history, /Досягнення та поведінка/);
+  assert.match(management, /Редагувати поле або майданчик/);
+  assert.match(management, /update\(\{ name: name\.trim\(\), venue_type: type, updated_by: profile\.id \}\)/);
+  assert.match(management, /UndoLastChange/);
 });
 
 test("player uniform status accepts the one-to-one relation returned by PostgREST", async () => {
@@ -833,7 +884,8 @@ test("monthly star workflow is complete without public rankings or player voting
   assert.match(ui, /Вибір тренера/);
   assert.match(ui, /Вибір команди/);
   assert.match(ui, /Два різні переможці/);
-  assert.match(ui, /Досягнення та поведінка/);
+  assert.match(ui, /<h3>Досягнення<\/h3>/);
+  assert.doesNotMatch(ui, /Досягнення та поведінка/);
   assert.match(admin, /Збережена історія/);
   assert.match(admin, /Теми місяців/);
   assert.match(coachPlan, /MonthlyStarThemeBanner/);
@@ -927,9 +979,10 @@ test("coach photo, attendance and card workflow is mobile-friendly and admin rea
 });
 
 test("monthly star export places two A5 awards on one A4 sheet and blocks incomplete photo sets", async () => {
-  const [exporter, generator, jpeg] = await Promise.all([
+  const [exporter, generator, assets, jpeg] = await Promise.all([
     readFile(adminExportUrl, "utf8"),
     readFile(monthlyStarAwardPdfUrl, "utf8"),
+    readFile(monthlyStarAwardAssetsUrl, "utf8"),
     readFile(new URL("../public/champion-club-emblem.jpg", import.meta.url)),
   ]);
   assert.match(exporter, /Нагороди «Зірка місяця»/);
@@ -946,6 +999,11 @@ test("monthly star export places two A5 awards on one A4 sheet and blocks incomp
   for (const field of ["page.photo", "page.fullName", "page.groupCode", "page.themeTitle"]) assert.match(generator, new RegExp(field.replace(".", "\\.")));
   assert.match(generator, /ЗІРКА/);
   assert.match(generator, /МІСЯЦЯ/);
+  assert.match(generator, /loadEmbeddedImage\(MONTHLY_STAR_EMBLEM_DATA_URL\)/);
+  assert.match(generator, /loadEmbeddedImage\(MONTHLY_STAR_MARK_DATA_URL\)/);
+  assert.doesNotMatch(generator, /fetch\(/);
+  assert.match(assets, /data:image\/jpeg;base64,/);
+  assert.match(assets, /data:image\/svg\+xml;base64,/);
   assert.match(generator, /awardsByGroup/);
   assert.match(generator, /index \+= 2/);
 

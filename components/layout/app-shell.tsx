@@ -76,7 +76,7 @@ export function AppShell({ client, profile, onMfaRequired }: Props) {
     }
     if (profile.role === "admin" && !(result.data ?? []).length) {
       setLoading(false);
-      setLoadError("У staging налаштовано 21 групу, але поточна сесія не надала до них доступ. Повторіть завантаження.");
+      setLoadError("У staging налаштовано групи, але поточна сесія не надала до них доступ. Повторіть завантаження.");
       return;
     }
     setLoading(false);
@@ -99,7 +99,7 @@ export function AppShell({ client, profile, onMfaRequired }: Props) {
       return <CoachPlan client={client} profile={profile} groups={groups} />;
     }
     if (activeView === "groups") return <AdminGroups client={client} groups={groups} onRefresh={() => void loadGroups()} />;
-    if (activeView === "uniform") return <AdminUniform client={client} groups={groups} />;
+    if (activeView === "uniform") return <AdminUniform client={client} profile={profile} groups={groups} />;
     if (activeView === "management") return <AdminManagement client={client} profile={profile} groups={groups} onMfaRequired={onMfaRequired} />;
     if (activeView === "report") return <AdminReport client={client} />;
     if (activeView === "export") return <AdminExport client={client} profile={profile} groups={groups} />;

@@ -5,10 +5,12 @@ import Image from "next/image";
 import { Camera, Check, ChevronRight, ImagePlus, Mail, Phone, Shirt, UserRound } from "lucide-react";
 import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EmptyState, GroupSelect, LoadingState, Modal, Pill, SearchField, StatusMessage, Tabs, WorkspaceHeader } from "@/components/common/workspace-ui";
+import { DraftStatus, SaveStateLabel, UndoLastChange, type DraftState, type SaveState } from "@/components/common/save-feedback";
 import { MonthlyStarGroupPanel, PlayerAchievementBehavior } from "@/components/star/monthly-star";
 import { formatDate, formatMonth, safeError, toMonthInput } from "@/lib/domain/format";
 import type { FileAsset, GroupSummary, Guardian, Player, Profile, UniformCatalogItem, UniformRequest, UniformStatus } from "@/lib/domain/types";
 import { UNIFORM_STATUS_LABELS } from "@/lib/domain/format";
+import { clearDraft, draftKey, readDraft, writeDraft } from "@/lib/offline/drafts";
 import { deletePrivateFile, uploadPrivateFile } from "@/lib/supabase/files";
 
 interface Props { client: SupabaseClient; profile: Profile; groups: GroupSummary[]; }
@@ -195,15 +197,42 @@ export function PlayerDetails({ client, profile, player, photoUrl, onPhotoSaved,
   const [coachNoteAuthor, setCoachNoteAuthor] = useState(player.coach_note_author_name ?? null);
   const [coachNoteUpdatedAt, setCoachNoteUpdatedAt] = useState(player.coach_note_updated_at ?? null);
   const [coachNoteBusy, setCoachNoteBusy] = useState(false);
+  const [coachNoteSavedValue, setCoachNoteSavedValue] = useState(player.coach_note ?? "");
+  const [coachNoteDraftReady, setCoachNoteDraftReady] = useState(false);
+  const [coachNoteDraftState, setCoachNoteDraftState] = useState<DraftState>("idle");
+  const [coachNoteSaveState, setCoachNoteSaveState] = useState<SaveState>("idle");
   const [coachNoteMessage, setCoachNoteMessage] = useState<{ kind: "success" | "error"; text: string } | null>(null);
   const canEditCoachNote = profile?.role === "coach";
+  const coachNoteDraftKey = profile ? draftKey(profile.id, `coach-note:${player.id}`) : "";
 
   useEffect(() => {
-    setCoachNote(player.coach_note ?? "");
+    const serverValue = player.coach_note ?? "";
+    const local = coachNoteDraftKey ? readDraft<{ note: string }>(coachNoteDraftKey) : null;
+    setCoachNote(local?.value.note ?? serverValue);
+    setCoachNoteSavedValue(serverValue);
     setCoachNoteAuthor(player.coach_note_author_name ?? null);
     setCoachNoteUpdatedAt(player.coach_note_updated_at ?? null);
     setCoachNoteMessage(null);
-  }, [player.id, player.coach_note, player.coach_note_author_name, player.coach_note_updated_at]);
+    setCoachNoteSaveState(local && local.value.note !== serverValue ? "dirty" : "idle");
+    setCoachNoteDraftState(local && local.value.note !== serverValue ? "restored" : "idle");
+    setCoachNoteDraftReady(true);
+  }, [coachNoteDraftKey, player.coach_note, player.coach_note_author_name, player.coach_note_updated_at]);
+
+  useEffect(() => {
+    if (!coachNoteDraftReady || !coachNoteDraftKey || !profile) return;
+    if (coachNote === coachNoteSavedValue) {
+      clearDraft(coachNoteDraftKey);
+      setCoachNoteDraftState("idle");
+      setCoachNoteSaveState((state) => state === "dirty" ? "idle" : state);
+      return;
+    }
+    setCoachNoteSaveState((state) => state === "saving" ? state : "dirty");
+    setCoachNoteDraftState("saving");
+    const timer = window.setTimeout(() => {
+      if (writeDraft(coachNoteDraftKey, profile.id, { note: coachNote })) setCoachNoteDraftState("saved");
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, [coachNote, coachNoteDraftKey, coachNoteDraftReady, coachNoteSavedValue, profile]);
 
   useEffect(() => {
     let active = true;
@@ -225,6 +254,7 @@ export function PlayerDetails({ client, profile, player, photoUrl, onPhotoSaved,
     event.preventDefault();
     if (!profile || profile.role !== "coach") return;
     setCoachNoteBusy(true);
+    setCoachNoteSaveState("saving");
     setCoachNoteMessage(null);
     const result = await client.rpc("save_player_coach_note", {
       p_player_id: player.id,
@@ -232,12 +262,18 @@ export function PlayerDetails({ client, profile, player, photoUrl, onPhotoSaved,
     });
     setCoachNoteBusy(false);
     if (result.error) {
+      setCoachNoteSaveState("error");
       setCoachNoteMessage({ kind: "error", text: safeError(result.error, "Характеристику не збережено.") });
       return;
     }
-    setCoachNote(coachNote.trim());
+    const savedNote = coachNote.trim();
+    setCoachNote(savedNote);
+    setCoachNoteSavedValue(savedNote);
     setCoachNoteAuthor(profile.full_name);
     setCoachNoteUpdatedAt((result.data as string | null) ?? new Date().toISOString());
+    clearDraft(coachNoteDraftKey);
+    setCoachNoteDraftState("idle");
+    setCoachNoteSaveState("saved");
     setCoachNoteMessage({ kind: "success", text: "Коротку характеристику збережено." });
   }
 
@@ -248,7 +284,8 @@ export function PlayerDetails({ client, profile, player, photoUrl, onPhotoSaved,
       <h3>Коротка характеристика тренера</h3>
       {canEditCoachNote ? <form className="form-stack" onSubmit={saveCoachNote}>
         <label><span className="sr-only">Коротка характеристика футболіста</span><textarea rows={5} maxLength={2000} value={coachNote} onChange={(event) => setCoachNote(event.target.value)} placeholder="Коротко опишіть сильні сторони, прогрес або робочі спостереження" /></label>
-        <div className="coach-characteristic-actions"><small className="muted">Поле необов’язкове · {coachNote.length}/2000</small><button className="secondary-action" disabled={coachNoteBusy}>{coachNoteBusy ? "Збереження…" : "Зберегти характеристику"}</button></div>
+        <DraftStatus state={coachNoteDraftState} onClear={coachNoteDraftState !== "idle" ? () => { clearDraft(coachNoteDraftKey); setCoachNote(coachNoteSavedValue); setCoachNoteDraftState("idle"); setCoachNoteSaveState("idle"); } : undefined} />
+        <div className="coach-characteristic-actions"><span><small className="muted">Поле необов’язкове · {coachNote.length}/2000</small><SaveStateLabel state={coachNoteSaveState} /></span><button className={`secondary-action save-action ${coachNoteSaveState}`} disabled={coachNoteBusy || coachNote === coachNoteSavedValue}>{coachNoteBusy ? "Збереження…" : coachNoteSaveState === "saved" ? "Збережено" : "Зберегти характеристику"}</button></div>
         {coachNoteMessage && <StatusMessage kind={coachNoteMessage.kind}>{coachNoteMessage.text}</StatusMessage>}
       </form> : <p className={coachNote ? undefined : "muted"}>{coachNote || "Характеристику ще не додано."}</p>}
       {coachNoteUpdatedAt && <small className="muted">Останнє оновлення: {formatDate(coachNoteUpdatedAt)}{coachNoteAuthor ? ` · ${coachNoteAuthor}` : ""}</small>}
@@ -278,17 +315,71 @@ function UniformPanel({ client, profile, players }: { client: SupabaseClient; pr
   const [loading, setLoading] = useState(true);
   const load = useCallback(async () => { setLoading(true); const [catalogResult, requestResult] = await Promise.all([client.from("uniform_catalog_items").select("id, name, sizes, is_active").eq("is_active", true).order("sort_order"), players.length ? client.from("uniform_requests").select("id, player_id, number, surname_print, status, admin_note, uniform_request_items(id, catalog_item_id, size, quantity, uniform_catalog_items(id, name, sizes, is_active))").in("player_id", players.map((player) => player.id)) : Promise.resolve({ data: [], error: null })]); setCatalog((catalogResult.data ?? []) as UniformCatalogItem[]); setRequests((requestResult.data ?? []) as unknown as UniformRequest[]); setLoading(false); }, [client, players]);
   useEffect(() => { void load(); }, [load]);
-  return <section className="panel-section"><div className="section-title-row"><div><p className="eyebrow">Екіпірування</p><h2>Форма гравців</h2></div><Pill tone="plum">{requests.filter((request) => request.status === "requested").length} запитів</Pill></div>{loading ? <LoadingState /> : players.length ? <div className="uniform-player-list">{players.map((player) => { const request = requests.find((item) => item.player_id === player.id); return <button type="button" key={player.id} onClick={() => setSelected(player)}><span className="tile-icon coral"><Shirt /></span><div><b>{player.full_name}</b><small>{request ? `${UNIFORM_STATUS_LABELS[request.status]}${request.number ? ` · № ${request.number}` : ""}` : "Не замовлено"}</small></div><ChevronRight /></button>; })}</div> : <EmptyState title="Гравців у команді немає" />}{selected && <UniformRequestModal client={client} profile={profile} player={selected} catalog={catalog} request={requests.find((item) => item.player_id === selected.id)} onClose={() => setSelected(null)} onSaved={() => { setSelected(null); void load(); }} />}</section>;
+  return <section className="panel-section"><div className="section-title-row"><div><p className="eyebrow">Екіпірування</p><h2>Форма гравців</h2></div><Pill tone="plum">{requests.filter((request) => request.status === "requested").length} запитів</Pill></div>{loading ? <LoadingState /> : players.length ? <div className="uniform-player-list">{players.map((player) => { const request = requests.find((item) => item.player_id === player.id); return <button type="button" key={player.id} onClick={() => setSelected(player)}><span className="tile-icon coral"><Shirt /></span><div><b>{player.full_name}</b><small>{request ? `${UNIFORM_STATUS_LABELS[request.status]}${request.number ? ` · № ${request.number}` : ""}` : "Не замовлено"}</small></div><ChevronRight /></button>; })}</div> : <EmptyState title="Гравців у команді немає" />}{selected && <UniformRequestModal client={client} profile={profile} player={selected} catalog={catalog} request={requests.find((item) => item.player_id === selected.id)} onClose={() => setSelected(null)} onSaved={() => { void load(); }} />}</section>;
 }
 
 function UniformRequestModal({ client, profile, player, catalog, request, onClose, onSaved }: { client: SupabaseClient; profile: Profile; player: Player; catalog: UniformCatalogItem[]; request?: UniformRequest; onClose: () => void; onSaved: () => void }) {
   const locked = request?.status === "preparing" || request?.status === "issued";
   const [number, setNumber] = useState(request?.number?.toString() ?? "");
   const [surname, setSurname] = useState(request?.surname_print ?? player.last_name ?? player.full_name.split(" ")[0]);
-  const initial = Object.fromEntries((request?.uniform_request_items ?? []).map((item) => [item.catalog_item_id, { selected: true, size: item.size }]));
-  const [items, setItems] = useState<Record<string, { selected: boolean; size: string }>>(initial);
+  const initialItems = useMemo(() => Object.fromEntries((request?.uniform_request_items ?? []).map((item) => [item.catalog_item_id, { selected: true, size: item.size }])), [request?.uniform_request_items]);
+  const [items, setItems] = useState<Record<string, { selected: boolean; size: string }>>(initialItems);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [saveState, setSaveState] = useState<SaveState>("idle");
+  const [draftState, setDraftState] = useState<DraftState>("idle");
+  const [draftReady, setDraftReady] = useState(false);
+  const initialValue = useMemo(() => ({ number: request?.number?.toString() ?? "", surname: request?.surname_print ?? player.last_name ?? player.full_name.split(" ")[0], items: initialItems }), [initialItems, player.full_name, player.last_name, request?.number, request?.surname_print]);
+  const [savedValue, setSavedValue] = useState(initialValue);
+  const [undoValue, setUndoValue] = useState<typeof initialValue | null>(null);
+  const uniformDraftKey = draftKey(profile.id, `uniform-request:${player.id}`);
+  const currentValue = useMemo(() => ({ number, surname, items }), [items, number, surname]);
+  const currentSerialized = JSON.stringify(currentValue);
+  const savedSerialized = JSON.stringify(savedValue);
+
+  useEffect(() => {
+    const local = readDraft<typeof initialValue>(uniformDraftKey);
+    if (local && JSON.stringify(local.value) !== JSON.stringify(initialValue)) {
+      setNumber(local.value.number);
+      setSurname(local.value.surname);
+      setItems(local.value.items);
+      setSaveState("dirty");
+      setDraftState("restored");
+    }
+    setDraftReady(true);
+  }, [initialValue, uniformDraftKey]);
+
+  useEffect(() => {
+    if (!draftReady) return;
+    if (currentSerialized === savedSerialized) {
+      clearDraft(uniformDraftKey);
+      setDraftState("idle");
+      setSaveState((state) => state === "dirty" ? "idle" : state);
+      return;
+    }
+    setSaveState((state) => state === "saving" ? state : "dirty");
+    setDraftState("saving");
+    const timer = window.setTimeout(() => {
+      if (writeDraft(uniformDraftKey, profile.id, currentValue)) setDraftState("saved");
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, [currentSerialized, currentValue, draftReady, profile.id, savedSerialized, uniformDraftKey]);
+
+  async function persist(value: typeof initialValue) {
+    const selectedItems = catalog
+      .filter((item) => value.items[item.id]?.selected)
+      .map((item) => ({
+        catalog_item_id: item.id,
+        size: value.items[item.id].size || item.sizes[0] || "Не вказано",
+      }));
+    return client.rpc("save_uniform_request", {
+      p_player_id: player.id,
+      p_number: value.number ? Number(value.number) : null,
+      p_surname_print: value.surname,
+      p_items: selectedItems,
+    });
+  }
+
   async function save(event: FormEvent) {
     event.preventDefault();
     if (locked) {
@@ -300,26 +391,46 @@ function UniformRequestModal({ client, profile, player, catalog, request, onClos
       return;
     }
     setBusy(true);
+    setSaveState("saving");
     setError(null);
-    const selectedItems = catalog
-      .filter((item) => items[item.id]?.selected)
-      .map((item) => ({
-        catalog_item_id: item.id,
-        size: items[item.id].size || item.sizes[0] || "Не вказано",
-      }));
-    const result = await client.rpc("save_uniform_request", {
-      p_player_id: player.id,
-      p_number: number ? Number(number) : null,
-      p_surname_print: surname,
-      p_items: selectedItems,
-    });
+    const previous = savedValue;
+    const result = await persist(currentValue);
     setBusy(false);
     if (result.error) {
+      setSaveState("error");
       setError(safeError(result.error, "Запит на форму не збережено."));
       return;
     }
+    setSavedValue(currentValue);
+    setUndoValue(previous);
+    clearDraft(uniformDraftKey);
+    setDraftState("idle");
+    setSaveState("saved");
     onSaved();
   }
+
+  async function undo() {
+    if (!undoValue) return;
+    setBusy(true);
+    const result = await persist(undoValue);
+    setBusy(false);
+    if (result.error) {
+      setSaveState("error");
+      setError("Останню зміну не скасовано.");
+      return;
+    }
+    setNumber(undoValue.number);
+    setSurname(undoValue.surname);
+    setItems(undoValue.items);
+    setSavedValue(undoValue);
+    setUndoValue(null);
+    clearDraft(uniformDraftKey);
+    setDraftState("idle");
+    setSaveState("saved");
+    setError(null);
+    onSaved();
+  }
+
   if (locked) return <Modal title={`Форма · ${player.full_name}`} onClose={onClose} wide footer={<button className="primary-action" type="button" onClick={onClose}>Закрити</button>}><StatusMessage kind="warning">Запит має стан «{UNIFORM_STATUS_LABELS[request.status]}». Тренер може його переглядати, але змінює лише адміністратор.</StatusMessage><div className="detail-list"><div><Shirt /><span><b>{request.surname_print || "Без нанесення"}{request.number != null ? ` · № ${request.number}` : ""}</b><small>{(request.uniform_request_items ?? []).map((item) => `${item.uniform_catalog_items?.name ?? "Позиція"} · ${item.size}`).join(", ") || "Позицій немає"}</small></span></div></div>{request.admin_note && <div className="text-block"><h3>Коментар адміністратора</h3><p>{request.admin_note}</p></div>}</Modal>;
-  return <Modal title={`Форма · ${player.full_name}`} onClose={onClose} wide footer={<><button className="secondary-action" type="button" onClick={onClose}>Скасувати</button><button className="primary-action" form="uniform-request" disabled={busy}>{busy ? "Збереження…" : "Зберегти запит"}</button></>}><form id="uniform-request" className="form-grid" onSubmit={save}><label><span>Номер</span><input type="number" min={0} max={99} value={number} onChange={(e) => setNumber(e.target.value)} /></label><label><span>Прізвище для нанесення</span><input value={surname} onChange={(e) => setSurname(e.target.value)} /></label><div className="span-2 equipment-picker"><h3>Потрібні позиції та розміри</h3>{catalog.map((item) => <div key={item.id}><label className="check-field"><input type="checkbox" checked={items[item.id]?.selected ?? false} onChange={(e) => setItems((value) => ({ ...value, [item.id]: { selected: e.target.checked, size: value[item.id]?.size || item.sizes[0] || "" } }))} /><span>{item.name}</span></label><select disabled={!items[item.id]?.selected} value={items[item.id]?.size ?? item.sizes[0] ?? ""} onChange={(e) => setItems((value) => ({ ...value, [item.id]: { selected: true, size: e.target.value } }))}>{item.sizes.map((size) => <option key={size}>{size}</option>)}</select></div>)}</div>{error && <div className="span-2"><StatusMessage kind="error">{error}</StatusMessage></div>}</form></Modal>;
+  return <Modal title={`Форма · ${player.full_name}`} onClose={onClose} wide footer={<><SaveStateLabel state={saveState} />{undoValue && saveState === "saved" && <UndoLastChange busy={busy} onUndo={undo} />}<button className="secondary-action" type="button" onClick={onClose}>Закрити</button><button className={`primary-action save-action ${saveState}`} form="uniform-request" disabled={busy || currentSerialized === savedSerialized}>{busy ? "Збереження…" : saveState === "saved" ? "Збережено" : "Зберегти запит"}</button></>}><form id="uniform-request" className="form-grid" onSubmit={save}><div className="span-2"><DraftStatus state={draftState} onClear={draftState !== "idle" ? () => { clearDraft(uniformDraftKey); setNumber(savedValue.number); setSurname(savedValue.surname); setItems(savedValue.items); setDraftState("idle"); setSaveState("idle"); } : undefined} /></div><label><span>Номер</span><input type="number" min={0} max={99} value={number} onChange={(e) => setNumber(e.target.value)} /></label><label><span>Прізвище для нанесення</span><input value={surname} onChange={(e) => setSurname(e.target.value)} /></label><div className="span-2 equipment-picker"><h3>Потрібні позиції та розміри</h3>{catalog.map((item) => <div key={item.id}><label className="check-field"><input type="checkbox" checked={items[item.id]?.selected ?? false} onChange={(e) => setItems((value) => ({ ...value, [item.id]: { selected: e.target.checked, size: value[item.id]?.size || item.sizes[0] || "" } }))} /><span>{item.name}</span></label><select disabled={!items[item.id]?.selected} value={items[item.id]?.size ?? item.sizes[0] ?? ""} onChange={(e) => setItems((value) => ({ ...value, [item.id]: { selected: true, size: e.target.value } }))}>{item.sizes.map((size) => <option key={size}>{size}</option>)}</select></div>)}</div>{error && <div className="span-2"><StatusMessage kind="error">{error}</StatusMessage></div>}</form></Modal>;
 }

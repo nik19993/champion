@@ -11,9 +11,12 @@ import {
   StatusMessage,
   WorkspaceHeader,
 } from "@/components/common/workspace-ui";
+import { SaveStateLabel, UndoLastChange, type SaveState } from "@/components/common/save-feedback";
 import { UNIFORM_STATUS_LABELS } from "@/lib/domain/format";
+import { clearDraft, draftKey, readDraft, writeDraft } from "@/lib/offline/drafts";
 import type {
   GroupSummary,
+  Profile,
   UniformCatalogItem,
   UniformRequest,
   UniformStatus,
@@ -29,9 +32,11 @@ interface RequestRow extends Omit<UniformRequest, "players"> {
 
 export function AdminUniform({
   client,
+  profile,
   groups,
 }: {
   client: SupabaseClient;
+  profile: Profile;
   groups: GroupSummary[];
 }) {
   const [requests, setRequests] = useState<RequestRow[]>([]);
@@ -122,7 +127,7 @@ export function AdminUniform({
       .eq("id", request.id);
     if (result.error) {
       setError("Зміни не збережено.");
-      return;
+      return false;
     }
     setRequests((rows) =>
       rows.map((row) =>
@@ -131,6 +136,8 @@ export function AdminUniform({
           : row,
       ),
     );
+    setError(null);
+    return true;
   }
 
   return (
@@ -199,7 +206,7 @@ export function AdminUniform({
         <>
           <div className="uniform-admin-list">
             {filtered.map((request) => (
-              <UniformAdminRow request={request} key={request.id} onSave={update} />
+              <UniformAdminRow request={request} profileId={profile.id} key={request.id} onSave={update} />
             ))}
           </div>
           <section className="panel-section order-summary">
@@ -348,21 +355,87 @@ function UniformCatalogManager({
 
 function UniformAdminRow({
   request,
+  profileId,
   onSave,
 }: {
   request: RequestRow;
+  profileId: string;
   onSave: (
     request: RequestRow,
     status: UniformStatus,
     note: string,
-  ) => Promise<void>;
+  ) => Promise<boolean>;
 }) {
   const [status, setStatus] = useState(request.status);
   const [note, setNote] = useState(request.admin_note ?? "");
   const [busy, setBusy] = useState(false);
+  const [saveState, setSaveState] = useState<SaveState>("idle");
+  const initialValue = useMemo(() => ({ status: request.status, note: request.admin_note ?? "" }), [request.admin_note, request.status]);
+  const [savedValue, setSavedValue] = useState(initialValue);
+  const [undoValue, setUndoValue] = useState<typeof initialValue | null>(null);
+  const [draftReady, setDraftReady] = useState(false);
+  const rowDraftKey = draftKey(profileId, `admin-uniform:${request.id}`);
+  const currentValue = useMemo(() => ({ status, note }), [note, status]);
+  const currentSerialized = JSON.stringify(currentValue);
+  const savedSerialized = JSON.stringify(savedValue);
+
+  useEffect(() => {
+    const local = readDraft<typeof initialValue>(rowDraftKey);
+    if (local && JSON.stringify(local.value) !== JSON.stringify(initialValue)) {
+      setStatus(local.value.status);
+      setNote(local.value.note);
+      setSaveState("dirty");
+    }
+    setDraftReady(true);
+  }, [initialValue, rowDraftKey]);
+
+  useEffect(() => {
+    if (!draftReady) return;
+    if (currentSerialized === savedSerialized) {
+      clearDraft(rowDraftKey);
+      setSaveState((state) => state === "dirty" ? "idle" : state);
+      return;
+    }
+    setSaveState((state) => state === "saving" ? state : "dirty");
+    const timer = window.setTimeout(() => writeDraft(rowDraftKey, profileId, currentValue), 400);
+    return () => window.clearTimeout(timer);
+  }, [currentSerialized, currentValue, draftReady, profileId, rowDraftKey, savedSerialized]);
+
+  async function save() {
+    setBusy(true);
+    setSaveState("saving");
+    const previous = savedValue;
+    const saved = await onSave(request, status, note);
+    setBusy(false);
+    if (!saved) {
+      setSaveState("error");
+      return;
+    }
+    setSavedValue(currentValue);
+    setUndoValue(previous);
+    clearDraft(rowDraftKey);
+    setSaveState("saved");
+  }
+
+  async function undo() {
+    if (!undoValue) return;
+    setBusy(true);
+    const saved = await onSave(request, undoValue.status, undoValue.note);
+    setBusy(false);
+    if (!saved) {
+      setSaveState("error");
+      return;
+    }
+    setStatus(undoValue.status);
+    setNote(undoValue.note);
+    setSavedValue(undoValue);
+    setUndoValue(null);
+    clearDraft(rowDraftKey);
+    setSaveState("saved");
+  }
 
   return (
-    <article>
+    <article className={`save-surface ${saveState}`}>
       <div className="uniform-admin-player">
         <span className="tile-icon coral">
           <Shirt />
@@ -403,18 +476,11 @@ function UniformAdminRow({
           placeholder="Необов’язково"
         />
       </label>
-      <button
-        type="button"
-        className="secondary-action"
-        disabled={busy}
-        onClick={async () => {
-          setBusy(true);
-          await onSave(request, status, note);
-          setBusy(false);
-        }}
-      >
-        {busy ? "Збереження…" : "Зберегти"}
-      </button>
+      <div className="save-control">
+        <button type="button" className={`secondary-action save-action ${saveState}`} disabled={busy || currentSerialized === savedSerialized} onClick={() => void save()}>{busy ? "Збереження…" : saveState === "saved" ? "Збережено" : saveState === "error" ? "Повторити" : "Зберегти"}</button>
+        <SaveStateLabel state={saveState} />
+        {undoValue && saveState === "saved" && <UndoLastChange busy={busy} onUndo={undo} />}
+      </div>
     </article>
   );
 }

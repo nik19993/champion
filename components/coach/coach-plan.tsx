@@ -4,14 +4,31 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { CalendarPlus, Check, ChevronLeft, ChevronRight, Clock3, FileText, MapPin, Paperclip, Plus, Repeat2, ShieldAlert, Trash2, Users } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EmptyState, GroupSelect, LoadingState, Modal, Pill, StatusMessage, WorkspaceHeader } from "@/components/common/workspace-ui";
+import { DraftStatus, type DraftState } from "@/components/common/save-feedback";
 import { BehaviorCardAction, MonthlyStarThemeBanner } from "@/components/star/monthly-star";
 import { combineKyivDateTime, EVENT_LABELS, formatDate, formatDateTime, formatTime, kyivDateKey, kyivMonthBounds, safeError, toKyivDateInput, toKyivTimeInput } from "@/lib/domain/format";
 import type { Announcement, EventItem, FileAsset, GroupSummary, MethodologyTask, Profile, Venue } from "@/lib/domain/types";
 import { enqueueAttendance, persistAttendance, type AttendanceQueueItem } from "@/lib/offline/attendance-queue";
+import { clearDraft, draftKey, readDraft, writeDraft } from "@/lib/offline/drafts";
 import { openPrivateFile, uploadPrivateFile } from "@/lib/supabase/files";
 
 interface Props { client: SupabaseClient; profile: Profile; groups: GroupSummary[]; }
 type EventMode = { kind: "view" | "edit" | "create"; event?: EventItem; date?: string };
+
+interface EventDraft {
+  eventType: EventItem["event_type"];
+  date: string;
+  time: string;
+  duration: number;
+  venueId: string;
+  taskId: string;
+  title: string;
+  notes: string;
+  selectedNeeds: OrganizationalNeedOption[];
+  otherNeed: string;
+  comment: string;
+  needsSubstitute: boolean;
+}
 
 const ORGANIZATIONAL_NEED_OPTIONS = ["Підготовка поля", "Автобус", "Оператор", "Лікар", "Документи", "Інше"] as const;
 type OrganizationalNeedOption = typeof ORGANIZATIONAL_NEED_OPTIONS[number];
@@ -231,8 +248,53 @@ function EventEditor({ client, profile, group, event, isCreating, initialDate, v
   const [usageCount, setUsageCount] = useState(0);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [draftReady, setDraftReady] = useState(false);
+  const [draftState, setDraftState] = useState<DraftState>("idle");
   const conflictNoticeRef = useRef<HTMLDivElement>(null);
   const isConflict = message?.startsWith("Конфлікт:") ?? false;
+  const [eventDraftKey] = useState(() => draftKey(profile.id, `event:${event?.id ?? `new:${group?.id ?? "group"}:${initialDate ?? date}`}`));
+  const [initialDraft] = useState<EventDraft>(() => ({ eventType, date, time, duration, venueId, taskId, title, notes, selectedNeeds, otherNeed, comment, needsSubstitute }));
+  const currentDraft = useMemo<EventDraft>(() => ({ eventType, date, time, duration, venueId, taskId, title, notes, selectedNeeds, otherNeed, comment, needsSubstitute }), [comment, date, duration, eventType, needsSubstitute, notes, otherNeed, selectedNeeds, taskId, time, title, venueId]);
+  const currentDraftSerialized = JSON.stringify(currentDraft);
+  const initialDraftSerialized = JSON.stringify(initialDraft);
+
+  function applyDraft(value: EventDraft) {
+    setEventType(value.eventType);
+    setDate(value.date);
+    setTime(value.time);
+    setDuration(value.duration);
+    setVenueId(value.venueId);
+    setTaskId(value.taskId);
+    setTitle(value.title);
+    setNotes(value.notes);
+    setSelectedNeeds(value.selectedNeeds);
+    setOtherNeed(value.otherNeed);
+    setComment(value.comment);
+    setNeedsSubstitute(value.needsSubstitute);
+  }
+
+  useEffect(() => {
+    const local = readDraft<EventDraft>(eventDraftKey);
+    if (local && JSON.stringify(local.value) !== initialDraftSerialized) {
+      applyDraft(local.value);
+      setDraftState("restored");
+    }
+    setDraftReady(true);
+  }, [eventDraftKey, initialDraftSerialized]);
+
+  useEffect(() => {
+    if (!draftReady) return;
+    if (currentDraftSerialized === initialDraftSerialized) {
+      clearDraft(eventDraftKey);
+      setDraftState("idle");
+      return;
+    }
+    setDraftState((state) => state === "restored" ? state : "saving");
+    const timer = window.setTimeout(() => {
+      if (writeDraft(eventDraftKey, profile.id, currentDraft)) setDraftState((state) => state === "restored" ? state : "saved");
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, [currentDraft, currentDraftSerialized, draftReady, eventDraftKey, initialDraftSerialized, profile.id]);
 
   useEffect(() => {
     if (!isConflict) return;
@@ -306,6 +368,8 @@ function EventEditor({ client, profile, group, event, isCreating, initialDate, v
         if (linkResult.error) throw linkResult.error;
       } catch (uploadError) { setMessage(safeError(uploadError, "Подію збережено, але документ не завантажився.")); setBusy(false); return; }
     }
+    clearDraft(eventDraftKey);
+    setDraftState("idle");
     setBusy(false); onSaved();
   }
 
@@ -320,11 +384,12 @@ function EventEditor({ client, profile, group, event, isCreating, initialDate, v
     const result = await client.from("events").delete().eq("id", event.id);
     setBusy(false);
     if (result.error) { setMessage("Подію не видалено. Якщо вже є присутність, скасуйте подію через адміністратора."); return; }
+    clearDraft(eventDraftKey);
     onSaved();
   }
 
   const footer = <><button type="button" className="secondary-action" onClick={onClose}>Скасувати</button>{event && !isCreating && <button type="button" className="danger-action" onClick={() => void remove()} disabled={busy}><Trash2 size={17} />Видалити</button>}{event && !isCreating && <button type="button" className="secondary-action" onClick={() => onCreateSimilar(event)} disabled={busy}><Repeat2 size={17} />Створити подібне</button>}<button form="event-form" className="primary-action" disabled={busy}>{busy ? "Збереження…" : isCreating ? "Створити подію" : "Зберегти зміни"}</button></>;
-  return <Modal title={event && !isCreating ? `Редагування · ${group?.code ?? ""}` : `Нова подія · ${group?.code ?? ""}`} onClose={onClose} wide footer={footer}><form id="event-form" className="form-grid" onSubmit={save}>{message && <div ref={conflictNoticeRef} className={`span-2${isConflict ? " conflict-notice" : ""}`} tabIndex={isConflict ? -1 : undefined}><StatusMessage kind={isConflict ? "error" : "warning"}>{message}</StatusMessage></div>}<label><span>Тип події</span><select value={eventType} onChange={(e) => setEventType(e.target.value as EventItem["event_type"])}>{Object.entries(EVENT_LABELS).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label><label><span>Дата</span><input type="date" value={date} onChange={(e) => setDate(e.target.value)} required /></label><label><span>Час (Київ)</span><input type="time" value={time} onChange={(e) => setTime(e.target.value)} required /></label><label><span>Тривалість, хв</span><input type="number" min={15} max={360} value={duration} onChange={(e) => setDuration(Number(e.target.value))} required /></label><label className="span-2"><span>Поле або майданчик</span><select value={venueId} onChange={(e) => setVenueId(e.target.value)}><option value="">Не вказано</option>{venues.map((venue) => <option key={venue.id} value={venue.id}>{venue.name}</option>)}</select></label>{eventType === "training" && <>{group?.group_kind === "goalkeeper" ? <label className="span-2"><span>Завдання заняття</span><input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Наприклад, гра на виходах" /></label> : <label className="span-2"><span>Навчальне завдання</span><select value={taskId} onChange={(e) => setTaskId(e.target.value)}><option value="">Не вибрано</option>{tasks.map((task) => <option key={task.id} value={task.id}>{task.title}</option>)}</select>{taskId && <small className="field-hint">Ця команда вже використовувала завдання {usageCount} разів.</small>}</label>}<label className="span-2"><span>Документ із вправами</span><input type="file" accept=".pdf,.docx,.jpg,.jpeg,.png" disabled={group?.group_kind !== "goalkeeper" && !taskId} onChange={(e) => setFile(e.target.files?.[0] ?? null)} />{group?.group_kind !== "goalkeeper" && !taskId && <small className="field-hint">Спочатку виберіть навчальне завдання.</small>}</label></>}<label className="span-2"><span>Уточнення тренера</span><textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} /></label>{supportsOrganizationalNeeds(eventType) && <fieldset className="span-2 organizational-needs"><legend>Організаційні потреби</legend><p>Позначте все, що потрібно підготувати для цієї події.</p><div className="checkbox-grid">{ORGANIZATIONAL_NEED_OPTIONS.map((option) => <label className="check-field" key={option}><input type="checkbox" checked={selectedNeeds.includes(option)} onChange={(input) => setSelectedNeeds((current) => input.target.checked ? [...current, option] : current.filter((item) => item !== option))} /><span>{option}</span></label>)}</div>{selectedNeeds.includes("Інше") && <label className="other-need"><span>Уточніть іншу потребу</span><input value={otherNeed} onChange={(input) => setOtherNeed(input.target.value)} required /></label>}</fieldset>}<label className="span-2"><span>Додатковий коментар</span><textarea value={comment} onChange={(e) => setComment(e.target.value)} rows={2} /></label><label className="check-field span-2"><input type="checkbox" checked={needsSubstitute} onChange={(e) => setNeedsSubstitute(e.target.checked)} /><span>Потрібна заміна тренера</span></label>{event && !isCreating && <div className="span-2 event-tracking-actions"><button type="button" className="primary-action" onClick={() => onAttendance(event)}><Users size={18} />Присутність</button>{supportsBehaviorCards(event.event_type) && <button type="button" className="warning-action" onClick={() => onBehaviorCards(event)}><ShieldAlert size={18} />Жовті картки</button>}</div>}</form></Modal>;
+  return <Modal title={event && !isCreating ? `Редагування · ${group?.code ?? ""}` : `Нова подія · ${group?.code ?? ""}`} onClose={onClose} wide footer={footer}><form id="event-form" className="form-grid" onSubmit={save}><div className="span-2"><DraftStatus state={draftState} onClear={draftState !== "idle" ? () => { clearDraft(eventDraftKey); applyDraft(initialDraft); setDraftState("idle"); } : undefined} /></div>{message && <div ref={conflictNoticeRef} className={`span-2${isConflict ? " conflict-notice" : ""}`} tabIndex={isConflict ? -1 : undefined}><StatusMessage kind={isConflict ? "error" : "warning"}>{message}</StatusMessage></div>}<label><span>Тип події</span><select value={eventType} onChange={(e) => setEventType(e.target.value as EventItem["event_type"])}>{Object.entries(EVENT_LABELS).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label><label><span>Дата</span><input type="date" value={date} onChange={(e) => setDate(e.target.value)} required /></label><label><span>Час (Київ)</span><input type="time" value={time} onChange={(e) => setTime(e.target.value)} required /></label><label><span>Тривалість, хв</span><input type="number" min={15} max={360} value={duration} onChange={(e) => setDuration(Number(e.target.value))} required /></label><label className="span-2"><span>Поле або майданчик</span><select value={venueId} onChange={(e) => setVenueId(e.target.value)}><option value="">Не вказано</option>{venues.map((venue) => <option key={venue.id} value={venue.id}>{venue.name}</option>)}</select></label>{eventType === "training" && <>{group?.group_kind === "goalkeeper" ? <label className="span-2"><span>Завдання заняття</span><input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Наприклад, гра на виходах" /></label> : <label className="span-2"><span>Навчальне завдання</span><select value={taskId} onChange={(e) => setTaskId(e.target.value)}><option value="">Не вибрано</option>{tasks.map((task) => <option key={task.id} value={task.id}>{task.title}</option>)}</select>{taskId && <small className="field-hint">Ця команда вже використовувала завдання {usageCount} разів.</small>}</label>}<label className="span-2"><span>Документ із вправами</span><input type="file" accept=".pdf,.docx,.jpg,.jpeg,.png" disabled={group?.group_kind !== "goalkeeper" && !taskId} onChange={(e) => setFile(e.target.files?.[0] ?? null)} />{group?.group_kind !== "goalkeeper" && !taskId && <small className="field-hint">Спочатку виберіть навчальне завдання.</small>}</label></>}<label className="span-2"><span>Уточнення тренера</span><textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} /></label>{supportsOrganizationalNeeds(eventType) && <fieldset className="span-2 organizational-needs"><legend>Організаційні потреби</legend><p>Позначте все, що потрібно підготувати для цієї події.</p><div className="checkbox-grid">{ORGANIZATIONAL_NEED_OPTIONS.map((option) => <label className="check-field" key={option}><input type="checkbox" checked={selectedNeeds.includes(option)} onChange={(input) => setSelectedNeeds((current) => input.target.checked ? [...current, option] : current.filter((item) => item !== option))} /><span>{option}</span></label>)}</div>{selectedNeeds.includes("Інше") && <label className="other-need"><span>Уточніть іншу потребу</span><input value={otherNeed} onChange={(input) => setOtherNeed(input.target.value)} required /></label>}</fieldset>}<label className="span-2"><span>Додатковий коментар</span><textarea value={comment} onChange={(e) => setComment(e.target.value)} rows={2} /></label><label className="check-field span-2"><input type="checkbox" checked={needsSubstitute} onChange={(e) => setNeedsSubstitute(e.target.checked)} /><span>Потрібна заміна тренера</span></label>{event && !isCreating && <div className="span-2 event-tracking-actions"><button type="button" className="primary-action" onClick={() => onAttendance(event)}><Users size={18} />Присутність</button>{supportsBehaviorCards(event.event_type) && <button type="button" className="warning-action" onClick={() => onBehaviorCards(event)}><ShieldAlert size={18} />Жовті картки</button>}</div>}</form></Modal>;
 }
 
 function AttendanceModal({ client, profile, event, onClose, onSaved }: { client: SupabaseClient; profile: Profile; event: EventItem; onClose: () => void; onSaved: (attendanceSynced: boolean) => void }) {

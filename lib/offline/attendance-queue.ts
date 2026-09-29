@@ -10,6 +10,11 @@ export interface AttendanceQueueItem {
 
 const DATABASE = "champion-offline";
 const STORE = "attendance-queue";
+export const ATTENDANCE_QUEUE_CHANGED_EVENT = "champion:attendance-queue-changed";
+
+function notifyQueueChanged() {
+  if (typeof window !== "undefined") window.dispatchEvent(new Event(ATTENDANCE_QUEUE_CHANGED_EVENT));
+}
 
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -32,6 +37,7 @@ export async function enqueueAttendance(item: AttendanceQueueItem) {
     tx.onerror = () => reject(tx.error);
   });
   db.close();
+  notifyQueueChanged();
 }
 
 export async function queuedAttendance(completedBy?: string): Promise<AttendanceQueueItem[]> {
@@ -78,5 +84,6 @@ export async function flushAttendanceQueue(client: SupabaseClient, completedBy: 
       // Keep the item for the next online retry. No sensitive contents are logged.
     }
   }
+  notifyQueueChanged();
   return { completed, remaining: items.length - completed };
 }
