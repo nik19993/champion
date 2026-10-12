@@ -163,7 +163,7 @@ function wrapText(context: CanvasRenderingContext2D, value: ReportCell, maxWidth
   return lines.length ? lines : ["—"];
 }
 
-function canvasToJpeg(canvas: HTMLCanvasElement) {
+export function canvasToJpeg(canvas: HTMLCanvasElement) {
   return new Promise<Uint8Array>((resolve, reject) => {
     canvas.toBlob(async (blob) => {
       if (!blob) {

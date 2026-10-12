@@ -1,11 +1,15 @@
 "use client";
 
+import { assessmentLabel } from "@/lib/domain/player-profile-report";
+
 import type { SupabaseClient } from "@supabase/supabase-js";
 import Image from "next/image";
 import { Camera, Check, ChevronRight, ImagePlus, Mail, Phone, Shirt, UserRound } from "lucide-react";
 import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EmptyState, GroupSelect, LoadingState, Modal, Pill, SearchField, StatusMessage, Tabs, WorkspaceHeader } from "@/components/common/workspace-ui";
 import { DraftStatus, SaveStateLabel, UndoLastChange, type DraftState, type SaveState } from "@/components/common/save-feedback";
+import { PlayerProfileEditor, GuardianEditor } from "@/components/coach/player-profile-editor";
+import { groupCode } from "@/lib/domain/seasons";
 import { MonthlyStarGroupPanel, PlayerAchievementBehavior } from "@/components/star/monthly-star";
 import { formatDate, formatMonth, safeError, toMonthInput } from "@/lib/domain/format";
 import type { FileAsset, GroupSummary, Guardian, Player, Profile, UniformCatalogItem, UniformRequest, UniformStatus } from "@/lib/domain/types";
@@ -34,13 +38,15 @@ export function CoachPlayers({ client, profile, groups }: Props) {
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [newPlayerOpen, setNewPlayerOpen] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const [selectedPlayer, setSelectedPlayer] = useState<PlayerWithUniform | null>(null);
 
   useEffect(() => { if (!groupId && groups[0]) setGroupId(groups[0].id); }, [groupId, groups]);
   const load = useCallback(async () => {
     if (!groupId) { setPlayers([]); setLoading(false); return; }
     setLoading(true); setError(null);
-    const result = await client.from("players").select("id, group_id, full_name, first_name, last_name, middle_name, birth_date, birth_year, position, dominant_foot, coach_note, coach_note_author_id, coach_note_author_name, coach_note_updated_at, is_active, groups(code), uniform_requests(id, status), player_photos(is_current, file_assets(bucket, object_path))").eq("group_id", groupId).eq("is_active", true).order("full_name");
+    const result = await client.from("players").select("id, group_id, full_name, first_name, last_name, middle_name, birth_date, birth_year, position, dominant_foot, coach_note, coach_note_author_id, coach_note_author_name, coach_note_updated_at, is_active, updated_at, groups(code, display_code, cohort_birth_year, season), uniform_requests(id, status), player_photos(is_current, file_assets(bucket, object_path))").eq("group_id", groupId).eq("is_active", true).order("full_name");
     setLoading(false);
     if (result.error) { setError("Не вдалося завантажити список гравців."); return; }
     const next = (result.data ?? []) as unknown as PlayerWithUniform[];
@@ -62,7 +68,7 @@ export function CoachPlayers({ client, profile, groups }: Props) {
   }, [players, search]);
   const selectedGroup = groups.find((group) => group.id === groupId) ?? groups[0];
 
-  return <div className="workspace-stack"><WorkspaceHeader eyebrow="Команда" title="Гравці" description="Список, щомісячні оплати, форма та «Зірка місяця»" actions={groups.length ? <GroupSelect groups={groups} value={groupId} onChange={setGroupId} /> : undefined} /><Tabs label="Розділи гравців" value={tab} onChange={setTab} items={[{ value: "list", label: "Список гравців", badge: players.length }, { value: "payments", label: "Оплати" }, { value: "uniform", label: "Форма" }, { value: "monthly-star", label: "Зірка місяця" }]} />{error && <StatusMessage kind="error">{error}</StatusMessage>}{loading ? <LoadingState label="Завантажуємо гравців…" /> : tab === "list" ? <><SearchField value={search} onChange={setSearch} placeholder="Пошук за прізвищем або амплуа" />{filtered.length ? <div className="player-grid">{filtered.map((player) => { const issued = relationOne(player.uniform_requests)?.status === "issued"; return <article className="player-list-entry" key={player.id}><button className="player-card" type="button" onClick={() => setSelectedPlayer(player)}>{photoUrls[player.id] ? <Image unoptimized width={64} height={64} src={photoUrls[player.id]} alt="" /> : <span className="avatar-placeholder"><UserRound /></span>}<div><h2>{player.full_name}</h2><p>{player.birth_date ? new Date(player.birth_date).getFullYear() : player.birth_year ?? "Рік не вказано"} · {player.position || "Амплуа не вказано"}</p><Pill tone={issued ? "success" : "warning"}>{issued ? "Формою забезпечено" : "Форма не видана"}</Pill></div><ChevronRight aria-hidden="true" /></button></article>; })}</div> : <EmptyState title="Гравців не знайдено" />}</> : tab === "payments" ? <PaymentsPanel client={client} profile={profile} players={players} /> : tab === "uniform" ? <UniformPanel client={client} profile={profile} players={players} /> : selectedGroup ? <section className="panel-section"><MonthlyStarGroupPanel client={client} profile={profile} group={selectedGroup} /></section> : <EmptyState title="Групу не вибрано" />}{selectedPlayer && <PlayerDetails client={client} profile={profile} player={selectedPlayer} photoUrl={photoUrls[selectedPlayer.id]} onPhotoSaved={() => void load()} onClose={() => setSelectedPlayer(null)} />}</div>;
+  return <div className="workspace-stack"><WorkspaceHeader eyebrow="Команда" title="Гравці" description="Список, щомісячні оплати, форма та «Зірка місяця»" actions={groups.length ? <><GroupSelect groups={groups} value={groupId} onChange={setGroupId} /><button className="secondary-action" type="button" onClick={() => setNewPlayerOpen(true)}>Додати гравця</button></> : undefined} /><Tabs label="Розділи гравців" value={tab} onChange={setTab} items={[{ value: "list", label: "Список гравців", badge: players.length }, { value: "payments", label: "Оплати" }, { value: "uniform", label: "Форма" }, { value: "monthly-star", label: "Зірка місяця" }]} />{notice && <StatusMessage kind="success">{notice}</StatusMessage>}{error && <StatusMessage kind="error">{error}</StatusMessage>}{loading ? <LoadingState label="Завантажуємо гравців…" /> : tab === "list" ? <><SearchField value={search} onChange={setSearch} placeholder="Пошук за прізвищем або амплуа" />{filtered.length ? <div className="player-grid">{filtered.map((player) => { const issued = relationOne(player.uniform_requests)?.status === "issued"; return <article className="player-list-entry" key={player.id}><button className="player-card" type="button" onClick={() => setSelectedPlayer(player)}>{photoUrls[player.id] ? <Image unoptimized width={64} height={64} src={photoUrls[player.id]} alt="" /> : <span className="avatar-placeholder"><UserRound /></span>}<div><h2>{player.full_name}</h2><p>{player.birth_date ? new Date(player.birth_date).getFullYear() : player.birth_year ?? "Рік не вказано"} · {player.position || "Амплуа не вказано"}</p><Pill tone={issued ? "success" : "warning"}>{issued ? "Формою забезпечено" : "Форма не видана"}</Pill></div><ChevronRight aria-hidden="true" /></button></article>; })}</div> : <EmptyState title="Гравців не знайдено" />}</> : tab === "payments" ? <PaymentsPanel client={client} profile={profile} players={players} /> : tab === "uniform" ? <UniformPanel client={client} profile={profile} players={players} /> : selectedGroup ? <section className="panel-section"><MonthlyStarGroupPanel client={client} profile={profile} group={selectedGroup} /></section> : <EmptyState title="Групу не вибрано" />}{selectedPlayer && <PlayerDetails client={client} profile={profile} player={selectedPlayer} photoUrl={photoUrls[selectedPlayer.id]} onPhotoSaved={() => void load()} onProfileSaved={() => { setSelectedPlayer(null); setNotice("Зміни гравця збережено."); void load(); }} onClose={() => setSelectedPlayer(null)} />}{newPlayerOpen && <PlayerProfileEditor client={client} groupId={groupId} onClose={() => setNewPlayerOpen(false)} onSaved={() => { setNotice("Гравця додано."); void load(); }} />}</div>;
 }
 
 const PLAYER_PHOTO_SOURCE_LIMIT = 25 * 1024 * 1024;
@@ -188,7 +194,14 @@ function PlayerPhotoEditor({ client, profile, player, photoUrl, onSaved }: { cli
   </>;
 }
 
-export function PlayerDetails({ client, profile, player, photoUrl, onPhotoSaved, onClose }: { client: SupabaseClient; profile?: Profile; player: Player; photoUrl?: string; onPhotoSaved?: () => void | Promise<void>; onClose: () => void }) {
+export function PlayerDetails({ client, profile, player, photoUrl, onPhotoSaved, onProfileSaved, onClose }: { client: SupabaseClient; profile?: Profile; player: Player; photoUrl?: string; onPhotoSaved?: () => void | Promise<void>; onProfileSaved?: () => void; onClose: () => void }) {
+  const [editing, setEditing] = useState(false);
+  const [editingGuardian, setEditingGuardian] = useState<Guardian | "new" | null>(null);
+  const [contactVersion, setContactVersion] = useState(0);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [archiveConfirm, setArchiveConfirm] = useState(false);
+  const [archiveBusy, setArchiveBusy] = useState(false);
+  const canManage = Boolean(profile && onProfileSaved);
   const [guardians, setGuardians] = useState<Guardian[]>([]);
   const [tests, setTests] = useState<Array<{ id: string; measured_on: string; metric_name: string; field_name: string; value: string; unit?: string | null }>>([]);
   const [activity, setActivity] = useState<Array<{ id: string; period: string; metric_name: string; value: string }>>([]);
@@ -245,10 +258,22 @@ export function PlayerDetails({ client, profile, player, photoUrl, onPhotoSaved,
       setGuardians((guardianResult.data ?? []) as Guardian[]);
       setTests((testResult.data ?? []) as typeof tests);
       setActivity((activityResult.data ?? []) as typeof activity);
+      if (guardianResult.error || testResult.error || activityResult.error) setProfileError("Частина даних профілю тимчасово недоступна. Збережені записи не змінено.");
       setLoading(false);
-    });
+    }).catch(() => { if (active) { setLoading(false); setProfileError("Дані профілю не завантажено. Повторіть відкриття профілю."); } });
     return () => { active = false; };
-  }, [client, player.id]);
+  }, [client, player.id, contactVersion]);
+
+  async function archive() {
+    if (!archiveConfirm || archiveBusy) return;
+    setArchiveBusy(true); setProfileError(null);
+    try {
+      const result = await client.rpc("archive_player", { p_player_id: player.id, p_expected_updated_at: player.updated_at });
+      if (result.error) throw result.error;
+      onProfileSaved?.(); onClose();
+    } catch { setProfileError("Гравця не вилучено зі складу. Оновіть його профіль і перевірте доступ."); }
+    finally { setArchiveBusy(false); }
+  }
 
   async function saveCoachNote(event: FormEvent) {
     event.preventDefault();
@@ -278,8 +303,10 @@ export function PlayerDetails({ client, profile, player, photoUrl, onPhotoSaved,
   }
 
   return <Modal title={player.full_name} onClose={onClose} wide footer={<button className="primary-action" type="button" onClick={onClose}>Закрити</button>}>
-    <div className="player-profile-head">{profile?.role === "coach" && onPhotoSaved ? <PlayerPhotoEditor client={client} profile={profile} player={player} photoUrl={photoUrl} onSaved={onPhotoSaved} /> : photoUrl ? <Image unoptimized width={92} height={92} src={photoUrl} alt={`Фото ${player.full_name}`} /> : <span className="profile-avatar"><UserRound /></span>}<div><Pill tone="plum">{player.groups?.code ?? "Гравець"}</Pill><h3>{player.position || "Амплуа не вказано"}</h3><p>{player.birth_date ? formatDate(player.birth_date) : player.birth_year ? String(player.birth_year) : "Дата народження не вказана"}{player.dominant_foot ? ` · ${player.dominant_foot}` : ""}</p></div></div>
-    <section className="profile-section parent-contacts-priority"><h3>Контакти батьків або опікунів</h3>{loading ? <LoadingState /> : guardians.length ? <div className="contact-list">{guardians.map((guardian) => <article key={guardian.id}><b>{guardian.full_name || "Ім’я не вказано"}</b><small>{guardian.relation || "Контактна особа"}</small>{guardian.phone && <a href={`tel:${guardian.phone}`}><Phone size={16} />{guardian.phone}</a>}{guardian.email && <a href={`mailto:${guardian.email}`}><Mail size={16} />{guardian.email}</a>}{!guardian.phone && !guardian.email && <span className="muted">Контакти не внесено</span>}</article>)}</div> : <p className="muted">Контакти не внесено.</p>}</section>
+    <div className="player-profile-head">{profile?.role === "coach" && onPhotoSaved ? <PlayerPhotoEditor client={client} profile={profile} player={player} photoUrl={photoUrl} onSaved={onPhotoSaved} /> : photoUrl ? <Image unoptimized width={92} height={92} src={photoUrl} alt={`Фото ${player.full_name}`} /> : <span className="profile-avatar"><UserRound /></span>}<div><Pill tone="plum">{groupCode(player.groups)}</Pill><h3>{player.position || "Амплуа не вказано"}</h3><p>{player.birth_date ? formatDate(player.birth_date) : player.birth_year ? String(player.birth_year) : "Дата народження не вказана"}{player.dominant_foot ? ` · ${player.dominant_foot}` : ""}</p></div></div>
+    {canManage && <div className="section-title-row"><button type="button" className="secondary-action" onClick={() => setEditing(true)}>Редагувати профіль</button><button type="button" className="secondary-action" onClick={() => setArchiveConfirm(true)}>Вилучити зі складу</button></div>}
+    {profileError && <StatusMessage kind="error">{profileError}</StatusMessage>}
+    <section className="profile-section parent-contacts-priority"><h3>Контакти батьків або опікунів</h3>{canManage && <button className="secondary-action" type="button" onClick={() => setEditingGuardian("new")}>Додати контакт</button>}{loading ? <LoadingState /> : guardians.length ? <div className="contact-list">{guardians.map((guardian) => <article key={guardian.id}><b>{guardian.full_name || "Ім’я не вказано"}</b><small>{guardian.relation || "Контактна особа"}</small>{guardian.phone && <a href={`tel:${guardian.phone}`}><Phone size={16} />{guardian.phone}</a>}{guardian.email && <a href={`mailto:${guardian.email}`}><Mail size={16} />{guardian.email}</a>}{!guardian.phone && !guardian.email && <span className="muted">Контакти не внесено</span>}{canManage && <button type="button" className="secondary-action" onClick={() => setEditingGuardian(guardian)}>Редагувати контакт</button>}</article>)}</div> : <p className="muted">Контакти не внесено.</p>}</section>
     <section className="profile-section coach-characteristic">
       <h3>Коротка характеристика тренера</h3>
       {canEditCoachNote ? <form className="form-stack" onSubmit={saveCoachNote}>
@@ -291,8 +318,11 @@ export function PlayerDetails({ client, profile, player, photoUrl, onPhotoSaved,
       {coachNoteUpdatedAt && <small className="muted">Останнє оновлення: {formatDate(coachNoteUpdatedAt)}{coachNoteAuthor ? ` · ${coachNoteAuthor}` : ""}</small>}
     </section>
     <PlayerAchievementBehavior client={client} profile={profile} player={player} />
-    <section className="profile-section"><h3>Результати фізичної підготовленості</h3>{tests.length ? <div className="responsive-table"><table><thead><tr><th>Дата</th><th>Тест</th><th>Поле результату</th><th>Результат</th></tr></thead><tbody>{tests.map((test) => <tr key={test.id}><td>{formatDate(test.measured_on)}</td><td>{test.metric_name}</td><td>{test.field_name}</td><td>{test.value} {test.unit}</td></tr>)}</tbody></table></div> : <p className="muted">Результатів ще немає.</p>}</section>
-    <section className="profile-section"><h3>Оцінювання ігрової діяльності</h3>{activity.length ? <div className="responsive-table"><table><thead><tr><th>Період</th><th>Показник</th><th>Результат</th></tr></thead><tbody>{activity.map((item) => <tr key={item.id}><td>{item.period}</td><td>{item.metric_name}</td><td>{item.value}</td></tr>)}</tbody></table></div> : <p className="muted">Результатів ще немає.</p>}</section>
+    {editing && <PlayerProfileEditor client={client} groupId={player.group_id} player={player} onClose={() => setEditing(false)} onSaved={() => onProfileSaved?.()} />}
+    {editingGuardian && <GuardianEditor client={client} playerId={player.id} guardian={editingGuardian === "new" ? undefined : editingGuardian} onClose={() => setEditingGuardian(null)} onSaved={() => { setContactVersion((value) => value + 1); }} />}
+    {archiveConfirm && <Modal title="Вилучити гравця зі складу?" onClose={() => !archiveBusy && setArchiveConfirm(false)} footer={<><button className="secondary-action" type="button" disabled={archiveBusy} onClick={() => setArchiveConfirm(false)}>Скасувати</button><button className="primary-action" type="button" disabled={archiveBusy} onClick={() => void archive()}>{archiveBusy ? "Збереження…" : "Вилучити зі складу"}</button></>}><p>Гравець перестане відображатися в активному складі. Його профіль, результати тестів, присутність і нагороди збережуться.</p>{profileError && <StatusMessage kind="error">{profileError}</StatusMessage>}</Modal>}
+    <section className="profile-section"><h3>Результати фізичної підготовленості</h3><p className="muted">Дата народження: {player.birth_date ? formatDate(player.birth_date) : player.birth_year ? `${player.birth_year} р.н. · повна дата невідома` : "не внесено"}</p>{tests.length ? <div className="responsive-table"><table><thead><tr><th>Дата</th><th>Тест</th><th>Поле результату</th><th>Результат</th></tr></thead><tbody>{tests.map((test) => <tr key={test.id}><td>{formatDate(test.measured_on)}</td><td>{test.metric_name}</td><td>{test.field_name}</td><td>{test.value} {test.unit}</td></tr>)}</tbody></table></div> : <p className="muted">Результатів ще немає.</p>}</section>
+    <section className="profile-section"><h3>Оцінювання ігрової діяльності</h3>{activity.length ? <div className="responsive-table"><table><thead><tr><th>Дата / історичний період</th><th>Показник</th><th>Результат</th></tr></thead><tbody>{activity.map((item) => <tr key={item.id}><td>{assessmentLabel(item.period)}</td><td>{item.metric_name}</td><td>{item.value}</td></tr>)}</tbody></table></div> : <p className="muted">Результатів ще немає.</p>}</section>
   </Modal>;
 }
 

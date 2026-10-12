@@ -1,3 +1,5 @@
+// Staging schema snapshot extended with the approved, unapplied venue-booking proposal.
+// Regenerate from the complete isolated schema before deployment.
 export type Json =
   | string
   | number
@@ -571,6 +573,9 @@ export type Database = {
           updated_at: string
           updated_by: string | null
           venue_id: string | null
+          venue_part: string
+          booking_venue_id: string | null
+          booking_part: string
         }
         Insert: {
           coach_comment?: string | null
@@ -596,6 +601,9 @@ export type Database = {
           updated_at?: string
           updated_by?: string | null
           venue_id?: string | null
+          venue_part?: string
+          booking_venue_id?: string | null
+          booking_part?: string
         }
         Update: {
           coach_comment?: string | null
@@ -621,6 +629,9 @@ export type Database = {
           updated_at?: string
           updated_by?: string | null
           venue_id?: string | null
+          venue_part?: string
+          booking_venue_id?: string | null
+          booking_part?: string
         }
         Relationships: [
           {
@@ -2604,6 +2615,9 @@ export type Database = {
           updated_at: string
           updated_by: string | null
           venue_type: string
+          supports_half_booking: boolean
+          parent_venue_id: string | null
+          venue_part: string
         }
         Insert: {
           created_at?: string
@@ -2614,6 +2628,9 @@ export type Database = {
           updated_at?: string
           updated_by?: string | null
           venue_type?: string
+          supports_half_booking?: boolean
+          parent_venue_id?: string | null
+          venue_part?: string
         }
         Update: {
           created_at?: string
@@ -2624,8 +2641,18 @@ export type Database = {
           updated_at?: string
           updated_by?: string | null
           venue_type?: string
+          supports_half_booking?: boolean
+          parent_venue_id?: string | null
+          venue_part?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "venues_parent_venue_id_fkey"
+            columns: ["parent_venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "venues_created_by_fkey"
             columns: ["created_by"]
@@ -2670,6 +2697,10 @@ export type Database = {
       }
     }
     Functions: {
+      venue_booking_conflicts: {
+        Args: { p_venue_id: string; p_start_at: string; p_duration_minutes: number; p_exclude_event_id?: string | null }
+        Returns: { venue_part: string; start_at: string; ends_at: string; group_code: string | null }[]
+      }
       admin_assign_groups: {
         Args: { p_coach_id: string; p_group_ids: string[] }
         Returns: undefined

@@ -202,7 +202,7 @@ test("player history is titled achievements and existing venues are editable", a
   assert.match(history, /<h3>Досягнення<\/h3>/);
   assert.doesNotMatch(history, /Досягнення та поведінка/);
   assert.match(management, /Редагувати поле або майданчик/);
-  assert.match(management, /update\(\{ name: name\.trim\(\), venue_type: type, updated_by: profile\.id \}\)/);
+  assert.match(management, /update\(\{ \.\.\.values, updated_by: profile\.id \}\)/);
   assert.match(management, /UndoLastChange/);
 });
 
@@ -529,7 +529,7 @@ test("administrator groups remain visible without players and use explicit coach
   ]);
   assert.match(groups, /setMetrics\(emptyMetrics\)/);
   assert.match(groups, /coach:profiles!coach_group_assignments_coach_id_fkey/);
-  assert.match(groups, /aria-label=\{`Відкрити групу \$\{group\.code\}`\}/);
+  assert.match(groups, /aria-label=\{`Відкрити групу \$\{groupCode\(group\)\}`\}/);
   assert.match(groups, /function GroupDetailsModal/);
   assert.match(groups, /from\("players"\)\.select/);
   assert.match(groups, /<PlayerDetails client=\{client\}/);
@@ -1003,7 +1003,7 @@ test("monthly star export places two A5 awards on one A4 sheet and blocks incomp
   assert.match(generator, /loadEmbeddedImage\(MONTHLY_STAR_MARK_DATA_URL\)/);
   assert.doesNotMatch(generator, /fetch\(/);
   assert.match(assets, /data:image\/jpeg;base64,/);
-  assert.match(assets, /data:image\/svg\+xml;base64,/);
+  assert.match(assets, /data:image\/png;base64,/);
   assert.match(generator, /awardsByGroup/);
   assert.match(generator, /index \+= 2/);
 

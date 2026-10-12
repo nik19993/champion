@@ -1,5 +1,10 @@
 "use client";
 
+import { groupCode } from "@/lib/domain/seasons";
+import { durationInput, durationMinutes } from "@/lib/domain/event-duration";
+import { VenueBookingSelector } from "@/components/common/venue-booking-selector";
+import { effectiveVenuePart, eventVenueLabel, normalizeVenuePart, VENUE_SELECT, type VenuePart } from "@/lib/domain/venue-booking";
+
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { CalendarPlus, Check, ChevronLeft, ChevronRight, Clock3, FileText, MapPin, Paperclip, Plus, Repeat2, ShieldAlert, Trash2, Users } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -16,11 +21,13 @@ interface Props { client: SupabaseClient; profile: Profile; groups: GroupSummary
 type EventMode = { kind: "view" | "edit" | "create"; event?: EventItem; date?: string };
 
 interface EventDraft {
+  groupId?: string;
   eventType: EventItem["event_type"];
   date: string;
   time: string;
-  duration: number;
+  duration: string;
   venueId: string;
+  venuePart?: VenuePart;
   taskId: string;
   title: string;
   notes: string;
@@ -31,6 +38,7 @@ interface EventDraft {
 }
 
 const ORGANIZATIONAL_NEED_OPTIONS = ["Підготовка поля", "Автобус", "Оператор", "Лікар", "Документи", "Інше"] as const;
+const ALL_COACH_GROUPS = "__all_coach_groups__";
 type OrganizationalNeedOption = typeof ORGANIZATIONAL_NEED_OPTIONS[number];
 
 function supportsOrganizationalNeeds(eventType: EventItem["event_type"]) {
@@ -98,6 +106,7 @@ export function CoachPlan({ client, profile, groups }: Props) {
   const [tasks, setTasks] = useState<MethodologyTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [eventMode, setEventMode] = useState<EventMode | null>(null);
   const [attendanceEvent, setAttendanceEvent] = useState<EventItem | null>(null);
   const [behaviorEvent, setBehaviorEvent] = useState<EventItem | null>(null);
@@ -106,7 +115,7 @@ export function CoachPlan({ client, profile, groups }: Props) {
 
   useEffect(() => {
     if (!selectedGroupId && groups[0]) setSelectedGroupId(groups[0].id);
-    if (selectedGroupId && !groups.some((group) => group.id === selectedGroupId)) setSelectedGroupId(groups[0]?.id ?? "");
+    if (selectedGroupId && selectedGroupId !== ALL_COACH_GROUPS && !groups.some((group) => group.id === selectedGroupId)) setSelectedGroupId(groups[0]?.id ?? "");
   }, [groups, selectedGroupId]);
 
   const load = useCallback(async (silent = false) => {
@@ -124,9 +133,9 @@ export function CoachPlan({ client, profile, groups }: Props) {
     const groupIds = groups.map((group) => group.id);
     const nowIso = new Date().toISOString();
     const [eventResult, announcementResult, venueResult, taskResult] = await Promise.all([
-      client.from("events").select("id, group_id, event_type, start_at, duration_minutes, venue_id, task_id, coach_id, title, notes, organizational_need, coach_comment, needs_substitute, substitute_coach_id, original_start_at, is_rescheduled, status, groups(code, age, group_kind), venues(name), methodology_tasks(title), attendance_sessions(id, completed_at)").in("group_id", groupIds).gte("start_at", rangeStart.toISOString()).lt("start_at", rangeEnd.toISOString()).neq("status", "cancelled").order("start_at"),
+      client.from("events").select("id, group_id, event_type, start_at, duration_minutes, venue_id, venue_part, task_id, coach_id, title, notes, organizational_need, coach_comment, needs_substitute, substitute_coach_id, original_start_at, is_rescheduled, status, groups(code, display_code, cohort_birth_year, season, age, group_kind), venues(name, parent_venue_id), methodology_tasks(title), attendance_sessions(id, completed_at)").in("group_id", groupIds).gte("start_at", rangeStart.toISOString()).lt("start_at", rangeEnd.toISOString()).neq("status", "cancelled").order("start_at"),
       client.from("announcements").select("id, title, body, starts_at, ends_at, require_acknowledgement, announcement_reads(read_at)").eq("is_active", true).lte("starts_at", nowIso).or(`ends_at.is.null,ends_at.gte.${nowIso}`).order("starts_at", { ascending: false }),
-      client.from("venues").select("id, name, venue_type, is_active").eq("is_active", true).order("name"),
+      client.from("venues").select(VENUE_SELECT).eq("is_active", true).order("name"),
       client.from("methodology_tasks").select("id, phase, level, component, title, description, age_from, age_to, sort_order, is_active").eq("is_active", true).order("sort_order"),
     ]);
     setLoading(false);
@@ -145,9 +154,8 @@ export function CoachPlan({ client, profile, groups }: Props) {
   const todayKey = kyivDateKey(new Date());
   const todayEvents = useMemo(() => events.filter((event) => kyivDateKey(event.start_at) === todayKey), [events, todayKey]);
   const unfinished = useMemo(() => events.filter((event) => new Date(event.start_at).getTime() < openedAt && !attendanceSessions(event).some((session) => session.completed_at)), [events, openedAt]);
-  const selectedGroup = groups.find((group) => group.id === selectedGroupId) ?? groups[0];
   const monthKey = plainDateKey(month).slice(0, 7);
-  const monthEvents = useMemo(() => events.filter((event) => event.group_id === selectedGroupId && kyivDateKey(event.start_at).startsWith(monthKey)), [events, selectedGroupId, monthKey]);
+  const monthEvents = useMemo(() => events.filter((event) => (selectedGroupId === ALL_COACH_GROUPS || event.group_id === selectedGroupId) && groups.some((group) => group.id === event.group_id) && kyivDateKey(event.start_at).startsWith(monthKey)), [events, groups, selectedGroupId, monthKey]);
 
   async function acknowledge(id: string) {
     const result = await client.from("announcement_reads").upsert({ announcement_id: id, profile_id: profile.id, read_at: new Date().toISOString() }, { onConflict: "announcement_id,profile_id" });
@@ -158,19 +166,20 @@ export function CoachPlan({ client, profile, groups }: Props) {
   if (!groups.length) return <><WorkspaceHeader title="План" description="Події, присутність і календар" /><EmptyState title="Команди ще не призначені">Адміністратор має призначити вам щонайменше одну команду.</EmptyState></>;
 
   return <div className="workspace-stack">
-    <WorkspaceHeader eyebrow="Робочий день" title="План" description="Події всіх ваших команд і календар вибраної команди" actions={<button className="primary-action" type="button" onClick={() => setEventMode({ kind: "create", date: toKyivDateInput(new Date()) })}><CalendarPlus size={18} />Запланувати</button>} />
+    <WorkspaceHeader eyebrow="Робочий день" title="План" description="Події та календар ваших призначених груп" actions={<button className="primary-action" type="button" onClick={() => setEventMode({ kind: "create", date: toKyivDateInput(new Date()) })}><CalendarPlus size={18} />Запланувати</button>} />
     {error && <StatusMessage kind="error">{error}</StatusMessage>}
+    {notice && <StatusMessage kind="success">{notice}</StatusMessage>}
     <MonthlyStarThemeBanner client={client} />
     {announcements.length > 0 && <section className="announcement-list" aria-label="Оголошення адміністратора">{announcements.map((announcement) => <article key={announcement.id} className="announcement-card"><div><Pill tone="plum">Оголошення</Pill><h2>{announcement.title}</h2><p>{announcement.body}</p>{announcement.ends_at && <small>До {formatDate(announcement.ends_at)}</small>}</div>{announcement.require_acknowledgement && !(announcement.announcement_reads ?? []).length && <button type="button" className="secondary-action" onClick={() => void acknowledge(announcement.id)}><Check size={17} />Ознайомився</button>}</article>)}</section>}
 
     <section className="panel-section"><div className="section-title-row"><div><p className="eyebrow">Усі закріплені команди</p><h2>Сьогодні</h2></div><Pill tone="teal">{todayEvents.length} подій</Pill></div>{todayEvents.length ? <div className="event-card-grid">{todayEvents.map((event) => <EventCard event={event} key={event.id} onOpen={() => setEventMode({ kind: "view", event })} />)}</div> : <EmptyState title="Сьогодні подій немає" />}</section>
 
-    {unfinished.length > 0 && <section className="panel-section attention-section"><div className="section-title-row"><div><p className="eyebrow">Потребує дії</p><h2>Потрібно завершити</h2></div><Pill tone="warning">{unfinished.length}</Pill></div><div className="event-card-grid">{unfinished.map((event) => <button type="button" className="unfinished-card" key={event.id} onClick={() => setAttendanceEvent(event)}><span>Присутність не збережена</span><b>{event.groups?.code} · {formatDateTime(event.start_at)}</b></button>)}</div></section>}
+    {unfinished.length > 0 && <section className="panel-section attention-section"><div className="section-title-row"><div><p className="eyebrow">Потребує дії</p><h2>Потрібно завершити</h2></div><Pill tone="warning">{unfinished.length}</Pill></div><div className="event-card-grid">{unfinished.map((event) => <button type="button" className="unfinished-card" key={event.id} onClick={() => setAttendanceEvent(event)}><span>Присутність не збережена</span><b>{groupCode(event.groups)} · {formatDateTime(event.start_at)}</b></button>)}</div></section>}
 
-    <section className="panel-section calendar-panel"><div className="section-title-row calendar-tools"><div><p className="eyebrow">Планування окремої команди</p><h2>Моя команда</h2></div><GroupSelect groups={groups} value={selectedGroupId} onChange={setSelectedGroupId} /></div><div className="month-switcher"><button type="button" aria-label="Попередній місяць" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))}><ChevronLeft /></button><strong>{new Intl.DateTimeFormat("uk-UA", { month: "long", year: "numeric" }).format(month)}</strong><button type="button" aria-label="Наступний місяць" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))}><ChevronRight /></button></div><Calendar month={month} events={monthEvents} onCreate={(date) => setEventMode({ kind: "create", date })} onEdit={(event) => setEventMode({ kind: "edit", event })} /></section>
+    <section className="panel-section calendar-panel"><div className="section-title-row calendar-tools"><div><p className="eyebrow">Планування</p><h2>{selectedGroupId === ALL_COACH_GROUPS ? "Усі мої групи" : "Моя група"}</h2></div><GroupSelect groups={groups} value={selectedGroupId} onChange={setSelectedGroupId} allOption={{ value: ALL_COACH_GROUPS, label: "Усі мої групи" }} /></div><div className="month-switcher"><button type="button" aria-label="Попередній місяць" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))}><ChevronLeft /></button><strong>{new Intl.DateTimeFormat("uk-UA", { month: "long", year: "numeric" }).format(month)}</strong><button type="button" aria-label="Наступний місяць" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))}><ChevronRight /></button></div><Calendar month={month} events={monthEvents} onCreate={(date) => setEventMode({ kind: "create", date })} onEdit={(event) => setEventMode({ kind: "edit", event })} /></section>
 
     {eventMode?.kind === "view" && eventMode.event && <EventDetails client={client} event={eventMode.event} onClose={() => setEventMode(null)} onAttendance={() => { setAttendanceEvent(eventMode.event ?? null); setEventMode(null); }} onBehaviorCards={() => { setBehaviorAfterAttendance(false); setBehaviorEvent(eventMode.event ?? null); setEventMode(null); }} />}
-    {(eventMode?.kind === "create" || eventMode?.kind === "edit") && <EventEditor key={`${eventMode.kind}:${eventMode.event?.id ?? eventMode.date ?? "new"}`} client={client} profile={profile} group={selectedGroup} event={eventMode.event} isCreating={eventMode.kind === "create"} initialDate={eventMode.date} venues={venues} tasks={tasks.filter((task) => selectedGroup?.age != null && task.age_from <= selectedGroup.age && task.age_to >= selectedGroup.age)} onClose={() => setEventMode(null)} onCreateSimilar={(source) => setEventMode({ kind: "create", event: source, date: toKyivDateInput(new Date()) })} onSaved={() => { setEventMode(null); void load(); }} onAttendance={(event) => { setEventMode(null); setAttendanceEvent(event); }} onBehaviorCards={(event) => { setBehaviorAfterAttendance(false); setEventMode(null); setBehaviorEvent(event); }} />}
+    {(eventMode?.kind === "create" || eventMode?.kind === "edit") && <EventEditor key={`${eventMode.kind}:${eventMode.event?.id ?? eventMode.date ?? "new"}`} client={client} profile={profile} groups={groups} initialGroupId={selectedGroupId === ALL_COACH_GROUPS ? "" : selectedGroupId} event={eventMode.event} isCreating={eventMode.kind === "create"} initialDate={eventMode.date} venues={venues} tasks={tasks} onClose={() => setEventMode(null)} onCreateSimilar={(source) => setEventMode({ kind: "create", event: source, date: toKyivDateInput(new Date()) })} onSaved={(text) => { setEventMode(null); setNotice(text ?? "Подію збережено."); void load(); }} onAttendance={(event) => { setEventMode(null); setAttendanceEvent(event); }} onBehaviorCards={(event) => { setBehaviorAfterAttendance(false); setEventMode(null); setBehaviorEvent(event); }} />}
     {attendanceEvent && <AttendanceModal client={client} profile={profile} event={attendanceEvent} onClose={() => setAttendanceEvent(null)} onSaved={(attendanceSynced) => {
       const savedEvent = attendanceEvent;
       setAttendanceEvent(null);
@@ -193,7 +202,7 @@ export function CoachPlan({ client, profile, groups }: Props) {
 }
 
 function EventCard({ event, onOpen }: { event: EventItem; onOpen: () => void }) {
-  return <button type="button" className="event-card" onClick={onOpen}><span className="event-time">{formatTime(event.start_at)}</span><div><div className="event-card-heading"><b>{EVENT_LABELS[event.event_type]}</b><Pill tone="plum">{event.groups?.code ?? "—"}</Pill></div><p>{event.methodology_tasks?.title ?? event.title ?? "Без навчального завдання"}</p><small><MapPin size={14} />{event.venues?.name ?? "Майданчик не вказано"}</small></div></button>;
+  return <button type="button" className="event-card" onClick={onOpen}><span className="event-time">{formatTime(event.start_at)}</span><div><div className="event-card-heading"><b>{EVENT_LABELS[event.event_type]}</b><Pill tone="plum">{groupCode(event.groups)}</Pill></div><p>{event.methodology_tasks?.title ?? event.title ?? "Без навчального завдання"}</p><small><MapPin size={14} />{eventVenueLabel(event.venues?.name, event.venue_part, Boolean(event.venues?.parent_venue_id))}</small></div></button>;
 }
 
 function Calendar({ month, events, onCreate, onEdit }: { month: Date; events: EventItem[]; onCreate: (date: string) => void; onEdit: (event: EventItem) => void }) {
@@ -203,7 +212,7 @@ function Calendar({ month, events, onCreate, onEdit }: { month: Date; events: Ev
     const dateKey = plainDateKey(date);
     const dayEvents = events.filter((event) => kyivDateKey(event.start_at) === dateKey);
     const isToday = dateKey === kyivDateKey(new Date());
-    return <div className={`calendar-day${isToday ? " today" : ""}`} key={dateKey}><div className="calendar-date-row"><span>{date.getDate()}</span><button type="button" className="calendar-plus" aria-label={`Додати подію ${formatDate(`${dateKey}T12:00:00Z`)}`} onClick={() => onCreate(dateKey)}><Plus /></button></div><div className="calendar-events">{dayEvents.map((event) => <button type="button" className={`calendar-event ${event.event_type}`} key={event.id} onClick={() => onEdit(event)}><b>{formatTime(event.start_at)}</b><span>{EVENT_LABELS[event.event_type]}</span><small>{event.groups?.code}</small></button>)}</div></div>;
+    return <div className={`calendar-day${isToday ? " today" : ""}`} key={dateKey}><div className="calendar-date-row"><span>{date.getDate()}</span><button type="button" className="calendar-plus" aria-label={`Додати подію ${formatDate(`${dateKey}T12:00:00Z`)}`} onClick={() => onCreate(dateKey)}><Plus /></button></div><div className="calendar-events">{dayEvents.map((event) => <button type="button" className={`calendar-event ${event.event_type}`} aria-label={`${EVENT_LABELS[event.event_type]} · ${groupCode(event.groups)} · ${formatTime(event.start_at)}`} title={`${groupCode(event.groups)} · ${EVENT_LABELS[event.event_type]}`} key={event.id} onClick={() => onEdit(event)}><b>{formatTime(event.start_at)}</b><span>{EVENT_LABELS[event.event_type]}</span><small>{groupCode(event.groups)}</small></button>)}</div></div>;
   })}</div></div>;
 }
 
@@ -227,15 +236,22 @@ function EventDetails({ client, event, onClose, onAttendance, onBehaviorCards }:
     <button type="button" className="primary-action" onClick={onAttendance}><Users size={18} />Присутність</button>
     {supportsBehaviorCards(event.event_type) && <button type="button" className="warning-action" onClick={onBehaviorCards}><ShieldAlert size={18} />Жовті картки</button>}
   </div>;
-  return <Modal title={`${EVENT_LABELS[event.event_type]} · ${event.groups?.code ?? ""}`} onClose={onClose} footer={footer}><div className="detail-list"><div><Clock3 /><span><b>{formatDateTime(event.start_at)}</b><small>{event.duration_minutes} хвилин · час за Києвом</small></span></div><div><MapPin /><span><b>{event.venues?.name ?? "Майданчик не вказано"}</b></span></div><div><FileText /><span><b>{event.groups?.group_kind === "goalkeeper" ? "Завдання заняття" : "Навчальне завдання"}</b><small>{event.methodology_tasks?.title ?? event.title ?? "Не вибрано"}</small></span></div></div>{event.notes && <div className="text-block"><h3>Уточнення тренера</h3><p>{event.notes}</p></div>}{event.organizational_need && <div className="text-block"><h3>Організаційні потреби</h3><p>{event.organizational_need}</p></div>}<div className="text-block"><h3>Матеріали</h3>{assets.length ? <div className="file-list">{assets.map((asset) => <button type="button" key={asset.id} onClick={() => void openPrivateFile(client, asset)}><Paperclip size={17} /><span>{asset.original_name}</span></button>)}</div> : <p className="muted">Документів немає.</p>}</div></Modal>;
+  return <Modal title={`${EVENT_LABELS[event.event_type]} · ${groupCode(event.groups)}`} onClose={onClose} footer={footer}><div className="detail-list"><div><Clock3 /><span><b>{formatDateTime(event.start_at)}</b><small>{event.duration_minutes} хвилин · час за Києвом</small></span></div><div><MapPin /><span><b>{eventVenueLabel(event.venues?.name, event.venue_part, Boolean(event.venues?.parent_venue_id))}</b></span></div><div><FileText /><span><b>{event.groups?.group_kind === "goalkeeper" ? "Завдання заняття" : "Навчальне завдання"}</b><small>{event.methodology_tasks?.title ?? event.title ?? "Не вибрано"}</small></span></div></div>{event.notes && <div className="text-block"><h3>Уточнення тренера</h3><p>{event.notes}</p></div>}{event.organizational_need && <div className="text-block"><h3>Організаційні потреби</h3><p>{event.organizational_need}</p></div>}<div className="text-block"><h3>Матеріали</h3>{assets.length ? <div className="file-list">{assets.map((asset) => <button type="button" key={asset.id} onClick={() => void openPrivateFile(client, asset)}><Paperclip size={17} /><span>{asset.original_name}</span></button>)}</div> : <p className="muted">Документів немає.</p>}</div></Modal>;
 }
 
-function EventEditor({ client, profile, group, event, isCreating, initialDate, venues, tasks, onClose, onCreateSimilar, onSaved, onAttendance, onBehaviorCards }: { client: SupabaseClient; profile: Profile; group?: GroupSummary; event?: EventItem; isCreating: boolean; initialDate?: string; venues: Venue[]; tasks: MethodologyTask[]; onClose: () => void; onCreateSimilar: (event: EventItem) => void; onSaved: () => void; onAttendance: (event: EventItem) => void; onBehaviorCards: (event: EventItem) => void }) {
+function EventEditor({ client, profile, groups, initialGroupId, event, isCreating, initialDate, venues, tasks, onClose, onCreateSimilar, onSaved, onAttendance, onBehaviorCards }: { client: SupabaseClient; profile: Profile; groups: GroupSummary[]; initialGroupId: string; event?: EventItem; isCreating: boolean; initialDate?: string; venues: Venue[]; tasks: MethodologyTask[]; onClose: () => void; onCreateSimilar: (event: EventItem) => void; onSaved: (message?: string) => void; onAttendance: (event: EventItem) => void; onBehaviorCards: (event: EventItem) => void }) {
+  const [groupId, setGroupId] = useState(event?.group_id ?? initialGroupId);
+  const group = groups.find((item) => item.id === groupId);
+  const availableTasks = tasks.filter((task) => group?.age != null && task.age_from <= group.age && task.age_to >= group.age);
+  const canEdit = Boolean(group) && (isCreating || profile.role === "admin" || event?.coach_id === profile.id);
+  const [removal, setRemoval] = useState<"delete" | "cancel" | null>(null);
   const [eventType, setEventType] = useState<EventItem["event_type"]>(event?.event_type ?? "training");
   const [date, setDate] = useState(isCreating && initialDate ? initialDate : event ? toKyivDateInput(event.start_at) : toKyivDateInput(new Date()));
   const [time, setTime] = useState(event ? toKyivTimeInput(event.start_at) : "17:00");
-  const [duration, setDuration] = useState(event?.duration_minutes ?? 75);
-  const [venueId, setVenueId] = useState(event?.venue_id ?? venues[0]?.id ?? "");
+  const [duration, setDuration] = useState(() => durationInput(event?.duration_minutes ?? 75));
+  const [venueId, setVenueId] = useState(event?.venue_id ?? venues.find((venue) => !venue.parent_venue_id)?.id ?? "");
+  const [venuePart, setVenuePart] = useState<VenuePart>(normalizeVenuePart(event?.venue_part));
+  const [venueBlocked, setVenueBlocked] = useState(false);
   const [taskId, setTaskId] = useState(event?.task_id ?? "");
   const [title, setTitle] = useState(event?.title ?? "");
   const [notes, setNotes] = useState(event?.notes ?? "");
@@ -252,18 +268,20 @@ function EventEditor({ client, profile, group, event, isCreating, initialDate, v
   const [draftState, setDraftState] = useState<DraftState>("idle");
   const conflictNoticeRef = useRef<HTMLDivElement>(null);
   const isConflict = message?.startsWith("Конфлікт:") ?? false;
-  const [eventDraftKey] = useState(() => draftKey(profile.id, `event:${event?.id ?? `new:${group?.id ?? "group"}:${initialDate ?? date}`}`));
-  const [initialDraft] = useState<EventDraft>(() => ({ eventType, date, time, duration, venueId, taskId, title, notes, selectedNeeds, otherNeed, comment, needsSubstitute }));
-  const currentDraft = useMemo<EventDraft>(() => ({ eventType, date, time, duration, venueId, taskId, title, notes, selectedNeeds, otherNeed, comment, needsSubstitute }), [comment, date, duration, eventType, needsSubstitute, notes, otherNeed, selectedNeeds, taskId, time, title, venueId]);
+  const [eventDraftKey] = useState(() => draftKey(profile.id, `event:${!isCreating && event ? event.id : `new:${(event?.group_id ?? initialGroupId) || "group"}:${initialDate ?? date}`}`));
+  const [initialDraft] = useState<EventDraft>(() => ({ groupId, eventType, date, time, duration, venueId, venuePart, taskId, title, notes, selectedNeeds, otherNeed, comment, needsSubstitute }));
+  const currentDraft = useMemo<EventDraft>(() => ({ groupId, eventType, date, time, duration, venueId, venuePart, taskId, title, notes, selectedNeeds, otherNeed, comment, needsSubstitute }), [groupId, comment, date, duration, eventType, needsSubstitute, notes, otherNeed, selectedNeeds, taskId, time, title, venueId, venuePart]);
   const currentDraftSerialized = JSON.stringify(currentDraft);
   const initialDraftSerialized = JSON.stringify(initialDraft);
 
-  function applyDraft(value: EventDraft) {
+  const applyDraft = useCallback((value: EventDraft) => {
+    if (isCreating && value.groupId !== undefined) setGroupId(groups.some((item) => item.id === value.groupId) ? value.groupId : "");
     setEventType(value.eventType);
     setDate(value.date);
     setTime(value.time);
-    setDuration(value.duration);
+    setDuration(durationInput(value.duration));
     setVenueId(value.venueId);
+    setVenuePart(normalizeVenuePart(value.venuePart));
     setTaskId(value.taskId);
     setTitle(value.title);
     setNotes(value.notes);
@@ -271,16 +289,19 @@ function EventEditor({ client, profile, group, event, isCreating, initialDate, v
     setOtherNeed(value.otherNeed);
     setComment(value.comment);
     setNeedsSubstitute(value.needsSubstitute);
-  }
+  }, [groups, isCreating, setGroupId, setEventType, setDate, setTime, setDuration, setVenueId, setTaskId, setTitle, setNotes, setSelectedNeeds, setOtherNeed, setComment, setNeedsSubstitute]);
 
+  const restoredDraftKey = useRef<string | null>(null);
   useEffect(() => {
+    if (restoredDraftKey.current === eventDraftKey) return;
+    restoredDraftKey.current = eventDraftKey;
     const local = readDraft<EventDraft>(eventDraftKey);
     if (local && JSON.stringify(local.value) !== initialDraftSerialized) {
       applyDraft(local.value);
       setDraftState("restored");
     }
     setDraftReady(true);
-  }, [eventDraftKey, initialDraftSerialized]);
+  }, [applyDraft, eventDraftKey, initialDraftSerialized]);
 
   useEffect(() => {
     if (!draftReady) return;
@@ -313,7 +334,11 @@ function EventEditor({ client, profile, group, event, isCreating, initialDate, v
   }, [client, group, taskId]);
 
   async function persist() {
-    if (!group) return;
+    if (busy) return;
+    if (venueBlocked) { setMessage("Конфлікт: обрана частина майданчика зайнята. Виберіть іншу частину або час."); return; }
+    if (!group || !canEdit) { setMessage("Виберіть призначену вам групу та перевірте право редагування події."); return; }
+    const minutes = durationMinutes(duration);
+    if (minutes == null) { setMessage("Вкажіть цілу тривалість від 15 до 360 хвилин."); return; }
     setBusy(true); setMessage(null);
     const creating = isCreating || !event;
     const nextStart = combineKyivDateTime(date, time);
@@ -323,8 +348,9 @@ function EventEditor({ client, profile, group, event, isCreating, initialDate, v
       group_id: group.id,
       event_type: eventType,
       start_at: nextStart,
-      duration_minutes: duration,
+      duration_minutes: minutes,
       venue_id: venueId || null,
+      venue_part: effectiveVenuePart(venues.find((venue) => venue.id === venueId), venuePart),
       task_id: eventType === "training" && taskId ? taskId : null,
       coach_id: profile.id,
       title: group.group_kind === "goalkeeper" && eventType === "training" ? title.trim() || null : event?.title ?? null,
@@ -378,18 +404,47 @@ function EventEditor({ client, profile, group, event, isCreating, initialDate, v
     void persist();
   }
 
-  async function remove() {
-    if (!event || !confirm("Видалити цю подію? Подія з присутністю не буде видалена.")) return;
+  async function requestRemoval() {
+    if (!event || !canEdit || busy) return;
     setBusy(true); setMessage(null);
-    const result = await client.from("events").delete().eq("id", event.id);
-    setBusy(false);
-    if (result.error) { setMessage("Подію не видалено. Якщо вже є присутність, скасуйте подію через адміністратора."); return; }
-    clearDraft(eventDraftKey);
-    onSaved();
+    try {
+      const result = await client.from("attendance_sessions").select("id").eq("event_id", event.id).maybeSingle();
+      if (result.error) throw result.error;
+      setRemoval(result.data ? "cancel" : "delete");
+    } catch { setMessage("Не вдалося перевірити подію. Нічого не видалено; повторіть спробу."); }
+    finally { setBusy(false); }
   }
 
-  const footer = <><button type="button" className="secondary-action" onClick={onClose}>Скасувати</button>{event && !isCreating && <button type="button" className="danger-action" onClick={() => void remove()} disabled={busy}><Trash2 size={17} />Видалити</button>}{event && !isCreating && <button type="button" className="secondary-action" onClick={() => onCreateSimilar(event)} disabled={busy}><Repeat2 size={17} />Створити подібне</button>}<button form="event-form" className="primary-action" disabled={busy}>{busy ? "Збереження…" : isCreating ? "Створити подію" : "Зберегти зміни"}</button></>;
-  return <Modal title={event && !isCreating ? `Редагування · ${group?.code ?? ""}` : `Нова подія · ${group?.code ?? ""}`} onClose={onClose} wide footer={footer}><form id="event-form" className="form-grid" onSubmit={save}><div className="span-2"><DraftStatus state={draftState} onClear={draftState !== "idle" ? () => { clearDraft(eventDraftKey); applyDraft(initialDraft); setDraftState("idle"); } : undefined} /></div>{message && <div ref={conflictNoticeRef} className={`span-2${isConflict ? " conflict-notice" : ""}`} tabIndex={isConflict ? -1 : undefined}><StatusMessage kind={isConflict ? "error" : "warning"}>{message}</StatusMessage></div>}<label><span>Тип події</span><select value={eventType} onChange={(e) => setEventType(e.target.value as EventItem["event_type"])}>{Object.entries(EVENT_LABELS).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label><label><span>Дата</span><input type="date" value={date} onChange={(e) => setDate(e.target.value)} required /></label><label><span>Час (Київ)</span><input type="time" value={time} onChange={(e) => setTime(e.target.value)} required /></label><label><span>Тривалість, хв</span><input type="number" min={15} max={360} value={duration} onChange={(e) => setDuration(Number(e.target.value))} required /></label><label className="span-2"><span>Поле або майданчик</span><select value={venueId} onChange={(e) => setVenueId(e.target.value)}><option value="">Не вказано</option>{venues.map((venue) => <option key={venue.id} value={venue.id}>{venue.name}</option>)}</select></label>{eventType === "training" && <>{group?.group_kind === "goalkeeper" ? <label className="span-2"><span>Завдання заняття</span><input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Наприклад, гра на виходах" /></label> : <label className="span-2"><span>Навчальне завдання</span><select value={taskId} onChange={(e) => setTaskId(e.target.value)}><option value="">Не вибрано</option>{tasks.map((task) => <option key={task.id} value={task.id}>{task.title}</option>)}</select>{taskId && <small className="field-hint">Ця команда вже використовувала завдання {usageCount} разів.</small>}</label>}<label className="span-2"><span>Документ із вправами</span><input type="file" accept=".pdf,.docx,.jpg,.jpeg,.png" disabled={group?.group_kind !== "goalkeeper" && !taskId} onChange={(e) => setFile(e.target.files?.[0] ?? null)} />{group?.group_kind !== "goalkeeper" && !taskId && <small className="field-hint">Спочатку виберіть навчальне завдання.</small>}</label></>}<label className="span-2"><span>Уточнення тренера</span><textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} /></label>{supportsOrganizationalNeeds(eventType) && <fieldset className="span-2 organizational-needs"><legend>Організаційні потреби</legend><p>Позначте все, що потрібно підготувати для цієї події.</p><div className="checkbox-grid">{ORGANIZATIONAL_NEED_OPTIONS.map((option) => <label className="check-field" key={option}><input type="checkbox" checked={selectedNeeds.includes(option)} onChange={(input) => setSelectedNeeds((current) => input.target.checked ? [...current, option] : current.filter((item) => item !== option))} /><span>{option}</span></label>)}</div>{selectedNeeds.includes("Інше") && <label className="other-need"><span>Уточніть іншу потребу</span><input value={otherNeed} onChange={(input) => setOtherNeed(input.target.value)} required /></label>}</fieldset>}<label className="span-2"><span>Додатковий коментар</span><textarea value={comment} onChange={(e) => setComment(e.target.value)} rows={2} /></label><label className="check-field span-2"><input type="checkbox" checked={needsSubstitute} onChange={(e) => setNeedsSubstitute(e.target.checked)} /><span>Потрібна заміна тренера</span></label>{event && !isCreating && <div className="span-2 event-tracking-actions"><button type="button" className="primary-action" onClick={() => onAttendance(event)}><Users size={18} />Присутність</button>{supportsBehaviorCards(event.event_type) && <button type="button" className="warning-action" onClick={() => onBehaviorCards(event)}><ShieldAlert size={18} />Жовті картки</button>}</div>}</form></Modal>;
+  async function remove() {
+    if (!event || !group || !canEdit || !removal || busy) return;
+    setBusy(true); setMessage(null);
+    try {
+      const query = removal === "cancel"
+        ? client.from("events").update({ status: "cancelled", updated_by: profile.id })
+        : client.from("events").delete();
+      const result = await query.eq("id", event.id).eq("group_id", event.group_id).select("id").single();
+      if (result.error) {
+        setRemoval(null);
+        setMessage(result.error.code === "23503"
+          ? "Для події вже збережено присутність. Натисніть «Прибрати з календаря» повторно, щоб підтвердити скасування зі збереженням історії."
+          : "Подію не прибрано. Оновіть календар і перевірте, чи це ваша подія та чи маєте ви доступ до групи.");
+        return;
+      }
+      if (result.data?.id !== event.id) throw new Error("Event change was not confirmed");
+      clearDraft(eventDraftKey);
+      onSaved(removal === "cancel" ? "Подію скасовано. Присутність та історія збережені." : "Подію видалено.");
+    } catch { setMessage("Подію не прибрано. Перевірте з’єднання й повторіть спробу."); }
+    finally { setBusy(false); }
+  }
+
+  if (removal && event) return <Modal title={removal === "cancel" ? "Скасувати подію?" : "Видалити подію?"} onClose={() => !busy && setRemoval(null)} footer={<><button type="button" className="secondary-action" disabled={busy} onClick={() => setRemoval(null)}>Залишити подію</button><button type="button" className="danger-action" disabled={busy} onClick={() => void remove()}>{busy ? "Виконується…" : removal === "cancel" ? "Підтвердити скасування" : "Підтвердити видалення"}</button></>}>
+    <p><b>{group ? groupCode(group) : "Група"} · {EVENT_LABELS[event.event_type]}</b><br />{formatDateTime(event.start_at)}</p>
+    <p>{removal === "cancel" ? "Подія зникне з активного календаря. Збережена присутність, матеріали та історія залишаться в застосунку." : "Подію буде видалено з календаря. Цю дію не можна скасувати."}</p>
+    {message && <StatusMessage kind="error">{message}</StatusMessage>}
+  </Modal>;
+
+  const footer = <><button type="button" className="secondary-action" onClick={onClose}>Скасувати</button>{event && !isCreating && <button type="button" className="danger-action" onClick={() => void requestRemoval()} disabled={busy || !canEdit}><Trash2 size={17} />Прибрати з календаря</button>}{event && !isCreating && <button type="button" className="secondary-action" onClick={() => onCreateSimilar(event)} disabled={busy}><Repeat2 size={17} />Створити подібне</button>}<button form="event-form" className="primary-action" disabled={busy || !canEdit}>{busy ? "Збереження…" : isCreating ? "Створити подію" : "Зберегти зміни"}</button></>;
+  return <Modal title={event && !isCreating ? `Редагування · ${group ? groupCode(group) : ""}` : `Нова подія · ${group ? groupCode(group) : ""}`} onClose={onClose} wide footer={footer}><form id="event-form" className="event-editor-form" onSubmit={save}><div className="span-2"><DraftStatus state={draftState} onClear={draftState !== "idle" ? () => { clearDraft(eventDraftKey); applyDraft(initialDraft); setDraftState("idle"); } : undefined} /></div>{message && <div ref={conflictNoticeRef} className={`span-2${isConflict ? " conflict-notice" : ""}`} tabIndex={isConflict ? -1 : undefined}><StatusMessage kind={isConflict ? "error" : "warning"}>{message}</StatusMessage></div>}{!isCreating && !canEdit && <StatusMessage kind="warning">Редагувати та прибирати цю подію може її тренер або адміністратор.</StatusMessage>}<fieldset className="form-grid event-editor-fields" disabled={busy || (!isCreating && !canEdit)}>{isCreating && <label className="span-2"><span>Група події</span><select value={groupId} required onChange={(e) => { setGroupId(e.target.value); setTaskId(""); setTitle(""); setFile(null); }}><option value="" disabled>Виберіть групу</option>{groups.map((item) => <option value={item.id} key={item.id}>{groupCode(item)}</option>)}</select></label>}<label><span>Тип події</span><select value={eventType} onChange={(e) => setEventType(e.target.value as EventItem["event_type"])}>{Object.entries(EVENT_LABELS).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label><label><span>Дата</span><input type="date" value={date} onChange={(e) => setDate(e.target.value)} required /></label><label><span>Час (Київ)</span><input type="time" value={time} onChange={(e) => setTime(e.target.value)} required /></label><label><span>Тривалість, хв</span><input type="text" inputMode="numeric" pattern="[0-9]+" value={duration} onChange={(e) => { if (/^\d*$/.test(e.target.value)) setDuration(durationInput(e.target.value)); }} onBlur={() => setDuration(durationInput(duration))} aria-label="Тривалість у хвилинах" required /><small className="field-hint">Цілі хвилини, від 15 до 360.</small></label><VenueBookingSelector client={client} venues={venues} venueId={venueId} part={venuePart} startAt={date && time ? combineKyivDateTime(date, time) : null} minutes={durationMinutes(duration)} excludeEventId={!isCreating ? event?.id : null} checkAvailability={isCreating || event?.status === "scheduled"} onVenueChange={(id) => { setVenueId(id); setVenuePart("whole"); }} onPartChange={setVenuePart} onBlockedChange={setVenueBlocked} />{eventType === "training" && <>{group?.group_kind === "goalkeeper" ? <label className="span-2"><span>Завдання заняття</span><input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Наприклад, гра на виходах" /></label> : <label className="span-2"><span>Навчальне завдання</span><select aria-label="Навчальне завдання" value={taskId} onChange={(e) => setTaskId(e.target.value)}><option value="">Не вибрано</option>{availableTasks.map((task) => <option key={task.id} value={task.id}>{task.title}</option>)}</select>{taskId && <small className="field-hint">Ця команда вже використовувала завдання {usageCount} разів.</small>}</label>}<label className="span-2"><span>Документ із вправами</span><input type="file" accept=".pdf,.docx,.jpg,.jpeg,.png" disabled={group?.group_kind !== "goalkeeper" && !taskId} onChange={(e) => setFile(e.target.files?.[0] ?? null)} />{group?.group_kind !== "goalkeeper" && !taskId && <small className="field-hint">Спочатку виберіть навчальне завдання.</small>}</label></>}<label className="span-2"><span>Уточнення тренера</span><textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} /></label>{supportsOrganizationalNeeds(eventType) && <fieldset className="span-2 organizational-needs"><legend>Організаційні потреби</legend><p>Позначте все, що потрібно підготувати для цієї події.</p><div className="checkbox-grid">{ORGANIZATIONAL_NEED_OPTIONS.map((option) => <label className="check-field" key={option}><input type="checkbox" checked={selectedNeeds.includes(option)} onChange={(input) => setSelectedNeeds((current) => input.target.checked ? [...current, option] : current.filter((item) => item !== option))} /><span>{option}</span></label>)}</div>{selectedNeeds.includes("Інше") && <label className="other-need"><span>Уточніть іншу потребу</span><input value={otherNeed} onChange={(input) => setOtherNeed(input.target.value)} required /></label>}</fieldset>}<label className="span-2"><span>Додатковий коментар</span><textarea value={comment} onChange={(e) => setComment(e.target.value)} rows={2} /></label><label className="check-field span-2"><input type="checkbox" checked={needsSubstitute} onChange={(e) => setNeedsSubstitute(e.target.checked)} /><span>Потрібна заміна тренера</span></label></fieldset>{event && !isCreating && <div className="span-2 event-tracking-actions"><button type="button" className="primary-action" onClick={() => onAttendance(event)}><Users size={18} />Присутність</button>{supportsBehaviorCards(event.event_type) && <button type="button" className="warning-action" onClick={() => onBehaviorCards(event)}><ShieldAlert size={18} />Жовті картки</button>}</div>}</form></Modal>;
 }
 
 function AttendanceModal({ client, profile, event, onClose, onSaved }: { client: SupabaseClient; profile: Profile; event: EventItem; onClose: () => void; onSaved: (attendanceSynced: boolean) => void }) {
@@ -470,7 +525,7 @@ function AttendanceModal({ client, profile, event, onClose, onSaved }: { client:
   const presentCount = Object.values(records).filter((status) => status === "present").length;
   const absentCount = Math.max(0, players.length - presentCount);
 
-  return <Modal title={`Присутність · ${event.groups?.code ?? ""}`} onClose={onClose} wide footer={<><button className="secondary-action" type="button" onClick={onClose}>Скасувати</button><button className="primary-action" type="button" onClick={() => void save()} disabled={busy || loading}>{busy ? "Збереження…" : "Зберегти присутність"}</button></>}>
+  return <Modal title={`Присутність · ${groupCode(event.groups)}`} onClose={onClose} wide footer={<><button className="secondary-action" type="button" onClick={onClose}>Скасувати</button><button className="primary-action" type="button" onClick={() => void save()} disabled={busy || loading}>{busy ? "Збереження…" : "Зберегти присутність"}</button></>}>
     {loading ? <LoadingState /> : players.length ? <div className="attendance-list">
       <div className="attendance-help">
         <div><b>Відмітьте кожного гравця</b><p>Присутність можна зберегти до початку, на початку або після події.</p></div>
@@ -522,7 +577,7 @@ function BehaviorCardsModal({ client, profile, event, afterAttendance, onClose }
     return () => { active = false; };
   }, [client, event.group_id, event.id]);
 
-  return <Modal title={`Жовті картки · ${event.groups?.code ?? ""}`} onClose={onClose} wide footer={<button type="button" className="primary-action" onClick={onClose}>{afterAttendance ? "Завершити" : "Повернутися до події"}</button>}>
+  return <Modal title={`Жовті картки · ${groupCode(event.groups)}`} onClose={onClose} wide footer={<button type="button" className="primary-action" onClick={onClose}>{afterAttendance ? "Завершити" : "Повернутися до події"}</button>}>
     {!supportsBehaviorCards(event.event_type) ? <StatusMessage kind="warning">Жовті картки поведінки доступні лише для тренувань.</StatusMessage> : loading ? <LoadingState /> : <>
       {afterAttendance && <StatusMessage kind="success">Присутність збережено. За потреби додайте жовті картки; якщо карток немає — натисніть «Завершити».</StatusMessage>}
       {!hasAttendance && <StatusMessage kind="warning">Спочатку збережіть присутність для цього тренування.</StatusMessage>}

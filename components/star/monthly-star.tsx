@@ -1,5 +1,7 @@
 "use client";
 
+import { groupCode } from "@/lib/domain/seasons";
+
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { AlertTriangle, MessageCircle, ShieldAlert, Star, Trophy, Undo2 } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
@@ -160,7 +162,7 @@ export function MonthlyStarGroupPanel({ client, profile, group }: { client: Supa
     setLoading(true);
     const [themeResult, playerResult, cardResult, contactResult, awardResult] = await Promise.all([
       client.from("monthly_star_themes").select("id, month, title, description, criteria").eq("month", month).maybeSingle(),
-      client.from("players").select("id, group_id, full_name, first_name, last_name, middle_name, birth_date, birth_year, position, dominant_foot, coach_note, is_active, groups(code)").eq("group_id", group.id).eq("is_active", true).order("full_name"),
+      client.from("players").select("id, group_id, full_name, first_name, last_name, middle_name, birth_date, birth_year, position, dominant_foot, coach_note, is_active, groups(code, display_code, cohort_birth_year, season)").eq("group_id", group.id).eq("is_active", true).order("full_name"),
       client.from("player_behavior_cards").select("id, player_id, group_id, coach_id, coach_name_snapshot, event_id, occurred_on, month, reason, comment, is_voided, voided_at, void_reason").eq("group_id", group.id).eq("month", month).order("occurred_on", { ascending: false }),
       client.from("parent_contact_actions").select("id, player_id, group_id, month, coach_id, coach_name_snapshot, contacted_at, comment").eq("group_id", group.id).eq("month", month),
       client.from("monthly_star_awards").select("id, month, group_id, theme_id, award_type, player_id, correction_note, revoked_at").eq("group_id", group.id).eq("month", month).is("revoked_at", null),
@@ -194,7 +196,7 @@ export function MonthlyStarGroupPanel({ client, profile, group }: { client: Supa
   }
   if (loading) return <LoadingState label="Завантажуємо «Зірку місяця»…" />;
   return <div className="monthly-star-group">
-    <div className="monthly-star-group-theme"><Star /><div><p>Зірка місяця · {group.code}</p><h3>{theme ? `${formatMonth(theme.month).split(" ")[0]} — ${theme.title}` : "Тему місяця не визначено"}</h3>{theme && <span>{theme.description}</span>}</div></div>
+    <div className="monthly-star-group-theme"><Star /><div><p>Зірка місяця · {groupCode(group)}</p><h3>{theme ? `${formatMonth(theme.month).split(" ")[0]} — ${theme.title}` : "Тему місяця не визначено"}</h3>{theme && <span>{theme.description}</span>}</div></div>
     {message && <StatusMessage kind={message.kind}>{message.text}</StatusMessage>}
     <section className="star-card-management">
       <div className="section-title-row"><div><p className="eyebrow">Дисципліна групи</p><h3>Активні жовті картки</h3></div><Pill tone={activeCards.length ? "warning" : "neutral"}>{activeCards.length}</Pill></div>

@@ -1,5 +1,7 @@
 "use client";
 
+import { groupCode } from "@/lib/domain/seasons";
+
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { Archive, Plus, Shirt } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
@@ -162,7 +164,7 @@ export function AdminUniform({
             <option value="all">Усі команди</option>
             {groups.map((group) => (
               <option value={group.id} key={group.id}>
-                {group.code}
+                {groupCode(group)}
               </option>
             ))}
           </select>
@@ -443,7 +445,7 @@ function UniformAdminRow({
         <div>
           <h2>{request.players?.full_name ?? "Гравець"}</h2>
           <p>
-            {request.players?.groups?.code ?? "—"} · {request.surname_print || "без нанесення"}
+            {groupCode(request.players?.groups)} · {request.surname_print || "без нанесення"}
             {request.number != null ? ` · № ${request.number}` : ""}
           </p>
         </div>
