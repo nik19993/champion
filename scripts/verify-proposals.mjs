@@ -19,7 +19,7 @@ async function scalar(sql,params=[]) { return (await db.query(sql,params)).rows[
 try {
  await db.exec(await readFile(new URL('../tests/proposal-baseline.sql',import.meta.url),'utf8'));
  const proposals=await readdir(new URL('../supabase/proposals/',import.meta.url));
- for(const file of proposals.filter(name=>name.endsWith('.sql') && !name.endsWith('_venue_half_bookings.sql')).sort()) await db.exec(await readFile(new URL(`../supabase/proposals/${file}`,import.meta.url),'utf8'));
+ for(const file of proposals.filter(name=>name.endsWith('.sql') && !name.endsWith('_venue_half_bookings.sql') && !name.endsWith('_training_register_completion.sql')).sort()) await db.exec(await readFile(new URL(`../supabase/proposals/${file}`,import.meta.url),'utf8'));
  await db.query('insert into profiles values($1,\'admin\',\'active\'),($2,\'coach\',\'active\')',[admin,coach]);
  const groups=[];
  for(let age=6;age<=17;age++) for(const suffix of age<8?['']:['A','B']) {

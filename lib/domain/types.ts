@@ -102,7 +102,9 @@ export interface EventItem {
   groups?: { code: string; display_code?: string | null; cohort_birth_year?: number | null; season?: string | null; age?: number | null; group_kind?: GroupKind } | null;
   venues?: { name: string; parent_venue_id?: string | null } | null;
   methodology_tasks?: { title: string } | null;
-  attendance_sessions?: { id: string; completed_at?: string | null } | Array<{ id: string; completed_at?: string | null }> | null;
+  attendance_sessions?: { id: string; completed_at?: string | null; server_version?: number } | Array<{ id: string; completed_at?: string | null; server_version?: number }> | null;
+  attendance_sync?: "synced" | "pending" | "unknown";
+  training_register_completions?: import("./training-register").TrainingRegisterCompletion | import("./training-register").TrainingRegisterCompletion[] | null;
 }
 
 export interface Announcement {

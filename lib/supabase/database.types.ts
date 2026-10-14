@@ -16,6 +16,16 @@ export type Database = {
   }
   public: {
     Tables: {
+      training_register_completions: {
+        Row: { event_id: string; completed_at: string | null; completed_by: string | null; attendance_version: number; present_count: number; player_count: number; card_count: number; updated_at: string }
+        Insert: { event_id: string; completed_at?: string | null; completed_by?: string | null; attendance_version: number; present_count: number; player_count: number; card_count: number; updated_at?: string }
+        Update: { event_id?: string; completed_at?: string | null; completed_by?: string | null; attendance_version?: number; present_count?: number; player_count?: number; card_count?: number; updated_at?: string }
+        Relationships: [
+          { foreignKeyName: "training_register_completions_event_id_fkey"; columns: ["event_id"]; isOneToOne: true; referencedRelation: "events"; referencedColumns: ["id"] },
+          { foreignKeyName: "training_register_completions_completed_by_fkey"; columns: ["completed_by"]; isOneToOne: false; referencedRelation: "profiles"; referencedColumns: ["id"] }
+        ]
+      }
+
       announcement_reads: {
         Row: {
           announcement_id: string
@@ -2697,6 +2707,10 @@ export type Database = {
       }
     }
     Functions: {
+      complete_training_register: {
+        Args: { p_event_id: string; p_expected_attendance_version: number; p_expected_card_ids: string[]; p_expected_records: Json }
+        Returns: Json
+      }
       venue_booking_conflicts: {
         Args: { p_venue_id: string; p_start_at: string; p_duration_minutes: number; p_exclude_event_id?: string | null }
         Returns: { venue_part: string; start_at: string; ends_at: string; group_code: string | null }[]

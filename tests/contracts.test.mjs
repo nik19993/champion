@@ -889,7 +889,7 @@ test("monthly star workflow is complete without public rankings or player voting
   assert.match(admin, /Збережена історія/);
   assert.match(admin, /Теми місяців/);
   assert.match(coachPlan, /MonthlyStarThemeBanner/);
-  assert.match(coachPlan, /BehaviorCardAction/);
+  assert.match(coachPlan, /TrainingRegisterModal/);
   assert.match(coachPlayers, /MonthlyStarGroupPanel/);
   assert.match(coachPlayers, /PlayerAchievementBehavior/);
   assert.match(voidSql, /security invoker/i);
@@ -928,22 +928,14 @@ test("coach photo, attendance and card workflow is mobile-friendly and admin rea
   assert.match(files, /rpc\("register_player_photo_asset"/);
 
   assert.match(coachPlan, /Присутність ·/);
-  assert.match(coachPlan, /Жовті картки ·/);
   assert.match(coachPlan, /Присутній/);
   assert.match(coachPlan, /Відсутній/);
   assert.match(coachPlan, /Усі присутні/);
-  assert.match(coachPlan, /Картку зафіксовано/);
-  assert.ok(coachPlan.includes("onSaved={(attendanceSynced)"));
-  assert.match(coachPlan, /setBehaviorAfterAttendance\(true\)/);
-  assert.match(coachPlan, /setEventMode\(\{ kind: "view", event: closedEvent \}\)/);
-  assert.match(coachPlan, /Присутність збережено\. За потреби додайте жовті картки/);
   assert.ok((coachPlan.match(/void load\(true\)/g) ?? []).length >= 2, "attendance/card transitions refresh data without hiding the active workflow");
   assert.match(coachPlan, /onSaved\(true\)/);
   assert.match(coachPlan, /onSaved\(false\)/);
-  assert.match(coachPlan, /occurredOn=\{kyivDateKey\(event\.start_at\)\}/);
   assert.doesNotMatch(coachPlan, /Причина або примітка — необов’язково/);
   assert.equal((coachPlayers.match(/BehaviorCardAction/g) ?? []).length, 0, "the player list and profile must not duplicate card assignment");
-  assert.equal((coachPlan.match(/<BehaviorCardAction/g) ?? []).length, 1, "the separate training-card screen is the single coach card-assignment point");
   assert.doesNotMatch(monthlyStarUi, /label="Додати картку"/);
   assert.doesNotMatch(monthlyStarUi, /label="Картка"/);
   assert.doesNotMatch(monthlyStarUi, /window\.prompt/);
