@@ -1,5 +1,7 @@
 "use client";
 
+import { groupLabel } from "@/lib/domain/seasons";
+
 import { AlertTriangle, CheckCircle2, ChevronDown, LoaderCircle, Search, X } from "lucide-react";
 import { type ReactNode, useEffect, useId, useRef } from "react";
 import type { GroupSummary } from "@/lib/domain/types";
@@ -13,7 +15,7 @@ export function Tabs<T extends string>({ items, value, onChange, label }: { item
 }
 
 export function GroupSelect({ groups, value, onChange, label = "Команда", allOption }: { groups: GroupSummary[]; value: string; onChange: (value: string) => void; label?: string; allOption?: { value: string; label: string } }) {
-  return <label className="compact-field"><span>{label}</span><select value={value} onChange={(event) => onChange(event.target.value)}>{allOption && <option value={allOption.value}>{allOption.label}</option>}{groups.map((group) => <option value={group.id} key={group.id}>{group.code}</option>)}</select></label>;
+  return <label className="compact-field"><span>{label}</span><select value={value} onChange={(event) => onChange(event.target.value)}>{allOption && <option value={allOption.value}>{allOption.label}</option>}{groups.map((group) => <option value={group.id} key={group.id}>{groupLabel(group)}</option>)}</select></label>;
 }
 
 export function SearchField({ value, onChange, placeholder, label = "Пошук" }: { value: string; onChange: (value: string) => void; placeholder: string; label?: string }) {

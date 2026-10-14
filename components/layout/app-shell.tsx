@@ -53,7 +53,7 @@ export function AppShell({ client, profile, onMfaRequired }: Props) {
 
   const loadGroups = useCallback(async () => {
     setLoading(true); setLoadError(null);
-    const fetchGroups = () => client.from("groups").select("id, code, age, team_suffix, group_kind, competition_format, regulation_source, regulation_verified_on").eq("is_active", true).order("group_kind").order("age", { nullsFirst: false }).order("team_suffix");
+    const fetchGroups = () => client.from("groups").select("id, code, age, team_suffix, group_kind, competition_format, regulation_source, regulation_verified_on, season, cohort_birth_year, display_age, display_code").eq("is_active", true).order("group_kind").order("age", { nullsFirst: false }).order("team_suffix");
     if (profile.role === "admin") {
       const refreshed = await client.auth.refreshSession();
       if (refreshed.error) {

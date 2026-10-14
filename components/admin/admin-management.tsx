@@ -1,4 +1,8 @@
 "use client";
+import { normalizeVenuePart, VENUE_SELECT, venueSupportsHalves, type VenuePart } from "@/lib/domain/venue-booking";
+import { safeError } from "@/lib/domain/format";
+
+import { groupCode } from "@/lib/domain/seasons";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { BellRing, ChevronDown, Copy, KeyRound, MapPinned, Pencil, RefreshCw, Trash2, Users } from "lucide-react";
@@ -244,7 +248,7 @@ function GroupAssignmentPicker({ groups, selected, onChange }: { groups: GroupSu
     { title: "Вікові команди", items: groups.filter((group) => group.group_kind === "age") },
     { title: "Воротарські групи", items: groups.filter((group) => group.group_kind === "goalkeeper") },
   ];
-  return <div>{sections.map((section) => section.items.length ? <div key={section.title} className="assignment-section"><p className="field-caption">{section.title}</p><div className="checkbox-grid">{section.items.map((group) => <label className="check-field" key={group.id}><input type="checkbox" checked={selected.includes(group.id)} onChange={(event) => onChange(event.target.checked ? [...selected, group.id] : selected.filter((id) => id !== group.id))} /><span>{group.code}</span></label>)}</div></div> : null)}</div>;
+  return <div>{sections.map((section) => section.items.length ? <div key={section.title} className="assignment-section"><p className="field-caption">{section.title}</p><div className="checkbox-grid">{section.items.map((group) => <label className="check-field" key={group.id}><input type="checkbox" checked={selected.includes(group.id)} onChange={(event) => onChange(event.target.checked ? [...selected, group.id] : selected.filter((id) => id !== group.id))} /><span>{groupCode(group)}</span></label>)}</div></div> : null)}</div>;
 }
 
 function adminUserError(error: unknown, fallback: string) {
@@ -391,7 +395,7 @@ function UserManagement({ client, groups, onMfaRequired }: { client: SupabaseCli
         {message && <StatusMessage kind={message.kind}>{message.text}</StatusMessage>}
         {loading ? <LoadingState /> : <div className="user-list">{users.map((user) => {
           const assigned = (user.coach_group_assignments ?? []).filter((item) => item.is_active).map((item) => item.group_id);
-          const assignedCodes = assigned.map((groupId) => groups.find((group) => group.id === groupId)?.code).filter((code): code is string => Boolean(code));
+          const assignedCodes = assigned.map((groupId) => { const group = groups.find((item) => item.id === groupId); return group ? groupCode(group) : null; }).filter((code): code is string => Boolean(code));
           const expanded = expandedUserId === user.id;
           const hasLogin = Boolean(user.email);
           return <article key={user.id} className={expanded ? "open" : ""}>
@@ -405,7 +409,7 @@ function UserManagement({ client, groups, onMfaRequired }: { client: SupabaseCli
         })}</div>}
       </div>
     </div>
-    {pendingDelete && <CoachDeletionModal client={client} user={pendingDelete} groupCodes={(pendingDelete.coach_group_assignments ?? []).filter((item) => item.is_active).map((item) => groups.find((group) => group.id === item.group_id)?.code).filter((code): code is string => Boolean(code))} busy={busy} onClose={() => setPendingDelete(null)} onConfirm={(confirmationName, reason) => void deleteCoach(pendingDelete, confirmationName, reason)} />}
+    {pendingDelete && <CoachDeletionModal client={client} user={pendingDelete} groupCodes={(pendingDelete.coach_group_assignments ?? []).filter((item) => item.is_active).map((item) => { const group = groups.find((group) => group.id === item.group_id); return group ? groupCode(group) : null; }).filter((code): code is string => Boolean(code))} busy={busy} onClose={() => setPendingDelete(null)} onConfirm={(confirmationName, reason) => void deleteCoach(pendingDelete, confirmationName, reason)} />}
   </>;
 }
 
@@ -449,17 +453,21 @@ function CoachDeletionModal({ client, user, groupCodes, busy, onClose, onConfirm
   </Modal>;
 }
 
-function VenueManagement({ client, profile }: { client: SupabaseClient; profile: Profile }) {
+export function VenueManagement({ client, profile }: { client: SupabaseClient; profile: Profile }) {
   const [venues, setVenues] = useState<Venue[]>([]);
   const [name, setName] = useState("");
   const [type, setType] = useState("field");
+  const [supportsHalves, setSupportsHalves] = useState(false);
+  const [isPart, setIsPart] = useState(false);
+  const [parentVenueId, setParentVenueId] = useState("");
+  const [venuePart, setVenuePart] = useState<VenuePart>("left");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [message, setMessage] = useState<{ kind: "success" | "error"; text: string } | null>(null);
   const [undoVenue, setUndoVenue] = useState<Venue | null>(null);
   const load = useCallback(async () => {
-    const result = await client.from("venues").select("id, name, venue_type, is_active").order("name");
+    const result = await client.from("venues").select(VENUE_SELECT).order("name");
     if (result.error) {
       setMessage({ kind: "error", text: "Поля й майданчики не завантажено." });
       return;
@@ -472,6 +480,10 @@ function VenueManagement({ client, profile }: { client: SupabaseClient; profile:
     setEditingId(null);
     setName("");
     setType("field");
+    setSupportsHalves(false);
+    setIsPart(false);
+    setParentVenueId("");
+    setVenuePart("left");
     setSaveState("idle");
   }
 
@@ -479,38 +491,43 @@ function VenueManagement({ client, profile }: { client: SupabaseClient; profile:
     setEditingId(venue.id);
     setName(venue.name);
     setType(venue.venue_type);
+    setSupportsHalves(venue.supports_half_booking ?? false);
+    setIsPart(Boolean(venue.parent_venue_id));
+    setParentVenueId(venue.parent_venue_id ?? "");
+    setVenuePart(venue.venue_part === "right" ? "right" : "left");
     setMessage(null);
     setSaveState("dirty");
   }
 
   async function save(event: FormEvent) {
     event.preventDefault();
+    if (busy) return;
+    if (isPart && !parentVenueId) { setMessage({ kind: "error", text: "Виберіть цілий майданчик для цієї половини." }); return; }
     setBusy(true);
     setSaveState("saving");
     setMessage(null);
     const previous = editingId ? venues.find((venue) => venue.id === editingId) ?? null : null;
+    const values = { name: name.trim(), venue_type: type, supports_half_booking: supportsHalves, parent_venue_id: isPart ? parentVenueId : null, venue_part: isPart ? venuePart : "whole" };
     const result = editingId
-      ? await client.from("venues").update({ name: name.trim(), venue_type: type, updated_by: profile.id }).eq("id", editingId)
-      : await client.from("venues").insert({ name: name.trim(), venue_type: type, is_active: true, created_by: profile.id });
+      ? await client.from("venues").update({ ...values, updated_by: profile.id }).eq("id", editingId).select("id").single()
+      : await client.from("venues").insert({ ...values, is_active: true, created_by: profile.id }).select("id").single();
     setBusy(false);
     if (result.error) {
       setSaveState("error");
-      setMessage({ kind: "error", text: "Поле або майданчик не збережено. Перевірте, чи немає активного запису з такою назвою." });
+      setMessage({ kind: "error", text: safeError(result.error, "Майданчик не збережено. Перевірте назву, прив’язку половини та наявну історію подій.") });
       return;
     }
     setUndoVenue(previous);
     setSaveState("saved");
     setMessage({ kind: "success", text: editingId ? "Зміни поля або майданчика збережено." : "Нове поле або майданчик додано." });
-    setEditingId(null);
-    setName("");
-    setType("field");
+    setEditingId(null); setName(""); setType("field"); setSupportsHalves(false); setIsPart(false); setParentVenueId(""); setVenuePart("left");
     await load();
   }
 
   async function undoLastEdit() {
     if (!undoVenue) return;
     setBusy(true);
-    const result = await client.from("venues").update({ name: undoVenue.name, venue_type: undoVenue.venue_type, updated_by: profile.id }).eq("id", undoVenue.id);
+    const result = await client.from("venues").update({ name: undoVenue.name, venue_type: undoVenue.venue_type, supports_half_booking: undoVenue.supports_half_booking ?? false, parent_venue_id: undoVenue.parent_venue_id ?? null, venue_part: normalizeVenuePart(undoVenue.venue_part), updated_by: profile.id }).eq("id", undoVenue.id).select("id").single();
     setBusy(false);
     if (result.error) {
       setMessage({ kind: "error", text: "Останнє редагування майданчика не скасовано." });
@@ -523,7 +540,7 @@ function VenueManagement({ client, profile }: { client: SupabaseClient; profile:
   }
 
   async function toggle(venue: Venue) {
-    const result = await client.from("venues").update({ is_active: !venue.is_active, updated_by: profile.id }).eq("id", venue.id);
+    const result = await client.from("venues").update({ is_active: !venue.is_active, updated_by: profile.id }).eq("id", venue.id).select("id").single();
     if (result.error) {
       setMessage({ kind: "error", text: "Стан майданчика не змінено." });
       return;
@@ -533,5 +550,5 @@ function VenueManagement({ client, profile }: { client: SupabaseClient; profile:
   }
 
   const typeLabels: Record<string, string> = { field: "Поле", small_pitch: "Малий майданчик", hall: "Зал", other: "Інший ресурс" };
-  return <div className="venue-management"><div className="management-grid"><form className={`form-stack management-form save-surface ${saveState}`} onSubmit={save}><div className="form-title-row"><h3>{editingId ? "Редагувати поле або майданчик" : "Додати поле або майданчик"}</h3>{editingId && <button type="button" className="secondary-action small" onClick={resetEditor}>Скасувати редагування</button>}</div><label><span>Назва</span><input value={name} onChange={(event) => { setName(event.target.value); setSaveState("dirty"); }} required /></label><label><span>Тип</span><select value={type} onChange={(event) => { setType(event.target.value); setSaveState("dirty"); }}><option value="field">Поле</option><option value="small_pitch">Малий майданчик</option><option value="hall">Зал</option><option value="other">Інший ресурс</option></select></label><div className="save-control"><button className={`primary-action save-action ${saveState}`} disabled={busy}>{busy ? "Збереження…" : saveState === "saved" ? "Збережено" : editingId ? "Зберегти зміни" : "Додати"}<MapPinned size={18} /></button><SaveStateLabel state={saveState} /></div></form><div className="compact-list">{venues.map((venue) => <article className={!venue.is_active ? "inactive" : ""} key={venue.id}><div><b>{venue.name}</b><small>{typeLabels[venue.venue_type] ?? venue.venue_type}{venue.is_active ? "" : " · неактивний"}</small></div><div className="row-actions"><button type="button" className="secondary-action small" onClick={() => edit(venue)}><Pencil size={15} />Редагувати</button><button type="button" className="secondary-action small" onClick={() => void toggle(venue)}>{venue.is_active ? "Деактивувати" : "Активувати"}</button></div></article>)}</div></div>{message && <div className="save-message-row"><StatusMessage kind={message.kind}>{message.text}</StatusMessage>{undoVenue && message.kind === "success" && <UndoLastChange busy={busy} onUndo={undoLastEdit} />}</div>}</div>;
+  return <div className="venue-management"><div className="management-grid"><form className={`form-stack management-form save-surface ${saveState}`} onSubmit={save}><div className="form-title-row"><h3>{editingId ? "Редагувати поле або майданчик" : "Додати поле або майданчик"}</h3>{editingId && <button type="button" className="secondary-action small" onClick={resetEditor}>Скасувати редагування</button>}</div><label><span>Назва</span><input value={name} onChange={(event) => { setName(event.target.value); setSaveState("dirty"); }} required /></label><label><span>Тип</span><select value={type} onChange={(event) => { setType(event.target.value); setSaveState("dirty"); }}><option value="field">Поле</option><option value="small_pitch">Малий майданчик</option><option value="hall">Зал</option><option value="other">Інший ресурс</option></select></label>{!isPart && (type === "field" || type === "small_pitch" ? <p className="field-hint">Доступне бронювання всього поля, лівої або правої половини.</p> : <label className="check-field"><input type="checkbox" checked={supportsHalves} onChange={(event) => { setSupportsHalves(event.target.checked); setSaveState("dirty"); }} /><span>Дозволити бронювання лівої та правої половин</span></label>)}<label className="check-field"><input type="checkbox" checked={isPart} onChange={(event) => { setIsPart(event.target.checked); setSaveState("dirty"); }} /><span>Цей запис — половина іншого майданчика</span></label>{isPart && <><label><span>Цілий майданчик</span><select aria-label="Цілий майданчик" value={parentVenueId} required onChange={(event) => { setParentVenueId(event.target.value); setSaveState("dirty"); }}><option value="">Виберіть майданчик</option>{venues.filter((item) => item.id !== editingId && !item.parent_venue_id && venueSupportsHalves(item)).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label><span>Половина</span><select aria-label="Половина" value={venuePart} onChange={(event) => { setVenuePart(event.target.value as VenuePart); setSaveState("dirty"); }}><option value="left">Ліва половина</option><option value="right">Права половина</option></select></label><p className="field-hint">Прив’язка врахує наявні події цієї половини. Якщо виникне накладка, зміни не збережуться. Назви й історія подій залишаться.</p></>}<div className="save-control"><button className={`primary-action save-action ${saveState}`} disabled={busy}>{busy ? "Збереження…" : saveState === "saved" ? "Збережено" : editingId ? "Зберегти зміни" : "Додати"}<MapPinned size={18} /></button><SaveStateLabel state={saveState} /></div></form><div className="compact-list">{venues.map((venue) => <article className={!venue.is_active ? "inactive" : ""} key={venue.id}><div><b>{venue.name}</b><small>{typeLabels[venue.venue_type] ?? venue.venue_type}{venue.parent_venue_id ? ` · ${venue.venue_part === "right" ? "права" : "ліва"} половина: ${venues.find((item) => item.id === venue.parent_venue_id)?.name ?? "майданчик"}` : venueSupportsHalves(venue) ? " · цілий / ліва / права" : ""}{venue.is_active ? "" : " · неактивний"}</small></div><div className="row-actions"><button type="button" className="secondary-action small" onClick={() => edit(venue)}><Pencil size={15} />Редагувати</button><button type="button" className="secondary-action small" onClick={() => void toggle(venue)}>{venue.is_active ? "Деактивувати" : "Активувати"}</button></div></article>)}</div></div>{message && <div className="save-message-row"><StatusMessage kind={message.kind}>{message.text}</StatusMessage>{undoVenue && message.kind === "success" && <UndoLastChange busy={busy} onUndo={undoLastEdit} />}</div>}</div>;
 }

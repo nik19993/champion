@@ -1,5 +1,7 @@
 "use client";
 
+import { groupAge, groupCode } from "@/lib/domain/seasons";
+
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { BookOpenCheck, ChevronDown, FileText, Library, Shield, Swords, Timer } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -45,8 +47,9 @@ export function CoachMethodology({ client, groups }: Props) {
   useEffect(() => { if (!groupId && groups[0]) setGroupId(groups[0].id); }, [groupId, groups]);
   const group = groups.find((item) => item.id === groupId) ?? groups[0];
   const isGoalkeeperGroup = group?.group_kind === "goalkeeper";
+  const age = groupAge(group) ?? 6;
 
-  return <div className="workspace-stack"><WorkspaceHeader eyebrow="Єдина навчальна база" title="Методика" description="Термінологія, програма занять, структура тренування й загальні матеріали" actions={groups.length ? <GroupSelect groups={groups} value={groupId} onChange={setGroupId} /> : undefined} /><Tabs label="Методичні розділи" value={tab} onChange={setTab} items={[{ value: "terms", label: "Термінологія" }, { value: "program", label: "Програма занять" }, { value: "structure", label: "Структура заняття" }, { value: "library", label: "Матеріали" }]} />{error && <StatusMessage kind="error">{error}</StatusMessage>}{loading ? <LoadingState label="Завантажуємо методику…" /> : tab === "terms" ? <TerminologyPanel terms={terms} /> : tab === "library" ? <MethodologyLibrary client={client} sections={sections} /> : isGoalkeeperGroup ? <GoalkeeperMethodologyNotice groupCode={group.code} section={tab} /> : tab === "program" ? <ProgramPanel client={client} age={group?.age ?? 6} tasks={tasks} materials={materials} /> : <StructurePanel age={group?.age ?? 6} structures={structures} />}</div>;
+  return <div className="workspace-stack"><WorkspaceHeader eyebrow="Єдина навчальна база" title="Методика" description="Термінологія, програма занять, структура тренування й загальні матеріали" actions={groups.length ? <GroupSelect groups={groups} value={groupId} onChange={setGroupId} /> : undefined} /><Tabs label="Методичні розділи" value={tab} onChange={setTab} items={[{ value: "terms", label: "Термінологія" }, { value: "program", label: "Програма занять" }, { value: "structure", label: "Структура заняття" }, { value: "library", label: "Матеріали" }]} />{error && <StatusMessage kind="error">{error}</StatusMessage>}{loading ? <LoadingState label="Завантажуємо методику…" /> : tab === "terms" ? <TerminologyPanel terms={terms} /> : tab === "library" ? <MethodologyLibrary client={client} sections={sections} /> : isGoalkeeperGroup ? <GoalkeeperMethodologyNotice groupCode={groupCode(group)} section={tab} /> : tab === "program" ? <ProgramPanel client={client} age={age} tasks={tasks} materials={materials} /> : <StructurePanel age={age} structures={structures} />}</div>;
 }
 
 function GoalkeeperMethodologyNotice({ groupCode, section }: { groupCode: string; section: "program" | "structure" }) {

@@ -1,0 +1,84 @@
+// Usage: node scripts/verify-venue-booking-ui.mjs ESBUILD_MODULE PLAYWRIGHT_MODULE CHROMIUM_PATH
+// Real React components + a synthetic adapter. No Supabase requests are made.
+import assert from "node:assert/strict";
+import { readFile, mkdtemp, rm } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
+import { tmpdir } from "node:os";
+import { pathToFileURL, fileURLToPath } from "node:url";
+if(process.argv.length<5) throw new Error("Pass esbuild, Playwright and Chromium paths.");
+const root=resolve(dirname(fileURLToPath(import.meta.url)),"..");
+const {build}=await import(pathToFileURL(resolve(process.argv[2])).href);
+const {chromium}=await import(pathToFileURL(resolve(process.argv[3])).href);
+const directory=await mkdtemp(join(tmpdir(),"champion-venue-ui-"));
+let browser, checks=0;
+const check=(condition,message)=>{assert.ok(condition,message);checks++;};
+try {
+  const bundle=join(directory,"fixture.js");
+  await build({entryPoints:[join(root,"tests/ui/calendar-fixture.jsx")],outfile:bundle,bundle:true,platform:"browser",format:"iife",jsx:"automatic",tsconfig:join(root,"tsconfig.json"),define:{"process.env.NODE_ENV":'"test"'},alias:{"next/image":join(root,"tests/ui/image-stub.jsx")}});
+  const source=await readFile(bundle),styles=await readFile(join(root,"app/globals.css"));
+  browser=await chromium.launch({executablePath:resolve(process.argv[4]),headless:true,args:["--no-sandbox","--disable-dev-shm-usage"]});
+  const page=await browser.newPage({viewport:{width:360,height:900}}),errors=[];
+  page.on("pageerror",error=>errors.push(error.message));
+  await page.route("**/*",route=>{
+    const url=new URL(route.request().url());if(url.origin!=="https://venue-check.test")throw new Error(`Unexpected external request ${url.origin}`);
+    if(url.pathname==="/fixture.js")return route.fulfill({body:source,contentType:"application/javascript"});
+    if(url.pathname==="/style.css")return route.fulfill({body:styles,contentType:"text/css"});
+    return route.fulfill({body:'<!doctype html><html lang="uk"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/style.css"><div id="root"></div><script src="/fixture.js"></script></html>',contentType:"text/html"});
+  });
+  await page.goto("https://venue-check.test/");await page.locator(".calendar-panel").waitFor();
+  await page.evaluate(()=>{const day=window.calendarQa.db.events[0].start_at.slice(0,10);window.calendarQa.availability=[{venue_part:"left",start_at:`${day}T14:00:00Z`,ends_at:`${day}T15:00:00Z`,group_code:"U13B"}];});
+  await page.getByRole("button",{name:"Запланувати",exact:true}).click();
+  await page.getByLabel("Час (Київ)",{exact:true}).fill("17:00");
+  await page.getByText("Обрана частина недоступна на цей час.",{exact:true}).waitFor();
+  const parts=page.getByLabel("Частина майданчика",{exact:true});
+  check(await parts.locator('option[value="whole"]').evaluate(option=>option.disabled),"whole unavailable when half is occupied");
+  check(await parts.locator('option[value="left"]').evaluate(option=>option.disabled),"occupied half unavailable");
+  check(!(await parts.locator('option[value="right"]').evaluate(option=>option.disabled)),"opposite half available");
+  check((await page.locator(".venue-availability").textContent()).includes("U13B"),"availability covers another coach/group without loading their event profile");
+  check(await page.getByLabel("Поле або майданчик",{exact:true}).locator('option[value="venue-b"]').count()===1,"additional venues remain selectable");
+  check(await page.getByLabel("Поле або майданчик",{exact:true}).locator('option[value="venue-legacy"]').count()===0,"linked legacy aliases do not duplicate physical venues for new events");
+  await page.getByRole("button",{name:"Створити подію",exact:true}).click();
+  check((await page.evaluate(()=>window.calendarQa.calls.filter(call=>call.table==="events"&&call.operation==="insert"))).length===0,"blocked selection is not sent as an insert");
+  await parts.selectOption("right");
+  await page.getByText("Обрана частина доступна. Інша частина має бронювання:",{exact:true}).waitFor();
+  await page.getByRole("button",{name:"Створити подію",exact:true}).click();await page.locator(".modal-card").waitFor({state:"detached"});
+  const payload=await page.evaluate(()=>window.calendarQa.calls.findLast(call=>call.table==="events"&&call.operation==="insert").payload);
+  check(payload.venue_id==="venue-a"&&payload.venue_part==="right","coach save sends physical venue and selected half");
+  await page.getByRole("button",{name:"Запланувати",exact:true}).click();
+  await page.getByLabel("Поле або майданчик",{exact:true}).selectOption("venue-hall");
+  check(await parts.locator("option").count()===1,"undivided hall has whole-only booking");
+  await page.evaluate(()=>{window.calendarQa.mode="reject-availability";});
+  await page.getByLabel("Поле або майданчик",{exact:true}).selectOption("venue-b");
+  await page.getByText(/Не вдалося перевірити зайнятість/).waitFor();
+  check(errors.length===0,"availability failure does not crash the page");
+  await page.evaluate(()=>{window.calendarQa.mode="normal";window.calendarQa.adminEvent("event-a");});
+  await page.getByLabel("Основний тренер").waitFor();
+  await page.getByText("Обрана частина недоступна на цей час.",{exact:true}).waitFor();
+  await parts.selectOption("right");
+  await page.getByRole("button",{name:"Зберегти зміни",exact:true}).click();await page.locator(".calendar-panel").waitFor();
+  check(await page.evaluate(()=>window.calendarQa.db.events.find(event=>event.id==="event-a").venue_part)==="right","administrator editing persists the half");
+  check(await page.evaluate(()=>window.calendarQa.calls.some(call=>call.rpc==="venue_booking_conflicts"&&call.args.p_exclude_event_id==="event-a")),"editing excludes only the current event via server RPC");
+  await page.evaluate(()=>window.calendarQa.venues());await page.getByLabel("Назва",{exact:true}).waitFor();
+  await page.getByLabel("Назва",{exact:true}).fill("Додаткове поле біля школи");
+  await page.getByRole("button",{name:"Додати",exact:true}).click();await page.getByText("Нове поле або майданчик додано.",{exact:true}).waitFor();
+  check(await page.evaluate(()=>window.calendarQa.db.venues.some(venue=>venue.name==="Додаткове поле біля школи"&&venue.venue_type==="field"&&venue.parent_venue_id===null)),"arbitrary fields can still be added");
+  check((await page.locator(".venue-management").textContent()).includes("цілий / ліва / права"),"new fields advertise halves automatically");
+  await page.getByLabel("Назва",{exact:true}).fill("Додатковий спортивний зал");
+  await page.getByLabel("Тип").selectOption("hall");
+  await page.getByLabel("Дозволити бронювання лівої та правої половин",{exact:true}).check();
+  await page.getByRole("button",{name:"Додати",exact:true}).click();
+  await page.getByText("Додатковий спортивний зал",{exact:true}).waitFor();
+  check(await page.evaluate(()=>window.calendarQa.db.venues.find(venue=>venue.name==="Додатковий спортивний зал").supports_half_booking),"administrator can enable halves for a hall");
+  const alias=page.locator(".compact-list article").filter({has:page.getByText("Стара ліва половина",{exact:true})});
+  await alias.getByRole("button",{name:"Редагувати",exact:true}).click();
+  check(await page.getByLabel("Цей запис — половина іншого майданчика",{exact:true}).isChecked(),"existing legacy linkage is editable and explicit");
+  check(await page.getByLabel("Цілий майданчик").inputValue()==="venue-a","legacy half retains the correct parent");
+  check(await page.getByLabel("Половина",{exact:true}).inputValue()==="left","legacy half retains its part");
+  for(const width of [320,360,768]) {
+    await page.setViewportSize({width,height:900});
+    const fits=await page.locator(".venue-management").evaluate(element=>element.scrollWidth<=element.clientWidth+1);
+    check(fits,`venue management fits ${width}px`);
+  }
+  check(errors.length===0,"no runtime errors in coach, administrator or venue forms");
+  console.log(`PASS: ${checks} venue booking UI checks on synthetic data.`);
+} finally {if(browser)await browser.close();await rm(directory,{recursive:true,force:true});}

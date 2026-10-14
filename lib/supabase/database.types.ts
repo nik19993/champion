@@ -1,3 +1,5 @@
+// Staging schema snapshot extended with the approved, unapplied venue-booking proposal.
+// Regenerate from the complete isolated schema before deployment.
 export type Json =
   | string
   | number
@@ -14,6 +16,31 @@ export type Database = {
   }
   public: {
     Tables: {
+      club_season_settings: {
+        Row: { id: boolean; start_year: number; updated_by: string | null; updated_at: string }
+        Insert: { id?: boolean; start_year: number; updated_by?: string | null; updated_at?: string }
+        Update: { id?: boolean; start_year?: number; updated_by?: string | null; updated_at?: string }
+        Relationships: [{ foreignKeyName: "club_season_settings_updated_by_fkey"; columns: ["updated_by"]; isOneToOne: false; referencedRelation: "profiles"; referencedColumns: ["id"] }]
+      }
+      group_season_history: {
+        Row: { group_id: string; start_year: number; code: string; birth_year: number; changed_by: string | null; changed_at: string }
+        Insert: { group_id: string; start_year: number; code: string; birth_year: number; changed_by?: string | null; changed_at?: string }
+        Update: { group_id?: string; start_year?: number; code?: string; birth_year?: number; changed_by?: string | null; changed_at?: string }
+        Relationships: [
+          { foreignKeyName: "group_season_history_group_id_fkey"; columns: ["group_id"]; isOneToOne: false; referencedRelation: "groups"; referencedColumns: ["id"] },
+          { foreignKeyName: "group_season_history_changed_by_fkey"; columns: ["changed_by"]; isOneToOne: false; referencedRelation: "profiles"; referencedColumns: ["id"] }
+        ]
+      }
+      training_register_completions: {
+        Row: { event_id: string; completed_at: string | null; completed_by: string | null; attendance_version: number; present_count: number; player_count: number; card_count: number; updated_at: string }
+        Insert: { event_id: string; completed_at?: string | null; completed_by?: string | null; attendance_version: number; present_count: number; player_count: number; card_count: number; updated_at?: string }
+        Update: { event_id?: string; completed_at?: string | null; completed_by?: string | null; attendance_version?: number; present_count?: number; player_count?: number; card_count?: number; updated_at?: string }
+        Relationships: [
+          { foreignKeyName: "training_register_completions_event_id_fkey"; columns: ["event_id"]; isOneToOne: true; referencedRelation: "events"; referencedColumns: ["id"] },
+          { foreignKeyName: "training_register_completions_completed_by_fkey"; columns: ["completed_by"]; isOneToOne: false; referencedRelation: "profiles"; referencedColumns: ["id"] }
+        ]
+      }
+
       announcement_reads: {
         Row: {
           announcement_id: string
@@ -571,6 +598,9 @@ export type Database = {
           updated_at: string
           updated_by: string | null
           venue_id: string | null
+          venue_part: string
+          booking_venue_id: string | null
+          booking_part: string
         }
         Insert: {
           coach_comment?: string | null
@@ -596,6 +626,9 @@ export type Database = {
           updated_at?: string
           updated_by?: string | null
           venue_id?: string | null
+          venue_part?: string
+          booking_venue_id?: string | null
+          booking_part?: string
         }
         Update: {
           coach_comment?: string | null
@@ -621,6 +654,9 @@ export type Database = {
           updated_at?: string
           updated_by?: string | null
           venue_id?: string | null
+          venue_part?: string
+          booking_venue_id?: string | null
+          booking_part?: string
         }
         Relationships: [
           {
@@ -850,6 +886,9 @@ export type Database = {
         Row: {
           age: number | null
           code: string
+          cohort_birth_year: number | null
+          display_age: number | null
+          display_code: string | null
           competition_format: string | null
           created_at: string
           group_kind: string
@@ -864,6 +903,9 @@ export type Database = {
         Insert: {
           age?: number | null
           code: string
+          cohort_birth_year?: number | null
+          display_age?: number | null
+          display_code?: string | null
           competition_format?: string | null
           created_at?: string
           group_kind?: string
@@ -878,6 +920,9 @@ export type Database = {
         Update: {
           age?: number | null
           code?: string
+          cohort_birth_year?: number | null
+          display_age?: number | null
+          display_code?: string | null
           competition_format?: string | null
           created_at?: string
           group_kind?: string
@@ -2604,6 +2649,9 @@ export type Database = {
           updated_at: string
           updated_by: string | null
           venue_type: string
+          supports_half_booking: boolean
+          parent_venue_id: string | null
+          venue_part: string
         }
         Insert: {
           created_at?: string
@@ -2614,6 +2662,9 @@ export type Database = {
           updated_at?: string
           updated_by?: string | null
           venue_type?: string
+          supports_half_booking?: boolean
+          parent_venue_id?: string | null
+          venue_part?: string
         }
         Update: {
           created_at?: string
@@ -2624,8 +2675,18 @@ export type Database = {
           updated_at?: string
           updated_by?: string | null
           venue_type?: string
+          supports_half_booking?: boolean
+          parent_venue_id?: string | null
+          venue_part?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "venues_parent_venue_id_fkey"
+            columns: ["parent_venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "venues_created_by_fkey"
             columns: ["created_by"]
@@ -2670,6 +2731,20 @@ export type Database = {
       }
     }
     Functions: {
+      register_player_photo_asset: { Args: { p_object_path: string; p_original_name: string; p_mime_type: string; p_size_bytes: number; p_group_id: string }; Returns: string }
+      initialize_club_season: { Args: { p_start_year: number; p_cohorts: Json }; Returns: number }
+      advance_club_season: { Args: { p_expected_start_year: number; p_next_start_year: number }; Returns: number }
+      save_player_profile: { Args: { p_group_id: string; p_player_id: string | null; p_values: Json; p_expected_updated_at: string | null }; Returns: string }
+      save_player_guardian: { Args: { p_player_id: string; p_guardian_id: string | null; p_values: Json }; Returns: string }
+      archive_player: { Args: { p_player_id: string; p_expected_updated_at: string }; Returns: undefined }
+      complete_training_register: {
+        Args: { p_event_id: string; p_expected_attendance_version: number; p_expected_card_ids: string[]; p_expected_records: Json }
+        Returns: Json
+      }
+      venue_booking_conflicts: {
+        Args: { p_venue_id: string; p_start_at: string; p_duration_minutes: number; p_exclude_event_id?: string | null }
+        Returns: { venue_part: string; start_at: string; ends_at: string; group_code: string | null }[]
+      }
       admin_assign_groups: {
         Args: { p_coach_id: string; p_group_ids: string[] }
         Returns: undefined

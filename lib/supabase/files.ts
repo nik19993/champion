@@ -50,12 +50,21 @@ export async function uploadPrivateFile(client: SupabaseClient, file: File, cont
     }
     asset = { id: String(registration.data), ...row } as FileAsset;
   } else {
-    const result = await client.from("file_assets").insert(row).select("*").single();
+    // The existing stable RLS read helper cannot see a row during INSERT RETURNING.
+    // Confirm registration in a separate statement, keeping the same policies.
+    const assetId = crypto.randomUUID();
+    const result = await client.from("file_assets").insert({ id: assetId, ...row });
     if (result.error) {
       await client.storage.from(context.bucket).remove([objectPath]);
       throw result.error;
     }
-    asset = result.data as FileAsset;
+    const registered = await client.from("file_assets").select("*").eq("id", assetId).single();
+    if (registered.error || registered.data?.id !== assetId) {
+      await client.storage.from(context.bucket).remove([objectPath]);
+      await client.from("file_assets").delete().eq("id", assetId);
+      throw registered.error ?? new Error("Файл не зареєстровано.");
+    }
+    asset = registered.data as FileAsset;
   }
   if (!asset.id) {
     await client.storage.from(context.bucket).remove([objectPath]);

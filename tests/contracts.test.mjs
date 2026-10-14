@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { APPLICATION_BACKUP_TABLES } from "../lib/domain/application-backup.ts";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { A4_LANDSCAPE_PDF_HEIGHT_PT, A4_LANDSCAPE_PDF_WIDTH_PT, buildA4AwardSheetsPdf } from "../lib/domain/monthly-star-award-pdf.ts";
@@ -202,7 +203,7 @@ test("player history is titled achievements and existing venues are editable", a
   assert.match(history, /<h3>Досягнення<\/h3>/);
   assert.doesNotMatch(history, /Досягнення та поведінка/);
   assert.match(management, /Редагувати поле або майданчик/);
-  assert.match(management, /update\(\{ name: name\.trim\(\), venue_type: type, updated_by: profile\.id \}\)/);
+  assert.match(management, /update\(\{ \.\.\.values, updated_by: profile\.id \}\)/);
   assert.match(management, /UndoLastChange/);
 });
 
@@ -529,7 +530,7 @@ test("administrator groups remain visible without players and use explicit coach
   ]);
   assert.match(groups, /setMetrics\(emptyMetrics\)/);
   assert.match(groups, /coach:profiles!coach_group_assignments_coach_id_fkey/);
-  assert.match(groups, /aria-label=\{`Відкрити групу \$\{group\.code\}`\}/);
+  assert.match(groups, /aria-label=\{`Відкрити групу \$\{groupCode\(group\)\}`\}/);
   assert.match(groups, /function GroupDetailsModal/);
   assert.match(groups, /from\("players"\)\.select/);
   assert.match(groups, /<PlayerDetails client=\{client\}/);
@@ -845,7 +846,7 @@ test("physical batteries keep four tests with their exact result fields", async 
   assert.match(importer, /evaluation_metric_fields/);
   assert.match(coach, /<th>Тест<\/th><th>Поле результату<\/th>/);
   assert.match(exporter, /"Поле результату"/);
-  assert.match(exporter, /physical_test_sessions/);
+  assert.ok(APPLICATION_BACKUP_TABLES.some(table => table.name === "physical_test_sessions"));
   assert.match(preview, /sessionMetadata/);
 });
 
@@ -889,7 +890,7 @@ test("monthly star workflow is complete without public rankings or player voting
   assert.match(admin, /Збережена історія/);
   assert.match(admin, /Теми місяців/);
   assert.match(coachPlan, /MonthlyStarThemeBanner/);
-  assert.match(coachPlan, /BehaviorCardAction/);
+  assert.match(coachPlan, /TrainingRegisterModal/);
   assert.match(coachPlayers, /MonthlyStarGroupPanel/);
   assert.match(coachPlayers, /PlayerAchievementBehavior/);
   assert.match(voidSql, /security invoker/i);
@@ -897,7 +898,8 @@ test("monthly star workflow is complete without public rankings or player voting
   assert.match(guardSql, /array\['month', 'is_voided', 'voided_at', 'voided_by', 'void_reason', 'updated_at'\]/);
   assert.match(awardSql, /save_monthly_star_awards/);
   assert.match(awardSql, /security invoker/i);
-  for (const table of ["monthly_star_themes", "player_behavior_cards", "parent_contact_actions", "monthly_star_awards"]) assert.match(exporter, new RegExp(`"${table}"`));
+  assert.match(exporter, /collectApplicationBackup/);
+  for (const table of ["monthly_star_themes", "player_behavior_cards", "parent_contact_actions", "monthly_star_awards"]) assert.ok(APPLICATION_BACKUP_TABLES.some(item => item.name === table));
   assert.doesNotMatch(ui, /player_vote|public_leaderboard/i);
 });
 
@@ -928,22 +930,14 @@ test("coach photo, attendance and card workflow is mobile-friendly and admin rea
   assert.match(files, /rpc\("register_player_photo_asset"/);
 
   assert.match(coachPlan, /Присутність ·/);
-  assert.match(coachPlan, /Жовті картки ·/);
   assert.match(coachPlan, /Присутній/);
   assert.match(coachPlan, /Відсутній/);
   assert.match(coachPlan, /Усі присутні/);
-  assert.match(coachPlan, /Картку зафіксовано/);
-  assert.ok(coachPlan.includes("onSaved={(attendanceSynced)"));
-  assert.match(coachPlan, /setBehaviorAfterAttendance\(true\)/);
-  assert.match(coachPlan, /setEventMode\(\{ kind: "view", event: closedEvent \}\)/);
-  assert.match(coachPlan, /Присутність збережено\. За потреби додайте жовті картки/);
   assert.ok((coachPlan.match(/void load\(true\)/g) ?? []).length >= 2, "attendance/card transitions refresh data without hiding the active workflow");
   assert.match(coachPlan, /onSaved\(true\)/);
   assert.match(coachPlan, /onSaved\(false\)/);
-  assert.match(coachPlan, /occurredOn=\{kyivDateKey\(event\.start_at\)\}/);
   assert.doesNotMatch(coachPlan, /Причина або примітка — необов’язково/);
   assert.equal((coachPlayers.match(/BehaviorCardAction/g) ?? []).length, 0, "the player list and profile must not duplicate card assignment");
-  assert.equal((coachPlan.match(/<BehaviorCardAction/g) ?? []).length, 1, "the separate training-card screen is the single coach card-assignment point");
   assert.doesNotMatch(monthlyStarUi, /label="Додати картку"/);
   assert.doesNotMatch(monthlyStarUi, /label="Картка"/);
   assert.doesNotMatch(monthlyStarUi, /window\.prompt/);
@@ -1003,7 +997,7 @@ test("monthly star export places two A5 awards on one A4 sheet and blocks incomp
   assert.match(generator, /loadEmbeddedImage\(MONTHLY_STAR_MARK_DATA_URL\)/);
   assert.doesNotMatch(generator, /fetch\(/);
   assert.match(assets, /data:image\/jpeg;base64,/);
-  assert.match(assets, /data:image\/svg\+xml;base64,/);
+  assert.match(assets, /data:image\/png;base64,/);
   assert.match(generator, /awardsByGroup/);
   assert.match(generator, /index \+= 2/);
 

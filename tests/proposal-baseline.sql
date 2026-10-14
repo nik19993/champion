@@ -1,0 +1,24 @@
+-- Synthetic minimal contract fixture, NOT a backup or complete staging schema.
+create role anon;
+create role authenticated;
+create schema auth;
+create schema private;
+create function auth.uid() returns uuid language sql stable as $$ select (nullif(current_setting('request.jwt.claims',true),'')::jsonb->>'sub')::uuid $$;
+create function auth.jwt() returns jsonb language sql stable as $$ select coalesce(nullif(current_setting('request.jwt.claims',true),'')::jsonb,'{}'::jsonb) $$;
+create table public.profiles(id uuid primary key,role text not null,status text not null);
+create table public.groups(id uuid primary key default gen_random_uuid(),code text not null unique,age smallint,team_suffix text,group_kind text not null,is_active boolean not null default true,season text,updated_at timestamptz default now(),check((group_kind='age' and age between 6 and 17) or (group_kind='goalkeeper' and age is null)));
+create table public.coach_group_assignments(coach_id uuid references profiles(id),group_id uuid references groups(id),is_active boolean default true);
+create function private.is_admin() returns boolean language sql stable security definer set search_path='' as $$ select coalesce((select auth.jwt()->>'aal'),'aal1')='aal2' and exists(select 1 from public.profiles where id=(select auth.uid()) and role='admin' and status='active') $$;
+create function private.has_group(g uuid) returns boolean language sql stable security definer set search_path='' as $$ select exists(select 1 from public.coach_group_assignments a join public.profiles p on p.id=a.coach_id where a.coach_id=(select auth.uid()) and a.group_id=g and a.is_active and p.status='active') $$;
+create table public.players(id uuid primary key default gen_random_uuid(),group_id uuid not null references groups(id),full_name text not null,birth_date date,birth_year smallint check(birth_year between 2000 and 2100),position text,dominant_foot text,is_active boolean default true,active_from date default current_date,active_to date,created_by uuid references profiles(id),updated_by uuid references profiles(id),updated_at timestamptz default clock_timestamp());
+create table public.guardians(id uuid primary key default gen_random_uuid(),player_id uuid not null references players(id) on delete cascade,full_name text,phone text,email text,relation text,created_by uuid references profiles(id),updated_by uuid references profiles(id));
+create function private.set_updated_at() returns trigger language plpgsql as $$ begin new.updated_at:=clock_timestamp();return new;end $$;
+create trigger players_updated before update on public.players for each row execute function private.set_updated_at();
+create type public.methodology_phase as enum('attack','defence');
+create type public.methodology_level as enum('individual','group','team');
+create table public.import_jobs(id uuid primary key,dataset text,status text,total_rows integer,created_by uuid,confirmed_by uuid,confirmed_at timestamptz,updated_at timestamptz);
+create table public.import_rows(import_job_id uuid,row_number integer,payload jsonb,is_valid boolean,errors text[]);
+create table public.physical_test_sessions(id uuid primary key default gen_random_uuid(),group_id uuid,measured_on date,started_at time,temperature_c numeric,weather text,wind text,venue_name text,surface text,footwear text,notes text,source text,import_job_id uuid,created_by uuid,updated_by uuid,created_at timestamptz default now());
+create table public.physical_test_results(id uuid primary key default gen_random_uuid(),player_id uuid references players(id),measured_on date,metric_name text,field_name text,value text,unit text,session_id uuid,source text,created_by uuid);
+create table public.game_activity_results(id uuid primary key default gen_random_uuid(),player_id uuid references players(id),period text,metric_name text,value text,source text,created_by uuid);
+grant select on public.profiles to authenticated;
