@@ -12,6 +12,7 @@ import { Download, FileJson } from "lucide-react";
 import { useEffect, useState } from "react";
 import { EmptyState, GroupSelect, Pill, StatusMessage, WorkspaceHeader } from "@/components/common/workspace-ui";
 import { encryptBackup } from "@/lib/domain/backup";
+import { collectApplicationBackup, APPLICATION_BACKUP_TABLES } from "@/lib/domain/application-backup";
 import { downloadBlob, downloadText, formatDate, formatMonth, toCsv, toMonthInput } from "@/lib/domain/format";
 import { createMonthlyStarAwardPdf } from "@/lib/domain/monthly-star-award-pdf";
 import { createTableReportPdf } from "@/lib/domain/report-pdf";
@@ -410,19 +411,15 @@ export function AdminExport({ client, profile, groups }: Props) {
   async function backup() {
     const passphrase = window.prompt("Задайте пароль резервної копії (щонайменше 12 символів). Збережіть його окремо: відновити втрачений пароль неможливо.");
     if (!passphrase) return;
+    if (passphrase.length < 12) { setMessage({ kind: "error", text: "Пароль резервної копії має містити щонайменше 12 символів." }); return; }
     setBusy("backup");
     setMessage(null);
     try {
-      const tables = ["profiles", "groups", "coach_group_assignments", "venues", "players", "guardians", "evaluation_metrics", "evaluation_metric_fields", "physical_test_sessions", "physical_test_results", "game_activity_results", "monthly_payments", "uniform_catalog_items", "uniform_requests", "uniform_request_items", "methodology_tasks", "terminology_entries", "training_structures", "training_structure_steps", "methodology_sections", "methodology_section_materials", "events", "attendance_sessions", "attendance_records", "operational_items", "inventory_items", "inventory_permissions", "inventory_adjustments", "announcements", "announcement_targets", "announcement_reads", "file_assets", "player_photos", "event_materials", "methodology_materials", "monthly_star_themes", "player_behavior_cards", "parent_contact_actions", "monthly_star_awards"];
-      const data: Record<string, unknown> = { generated_at: new Date().toISOString(), club: "Клуб Чемпіон", schema_version: "1.4" };
-      for (const table of tables) {
-        const result = await client.from(table).select("*");
-        if (result.error) throw new Error(`Помилка таблиці ${table}`);
-        data[table] = result.data;
-      }
+      const data = await collectApplicationBackup(client, profile.id);
       const encrypted = await encryptBackup(JSON.stringify(data), passphrase);
       downloadText(`ЧЕМПІОН_backup_${new Date().toISOString().slice(0, 10)}.encrypted.json`, JSON.stringify(encrypted), "application/json");
-      await audit("backup", { tables: tables.length, format: "encrypted-json", cipher: encrypted.cipher });
+      await audit("backup", { tables: APPLICATION_BACKUP_TABLES.length, format: "encrypted-json", cipher: encrypted.cipher });
+      setMessage({ kind: "success", text: "Зашифровану копію даних застосунку завантажено. Файли й облікові записи потребують окремої резервної копії." });
     } catch (error) {
       setMessage({ kind: "error", text: error instanceof Error ? error.message : "Резервну копію не сформовано." });
     } finally {
@@ -439,7 +436,7 @@ export function AdminExport({ client, profile, groups }: Props) {
     { kind: "debts", title: "Заборгованість гравців", description: "Лише гравці вибраних груп із несплатою за поточний або минулі місяці.", actions: <><button onClick={() => void exportDebts("pdf")} disabled={busy === "debts"}><Download />Завантажити PDF</button><button onClick={() => void exportDebts("csv")} disabled={busy === "debts"}><Download />CSV</button></> },
     { kind: "uniform", title: "Запити на форму", description: "Позиції, розміри, номери та стан підготовки у вибраних групах.", actions: <button onClick={() => void exportUniform()}><Download />CSV</button> },
     { kind: "operations", title: "План і загальний звіт", description: "Операційні ситуації вибраних груп за останні 30 днів.", actions: <button onClick={() => void exportOperations()}><Download />CSV</button> },
-    { kind: "backup", title: "Адміністративна резервна копія", description: "JSON, зашифрований AES-256-GCM вашим паролем. Завжди містить усі дозволені дані.", actions: <button onClick={() => void backup()}><FileJson />Зашифрований JSON</button> },
+    { kind: "backup", title: "Адміністративна резервна копія", description: "Зашифрована копія даних застосунку. Файли та облікові записи зберігаються окремо.", actions: <button onClick={() => void backup()} disabled={busy !== null}><FileJson />Зашифрований JSON</button> },
   ];
 
   return <div className="workspace-stack">

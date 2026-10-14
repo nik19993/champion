@@ -25,6 +25,12 @@ export function groupCode(group: SeasonGroup | SeasonGroup[] | null | undefined)
   return item?.display_code ?? item?.code ?? "—";
 }
 
+export function groupAge(group: SeasonGroup | SeasonGroup[] | null | undefined) {
+  const item = Array.isArray(group) ? group[0] : group;
+  if (!item || item.group_kind === "goalkeeper") return null;
+  return item.display_age ?? item.age ?? null;
+}
+
 export function groupLabel(group: SeasonGroup) {
   const code = groupCode(group);
   return group.cohort_birth_year ? `${code} · ${group.cohort_birth_year} р.н.` : code;

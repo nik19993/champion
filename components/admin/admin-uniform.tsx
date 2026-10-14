@@ -126,8 +126,9 @@ export function AdminUniform({
     const result = await client
       .from("uniform_requests")
       .update({ status: nextStatus, admin_note: note || null })
-      .eq("id", request.id);
-    if (result.error) {
+      .eq("id", request.id)
+      .select("id").single();
+    if (result.error || result.data?.id !== request.id) {
       setError("Зміни не збережено.");
       return false;
     }

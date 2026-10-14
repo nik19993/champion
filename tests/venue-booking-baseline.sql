@@ -7,7 +7,7 @@ create function auth.uid() returns uuid language sql stable as $$select nullif(a
 grant usage on schema auth, private, public to authenticated;
 grant execute on function auth.jwt(),auth.uid() to authenticated;
 create table public.profiles(id uuid primary key,role text,status text);
-create table public.groups(id uuid primary key default gen_random_uuid(),code text);
+create table public.groups(id uuid primary key default gen_random_uuid(),code text,display_code text);
 create table public.coach_group_assignments(coach_id uuid,group_id uuid,is_active boolean default true);
 create table public.methodology_tasks(id uuid primary key);
 create type public.event_type as enum ('training','oblast','ukraine','tournament','theory');

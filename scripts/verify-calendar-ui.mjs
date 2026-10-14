@@ -39,6 +39,8 @@ try {
   check(await page.getByLabel("Група події").inputValue() === "", "creation from all groups requires an explicit group");
   check(await page.getByRole("button", { name: "Створити подію", exact: true }).isDisabled(), "creation cannot default to an arbitrary first group");
   await page.getByLabel("Група події").selectOption("group-b");
+  check(await page.getByLabel("Навчальне завдання", { exact: true }).locator('option[value="current-task"]').count() === 1, "new season curriculum is selectable");
+  check(await page.getByLabel("Навчальне завдання", { exact: true }).locator('option[value="old-task"]').count() === 0, "baseline age does not control current season tasks");
   const duration = page.getByLabel("Тривалість у хвилинах");
   await duration.fill("");
   check(await duration.inputValue() === "", "clearing duration leaves blank");

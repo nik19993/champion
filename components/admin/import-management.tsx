@@ -6,7 +6,7 @@ import { useState } from "react";
 import { Pill, StatusMessage } from "@/components/common/workspace-ui";
 import { MAX_AGE_GROUP, MIN_AGE_GROUP } from "@/lib/domain/age-groups";
 import { normalizeBirthDate, isMissingResult, planPlayerCompletion } from "@/lib/domain/player-import";
-import { groupCode } from "@/lib/domain/seasons";
+import { groupAge, groupCode } from "@/lib/domain/seasons";
 import { safeError } from "@/lib/domain/format";
 import type { FileAsset, GroupSummary, Profile } from "@/lib/domain/types";
 import { uploadPrivateFile } from "@/lib/supabase/files";
@@ -454,7 +454,7 @@ async function addDuplicateChecks(
         continue;
       }
       const batteryAge = dataset === "physical_tests"
-        ? group.age ?? physicalBatteryAge(
+        ? groupAge(group) ?? physicalBatteryAge(
             matches[0].birth_date,
             matches[0].birth_year,
             row.values.date ?? "",

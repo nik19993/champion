@@ -131,7 +131,7 @@ returns trigger language plpgsql security definer set search_path = '' as $$
 declare conflict_record record;
 begin
   if new.status <> 'scheduled' then return new; end if;
-  select e.id, g.code, e.start_at, e.ends_at, e.booking_part,
+  select e.id, coalesce(g.display_code, g.code) as code, e.start_at, e.ends_at, e.booking_part,
          case when e.coach_id = new.coach_id then 'тренер' else 'майданчик' end as resource_type
     into conflict_record
   from public.events e join public.groups g on g.id = e.group_id
@@ -177,7 +177,7 @@ begin
   select coalesce(v.parent_venue_id, v.id) into root_id from public.venues v where v.id = p_venue_id;
   if not found then raise exception 'Майданчик не знайдено' using errcode = '22023'; end if;
   return query
-    select e.booking_part, e.start_at, e.ends_at, g.code::text
+    select e.booking_part, e.start_at, e.ends_at, coalesce(g.display_code, g.code)::text
     from public.events e left join public.groups g on g.id = e.group_id
     where e.booking_venue_id = root_id and e.status = 'scheduled'
       and (p_exclude_event_id is null or e.id <> p_exclude_event_id)

@@ -2,7 +2,7 @@
 
 import { TrainingRegisterModal } from "@/components/coach/training-register";
 import { trainingRegisterLabel, trainingRegisterState, type TrainingRegisterCompletion } from "@/lib/domain/training-register";
-import { groupCode } from "@/lib/domain/seasons";
+import { groupAge, groupCode } from "@/lib/domain/seasons";
 import { durationInput, durationMinutes } from "@/lib/domain/event-duration";
 import { VenueBookingSelector } from "@/components/common/venue-booking-selector";
 import { effectiveVenuePart, eventVenueLabel, normalizeVenuePart, VENUE_SELECT, type VenuePart } from "@/lib/domain/venue-booking";
@@ -260,7 +260,8 @@ function EventDetails({ client, event, onClose, onAttendance }: { client: Supaba
 function EventEditor({ client, profile, groups, initialGroupId, event, isCreating, initialDate, venues, tasks, onClose, onCreateSimilar, onSaved, onAttendance }: { client: SupabaseClient; profile: Profile; groups: GroupSummary[]; initialGroupId: string; event?: EventItem; isCreating: boolean; initialDate?: string; venues: Venue[]; tasks: MethodologyTask[]; onClose: () => void; onCreateSimilar: (event: EventItem) => void; onSaved: (message?: string) => void; onAttendance: (event: EventItem) => void }) {
   const [groupId, setGroupId] = useState(event?.group_id ?? initialGroupId);
   const group = groups.find((item) => item.id === groupId);
-  const availableTasks = tasks.filter((task) => group?.age != null && task.age_from <= group.age && task.age_to >= group.age);
+  const age = groupAge(group);
+  const availableTasks = tasks.filter((task) => age != null && task.age_from <= age && task.age_to >= age);
   const canEdit = Boolean(group) && (isCreating || profile.role === "admin" || event?.coach_id === profile.id);
   const [removal, setRemoval] = useState<"delete" | "cancel" | null>(null);
   const [eventType, setEventType] = useState<EventItem["event_type"]>(event?.event_type ?? "training");
@@ -405,7 +406,7 @@ function EventEditor({ client, profile, groups, initialGroupId, event, isCreatin
     }
     if (file && (taskId || group.group_kind === "goalkeeper")) {
       try {
-        const asset = await uploadPrivateFile(client, file, { bucket: "task-documents", ownerId: profile.id, groupId: group.id, age: group.age, contextType: "event_task_material" });
+        const asset = await uploadPrivateFile(client, file, { bucket: "task-documents", ownerId: profile.id, groupId: group.id, age, contextType: "event_task_material" });
         const linkResult = group.group_kind === "goalkeeper"
           ? await client.rpc("attach_event_material", { p_event_id: savedId, p_file_asset_id: asset.id })
           : await client.rpc("attach_event_task_material", { p_event_id: savedId, p_task_id: taskId, p_file_asset_id: asset.id });

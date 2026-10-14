@@ -16,6 +16,21 @@ export type Database = {
   }
   public: {
     Tables: {
+      club_season_settings: {
+        Row: { id: boolean; start_year: number; updated_by: string | null; updated_at: string }
+        Insert: { id?: boolean; start_year: number; updated_by?: string | null; updated_at?: string }
+        Update: { id?: boolean; start_year?: number; updated_by?: string | null; updated_at?: string }
+        Relationships: [{ foreignKeyName: "club_season_settings_updated_by_fkey"; columns: ["updated_by"]; isOneToOne: false; referencedRelation: "profiles"; referencedColumns: ["id"] }]
+      }
+      group_season_history: {
+        Row: { group_id: string; start_year: number; code: string; birth_year: number; changed_by: string | null; changed_at: string }
+        Insert: { group_id: string; start_year: number; code: string; birth_year: number; changed_by?: string | null; changed_at?: string }
+        Update: { group_id?: string; start_year?: number; code?: string; birth_year?: number; changed_by?: string | null; changed_at?: string }
+        Relationships: [
+          { foreignKeyName: "group_season_history_group_id_fkey"; columns: ["group_id"]; isOneToOne: false; referencedRelation: "groups"; referencedColumns: ["id"] },
+          { foreignKeyName: "group_season_history_changed_by_fkey"; columns: ["changed_by"]; isOneToOne: false; referencedRelation: "profiles"; referencedColumns: ["id"] }
+        ]
+      }
       training_register_completions: {
         Row: { event_id: string; completed_at: string | null; completed_by: string | null; attendance_version: number; present_count: number; player_count: number; card_count: number; updated_at: string }
         Insert: { event_id: string; completed_at?: string | null; completed_by?: string | null; attendance_version: number; present_count: number; player_count: number; card_count: number; updated_at?: string }
@@ -871,6 +886,9 @@ export type Database = {
         Row: {
           age: number | null
           code: string
+          cohort_birth_year: number | null
+          display_age: number | null
+          display_code: string | null
           competition_format: string | null
           created_at: string
           group_kind: string
@@ -885,6 +903,9 @@ export type Database = {
         Insert: {
           age?: number | null
           code: string
+          cohort_birth_year?: number | null
+          display_age?: number | null
+          display_code?: string | null
           competition_format?: string | null
           created_at?: string
           group_kind?: string
@@ -899,6 +920,9 @@ export type Database = {
         Update: {
           age?: number | null
           code?: string
+          cohort_birth_year?: number | null
+          display_age?: number | null
+          display_code?: string | null
           competition_format?: string | null
           created_at?: string
           group_kind?: string
@@ -2707,6 +2731,12 @@ export type Database = {
       }
     }
     Functions: {
+      register_player_photo_asset: { Args: { p_object_path: string; p_original_name: string; p_mime_type: string; p_size_bytes: number; p_group_id: string }; Returns: string }
+      initialize_club_season: { Args: { p_start_year: number; p_cohorts: Json }; Returns: number }
+      advance_club_season: { Args: { p_expected_start_year: number; p_next_start_year: number }; Returns: number }
+      save_player_profile: { Args: { p_group_id: string; p_player_id: string | null; p_values: Json; p_expected_updated_at: string | null }; Returns: string }
+      save_player_guardian: { Args: { p_player_id: string; p_guardian_id: string | null; p_values: Json }; Returns: string }
+      archive_player: { Args: { p_player_id: string; p_expected_updated_at: string }; Returns: undefined }
       complete_training_register: {
         Args: { p_event_id: string; p_expected_attendance_version: number; p_expected_card_ids: string[]; p_expected_records: Json }
         Returns: Json

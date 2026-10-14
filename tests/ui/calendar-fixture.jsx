@@ -8,8 +8,8 @@ import { kyivDateKey } from "../../lib/domain/format";
 
 const day = kyivDateKey(new Date());
 const groups = [
-  { id: "group-a", code: "U11A", display_code: "U12A", age: 11, group_kind: "age", cohort_birth_year: 2016 },
-  { id: "group-b", code: "U11B", display_code: "U12B", age: 11, group_kind: "age", cohort_birth_year: 2016 },
+  { id: "group-a", code: "U11A", display_code: "U12A", display_age: 12, age: 11, group_kind: "age", cohort_birth_year: 2016 },
+  { id: "group-b", code: "U11B", display_code: "U12B", display_age: 12, age: 11, group_kind: "age", cohort_birth_year: 2016 },
 ];
 const profile = { id: "coach-fixture", full_name: "Тестовий тренер", role: "coach", status: "active" };
 const longTask = "Зупинка м’яча та передача після відкривання партнера у вільний простір. ".repeat(8);
@@ -20,7 +20,7 @@ const db = {
   attendance_records: [{ id: "record-history", session_id: "session-history", player_id: "synthetic-player", status: "present" }],
   profiles: [profile],
   venues: [{ id: "venue-a", name: "Тестове поле", venue_type: "field", is_active: true }, { id: "venue-b", name: "Довільний новий майданчик", venue_type: "field", is_active: true }, { id: "venue-hall", name: "Спортивний зал", venue_type: "hall", is_active: true }, { id: "venue-legacy", name: "Стара ліва половина", venue_type: "field", is_active: true, parent_venue_id: "venue-a", venue_part: "left" }],
-  methodology_tasks: [{ id: "task-a", title: longTask, age_from: 6, age_to: 17, is_active: true, sort_order: 0 }],
+  methodology_tasks: [{ id: "task-a", title: longTask, age_from: 6, age_to: 17, is_active: true, sort_order: 0 }, { id: "old-task", title: "Попередній вік U11", age_from: 11, age_to: 11, is_active: true }, { id: "current-task", title: "Поточний вік U12", age_from: 12, age_to: 12, is_active: true }],
   announcements: [], monthly_star_themes: [],
   operational_items: [
     { id: "report-a", group_id: "group-a", item_type: "organizational_need", status: "todo", title: "Організаційні потреби", comment: "Автобус; Лікар; Інше: питна вода", created_at: `${day}T07:00:00Z`, groups: groups[0], events: { start_at: `${day}T15:00:00Z`, event_type: "tournament", title: "Турнір групи", venues: { name: "Тестове поле" }, coach: { full_name: "Тестовий тренер" } } },

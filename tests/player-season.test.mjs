@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { groupCode, groupLabel, parseSeason, previewSeason, seasonName } from "../lib/domain/seasons.ts";
+import { groupAge, groupCode, groupLabel, parseSeason, previewSeason, seasonName } from "../lib/domain/seasons.ts";
 import { isMissingResult, normalizeBirthDate, planPlayerCompletion } from "../lib/domain/player-import.ts";
 import { MONTHLY_STAR_MARK_DATA_URL } from "../lib/domain/monthly-star-award-assets.ts";
 import { awardDisplayName } from "../lib/domain/monthly-star-award-pdf.ts";
@@ -21,6 +21,16 @@ test("season parsing requires two consecutive explicit years", () => {
   assert.equal(seasonName(2026), "2026/2027");
   assert.equal(parseSeason("2026/2027"), 2026);
   for (const invalid of [null, "2026", "2026/2028", "2026/27", ""]) assert.equal(parseSeason(invalid), null);
+});
+
+test("curriculum age follows the administrator's season, with baseline and nullable relation fallbacks", () => {
+  const baseline = { code: "U11A", age: 11, group_kind: "age" };
+  assert.equal(groupAge(baseline), 11);
+  assert.equal(groupAge({ ...baseline, display_age: 12 }), 12);
+  assert.equal(groupAge([{ ...baseline, display_age: 13 }]), 13);
+  assert.equal(groupAge({ code: "Воротарі A", group_kind: "goalkeeper", age: null }), null);
+  assert.equal(groupAge(null), null);
+  assert.equal(groupAge([]), null);
 });
 
 test("group labels tolerate nullable and array relations", () => {

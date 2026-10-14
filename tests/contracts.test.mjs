@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { APPLICATION_BACKUP_TABLES } from "../lib/domain/application-backup.ts";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { A4_LANDSCAPE_PDF_HEIGHT_PT, A4_LANDSCAPE_PDF_WIDTH_PT, buildA4AwardSheetsPdf } from "../lib/domain/monthly-star-award-pdf.ts";
@@ -845,7 +846,7 @@ test("physical batteries keep four tests with their exact result fields", async 
   assert.match(importer, /evaluation_metric_fields/);
   assert.match(coach, /<th>Тест<\/th><th>Поле результату<\/th>/);
   assert.match(exporter, /"Поле результату"/);
-  assert.match(exporter, /physical_test_sessions/);
+  assert.ok(APPLICATION_BACKUP_TABLES.some(table => table.name === "physical_test_sessions"));
   assert.match(preview, /sessionMetadata/);
 });
 
@@ -897,7 +898,8 @@ test("monthly star workflow is complete without public rankings or player voting
   assert.match(guardSql, /array\['month', 'is_voided', 'voided_at', 'voided_by', 'void_reason', 'updated_at'\]/);
   assert.match(awardSql, /save_monthly_star_awards/);
   assert.match(awardSql, /security invoker/i);
-  for (const table of ["monthly_star_themes", "player_behavior_cards", "parent_contact_actions", "monthly_star_awards"]) assert.match(exporter, new RegExp(`"${table}"`));
+  assert.match(exporter, /collectApplicationBackup/);
+  for (const table of ["monthly_star_themes", "player_behavior_cards", "parent_contact_actions", "monthly_star_awards"]) assert.ok(APPLICATION_BACKUP_TABLES.some(item => item.name === table));
   assert.doesNotMatch(ui, /player_vote|public_leaderboard/i);
 });
 
