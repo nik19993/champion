@@ -71,7 +71,7 @@ try {
  const proposals=(await fs.readdir(path.join(root,"supabase/proposals"))).filter(f=>f.endsWith(".sql")).sort();
  for(const name of proposals){console.log("PROPOSAL",name);await db.exec(await fs.readFile(path.join(root,"supabase/proposals",name),"utf8"));}
  const after=await db.query("select count(*)::int as tables from pg_tables where schemaname='public'");
- assert.equal(after.rows[0].tables,46);checks++;
+ assert.equal(after.rows[0].tables,47);checks++;
  const rls=await db.query("select count(*)::int as disabled from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relkind='r' and not c.relrowsecurity");
  assert.equal(rls.rows[0].disabled,0);checks++;
  const rows=(await db.query("select table_name,column_name,is_nullable,udt_name from information_schema.columns where table_schema='public' order by table_name,ordinal_position")).rows;
@@ -105,7 +105,7 @@ try {
    const args=member(functions.members.find(item=>item.name.text===fn.name).type,"Args");
    assert.deepEqual(ts.isTypeLiteralNode(args)?args.members.map(item=>item.name.text).sort():[],(fn.names??[]).slice(0,fn.pronargs).sort(),fn.name);checks++;
  }
- console.log(`PASS: 36 historical migrations + ${proposals.length} proposals; 46 RLS tables; types/backup schema checks (${checks}). Synthetic Auth/storage only; this is not a full recovery restore.`);
+ console.log(`PASS: 36 historical migrations + ${proposals.length} proposals; 47 RLS tables; types/backup schema checks (${checks}). Synthetic Auth/storage only; this is not a full recovery restore.`);
 
  const coach="00000000-0000-4000-8000-000000000011",admin="00000000-0000-4000-8000-000000000012";
  const scalar=async(sql,args=[]) => (await db.query(sql,args)).rows[0].value;

@@ -32,3 +32,9 @@ test("only a valid server confirmation can be reported as successful", () => {
   assert.deepEqual(completionResult(completion), completion);
   for (const invalid of [null, [], {}, "success", { ...completion, completed_at: null }, { ...completion, player_count: 1 }, { ...completion, card_count: -1 }, { ...completion, attendance_version: "2" }]) assert.equal(completionResult(invalid), null);
 });
+test("club cards have an independent validated count in the register summary", () => {
+  const current={...completion,club_card_count:3};
+  assert.deepEqual(completionResult(current),current);
+  assert.match(trainingRegisterLabel({attendance_sessions:session,training_register_completions:current}),/карток клубу 3/);
+  for(const club_card_count of [-1,1.5,"3",null]) assert.equal(completionResult({...completion,club_card_count}),null);
+});

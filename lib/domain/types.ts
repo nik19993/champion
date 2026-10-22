@@ -125,6 +125,14 @@ export interface MonthlyStarTheme {
   criteria?: string | null;
 }
 
+export interface PlayerClubCard {
+  id: string;
+  player_id: string;
+  group_id: string;
+  event_id: string;
+  is_voided: boolean;
+}
+
 export interface PlayerBehaviorCard {
   id: string;
   player_id: string;
@@ -165,6 +173,7 @@ export interface MonthlyStarAward {
 }
 
 export interface MethodologyTask {
+  updated_at: string;
   id: string;
   phase: MethodologyPhase;
   level: MethodologyLevel;
@@ -178,6 +187,7 @@ export interface MethodologyTask {
 }
 
 export interface TerminologyEntry {
+  updated_at: string;
   id: string;
   term: string;
   definition: string;

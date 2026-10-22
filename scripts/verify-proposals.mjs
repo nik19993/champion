@@ -20,7 +20,7 @@ try {
  await db.exec(await readFile(new URL('../tests/proposal-baseline.sql',import.meta.url),'utf8'));
  const proposals=await readdir(new URL('../supabase/proposals/',import.meta.url));
  // Age/material integration needs the full historical schema and has its own fixture.
- for(const file of proposals.filter(name=>name.endsWith('.sql') && !name.endsWith('_venue_half_bookings.sql') && !name.endsWith('_training_register_completion.sql') && !name.endsWith('_season_effective_age_access.sql')).sort()) await db.exec(await readFile(new URL(`../supabase/proposals/${file}`,import.meta.url),'utf8'));
+ for(const file of proposals.filter(name=>name.endsWith('.sql') && !name.endsWith('_venue_half_bookings.sql') && !name.endsWith('_training_register_completion.sql') && !name.endsWith('_season_effective_age_access.sql') && !name.endsWith('_club_cards.sql') && !name.endsWith('_bulk_content_management.sql')).sort()) await db.exec(await readFile(new URL(`../supabase/proposals/${file}`,import.meta.url),'utf8'));
  await db.query('insert into profiles values($1,\'admin\',\'active\'),($2,\'coach\',\'active\')',[admin,coach]);
  const groups=[];
  for(let age=6;age<=17;age++) for(const suffix of age<8?['']:['A','B']) {

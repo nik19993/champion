@@ -1,6 +1,7 @@
 "use client";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { ClubCardAction } from "@/components/star/club-card";
 import { Check } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EmptyState, LoadingState, Modal, Pill, StatusMessage } from "@/components/common/workspace-ui";
@@ -8,7 +9,7 @@ import { BEHAVIOR_REASON_LABELS, BehaviorCardAction, VoidBehaviorCardAction } fr
 import { formatDateTime, kyivDateKey, safeError } from "@/lib/domain/format";
 import { groupCode } from "@/lib/domain/seasons";
 import { completionResult, relationOne, type TrainingRegisterCompletion } from "@/lib/domain/training-register";
-import type { EventItem, PlayerBehaviorCard, Profile } from "@/lib/domain/types";
+import type { EventItem, PlayerBehaviorCard, PlayerClubCard, Profile } from "@/lib/domain/types";
 import { ATTENDANCE_QUEUE_CHANGED_EVENT, enqueueAttendance, flushAttendanceQueue, persistAttendance, queuedAttendance, type AttendanceQueueItem } from "@/lib/offline/attendance-queue";
 
 type Status = "present" | "absent";
@@ -29,6 +30,7 @@ export function TrainingRegisterModal({ client, profile, event, onClose, onChang
   const [records, setRecords] = useState<Record<string, Status>>({});
   const [savedRecords, setSavedRecords] = useState<RecordRow[]>([]);
   const [session, setSession] = useState<Session | null>(null);
+  const [clubCards, setClubCards] = useState<PlayerClubCard[]>([]);
   const [cards, setCards] = useState<PlayerBehaviorCard[]>([]);
   const [completion, setCompletion] = useState<TrainingRegisterCompletion | null>(null);
   const [pending, setPending] = useState(false);
@@ -52,15 +54,16 @@ export function TrainingRegisterModal({ client, profile, event, onClose, onChang
   const load = useCallback(async () => {
     const request = ++revision.current;
     try {
-      const [playerResult, sessionResult, cardResult, completionQuery, queue] = await Promise.all([
+      const [playerResult, sessionResult, cardResult, clubCardResult, completionQuery, queue] = await Promise.all([
         client.from("players").select("id, full_name").eq("group_id", event.group_id).eq("is_active", true).order("full_name"),
         client.from("attendance_sessions").select("id, completed_at, server_version, attendance_records(player_id, status, note, players(id, full_name))").eq("event_id", event.id).maybeSingle(),
         client.from("player_behavior_cards").select("id, player_id, group_id, event_id, reason, comment, occurred_on, coach_name_snapshot, is_voided").eq("event_id", event.id).eq("is_voided", false),
+        client.from("player_club_cards").select("id, player_id, group_id, event_id, is_voided").eq("event_id", event.id).eq("is_voided", false),
         client.from("training_register_completions").select("*").eq("event_id", event.id).maybeSingle(),
         queuedAttendance(profile.id),
       ]);
       if (!mounted.current || request !== revision.current) return false;
-      if (playerResult.error || sessionResult.error || cardResult.error || completionQuery.error) throw new Error("LOAD_FAILED");
+      if (playerResult.error || sessionResult.error || cardResult.error || clubCardResult.error || completionQuery.error) throw new Error("LOAD_FAILED");
       const currentPlayers = (playerResult.data ?? []) as RegisterPlayer[];
       const currentSession = relationOne(sessionResult.data as Session | Session[] | null);
       const stored = currentSession?.attendance_records ?? [];
@@ -76,6 +79,7 @@ export function TrainingRegisterModal({ client, profile, event, onClose, onChang
       setSavedRecords(stored);
       setSession(currentSession);
       setCards((cardResult.data ?? []) as PlayerBehaviorCard[]);
+      setClubCards((clubCardResult.data ?? []) as PlayerClubCard[]);
       setCompletion((completionQuery.data as TrainingRegisterCompletion | null) ?? null);
       const wasPending = pendingRef.current;
       pendingRef.current = Boolean(pendingItem);
@@ -158,7 +162,7 @@ export function TrainingRegisterModal({ client, profile, event, onClose, onChang
         const refreshed = await load();
         if (refreshed) {
           const savedPresent = refreshed.stored.filter((row) => row.status === "present").length;
-          setMessage({ kind: "success", text: `Присутність збережено: ${savedPresent} присутніх, ${refreshed.stored.length - savedPresent} відсутніх. За потреби внесіть жовті картки та завершіть облік.` });
+          setMessage({ kind: "success", text: `Присутність збережено: ${savedPresent} присутніх, ${refreshed.stored.length - savedPresent} відсутніх. За потреби внесіть жовті картки або картки клубу та завершіть облік.` });
         }
         onChanged();
       }
@@ -177,16 +181,16 @@ export function TrainingRegisterModal({ client, profile, event, onClose, onChang
         setMessage({ kind: "warning", text: "Очікує синхронізації. Спочатку дочекайтеся збереження присутності на сервері." });
         return;
       }
-      const result = await client.rpc("complete_training_register", { p_event_id: event.id, p_expected_attendance_version: session.server_version, p_expected_card_ids: cards.map((card) => card.id), p_expected_records: savedRecords.map((row) => ({ player_id: row.player_id, status: row.status, note: row.note ?? null })) });
+      const result = await client.rpc("complete_training_register_with_club_cards", { p_expected_club_card_ids: clubCards.map(card => card.id), p_event_id: event.id, p_expected_attendance_version: session.server_version, p_expected_card_ids: cards.map((card) => card.id), p_expected_records: savedRecords.map((row) => ({ player_id: row.player_id, status: row.status, note: row.note ?? null })) });
       if (result.error) throw result.error;
       const confirmed = completionResult(result.data);
-      if (!confirmed || confirmed.attendance_version !== session.server_version) throw new Error("INVALID_COMPLETION_RESPONSE");
+      if (!confirmed || confirmed.attendance_version !== session.server_version || confirmed.club_card_count !== clubCards.length) throw new Error("INVALID_COMPLETION_RESPONSE");
       setCompletion(confirmed);
       onCompleted(confirmed);
     } catch (error) {
       const detail = error && typeof error === "object" && "message" in error ? String(error.message) : "";
       const text = detail.includes("REGISTER_CHANGED") ? "Відмітки змінилися в іншому вікні. Оновіть їх, перевірте та повторно завершіть облік."
-        : detail.includes("CARD_ATTENDANCE_MISMATCH") ? "Є жовта картка для відсутнього гравця. Перевірте присутність або анулюйте помилкову картку."
+        : detail.includes("CARD_ATTENDANCE_MISMATCH") ? "Є картка для відсутнього гравця. Перевірте присутність або анулюйте помилкову картку."
           : detail.includes("ATTENDANCE_INCOMPLETE") ? "Склад групи змінився. Оновіть список і збережіть присутність усіх учасників."
             : "Облік не завершено. Перевірте підключення та повторіть дію; збережені відмітки залишилися.";
       setMessage({ kind: "error", text });
@@ -206,20 +210,20 @@ export function TrainingRegisterModal({ client, profile, event, onClose, onChang
   return <Modal title={`Облік тренування · ${groupCode(event.groups)}`} onClose={close} wide footer={<div className="training-register-actions">
     <button type="button" className="secondary-action" onClick={close} disabled={busy || cardInteraction}>Закрити</button>
     <button type="button" className="secondary-action" onClick={() => void saveAttendance()} disabled={disabled || (pending && !online) || (!dirty && !pending)}>{busy ? "Збереження…" : pending ? "Синхронізувати присутність" : "Зберегти присутність"}</button>
-    <button type="button" className="primary-action" onClick={() => void finish()} disabled={disabled || dirty || pending || !online || completed || !session?.completed_at}>{busy ? "Збереження…" : completed ? "Облік завершено" : cards.length ? "Завершити облік тренування" : "Карток немає — завершити облік"}</button>
+    <button type="button" className="primary-action" onClick={() => void finish()} disabled={disabled || dirty || pending || !online || completed || !session?.completed_at}>{busy ? "Збереження…" : completed ? "Облік завершено" : cards.length || clubCards.length ? "Завершити облік тренування" : "Карток немає — завершити облік"}</button>
   </div>}>
-    <div className="training-register-context"><b>{formatDateTime(event.start_at)}</b><p>Присутність і жовті картки можна вносити на початку, наприкінці або після тренування, зокрема пізніше іншого дня.</p></div>
+    <div className="training-register-context"><b>{formatDateTime(event.start_at)}</b><p>Присутність, жовті картки та картки клубу можна вносити на початку, наприкінці або після тренування, зокрема пізніше іншого дня.</p></div>
     {loading ? <LoadingState /> : <>
       {loadError && <><StatusMessage kind="error">{loadError}</StatusMessage><button className="secondary-action" type="button" onClick={() => void load()}>Повторити завантаження</button></>}
       {!loadError && <>
         <div className="training-register-summary" role="status">
           <Pill tone={completed ? "success" : pending ? "warning" : "neutral"}>{pending ? "Очікує синхронізації" : completed ? "✓ Облік завершено" : dirty ? "Присутність не збережена" : "Присутність збережена · облік не завершено"}</Pill>
-          <span>Присутні {presentCount} із {players.length} · жовтих карток {cards.length}</span>
+          <span>Присутні {presentCount} із {players.length} · жовтих карток {cards.length} · карток клубу {clubCards.length}</span>
           {completed && completion?.completed_at && <small>Підтверджено {formatDateTime(completion.completed_at)}</small>}
         </div>
         {message && <StatusMessage kind={message.kind}>{message.text}</StatusMessage>}
         {!online && <StatusMessage kind="warning">Немає інтернету. Присутність можна зберегти на пристрої; картки та завершення обліку потребують з’єднання.</StatusMessage>}
-        <div className="training-register-toolbar"><h3>Присутність і жовті картки</h3><button type="button" className="secondary-action small" disabled={disabled || pending} onClick={() => setRecords((current) => ({ ...current, ...Object.fromEntries(activePlayers.map((player) => [player.id, "present"])) }))}>Усі присутні</button></div>
+        <div className="training-register-toolbar"><h3>Присутність і картки</h3><button type="button" className="secondary-action small" disabled={disabled || pending} onClick={() => setRecords((current) => ({ ...current, ...Object.fromEntries(activePlayers.map((player) => [player.id, "present"])) }))}>Усі присутні</button></div>
         {players.length ? <div className="attendance-list">{players.map((player) => {
           const status = records[player.id] ?? "present";
           const card = cards.find((item) => item.player_id === player.id);
@@ -235,6 +239,7 @@ export function TrainingRegisterModal({ client, profile, event, onClose, onChang
                   : status === "present" && !player.historical ? <BehaviorCardAction client={client} profile={profile} player={player} groupId={event.group_id} eventId={event.id} occurredOn={kyivDateKey(event.start_at)} className="yellow-card-action small" onInteractionChange={setCardInteraction} onSaved={() => void cardSaved("Картку збережено. Після внесення всіх карток завершіть облік тренування.")} />
                     : <small>{status === "absent" ? "Картка недоступна для відсутнього" : "Історичний учасник"}</small>}
             </div>
+            <ClubCardAction client={client} eventId={event.id} player={player} card={clubCards.find(card => card.player_id === player.id)} disabled={!cardsEnabled || (!clubCards.some(card => card.player_id === player.id) && (status !== "present" || Boolean(player.historical)))} onInteractionChange={setCardInteraction} onChanged={() => cardSaved("Картку клубу оновлено. Підтвердіть завершення обліку.")} />
           </article>;
         })}</div> : <EmptyState title="У групі немає гравців" />}
         {dirty && <p className="field-hint">Збережіть присутність перед внесенням карток і завершенням обліку.</p>}

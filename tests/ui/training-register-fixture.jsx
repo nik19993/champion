@@ -8,7 +8,7 @@ const today = kyivDateKey(new Date());
 const group = { id: "group-a", code: "U11A", display_code: "U11A", age: 11, group_kind: "age" };
 const profile = { id: "coach-a", full_name: "Тестовий тренер", role: "coach", status: "active" };
 const event = { id: "event-a", group_id: group.id, groups: group, coach_id: profile.id, event_type: "training", start_at: `${today}T08:00:00Z`, duration_minutes: 60, status: "scheduled", venues: null, venue_id: null, task_id: null };
-const initial = { players: [{ id: "player-a", full_name: "Тестовий Гравець А", group_id: group.id, is_active: true }, { id: "player-b", full_name: "Тестовий Гравець Б", group_id: group.id, is_active: true }], attendance_sessions: [], attendance_records: [], player_behavior_cards: [], training_register_completions: [], venues: [], methodology_tasks: [], monthly_star_themes: [], announcements: [], events: [event] };
+const initial = { players: [{ id: "player-a", full_name: "Тестовий Гравець А", group_id: group.id, is_active: true }, { id: "player-b", full_name: "Тестовий Гравець Б", group_id: group.id, is_active: true }], attendance_sessions: [], attendance_records: [], player_behavior_cards: [], player_club_cards: [], training_register_completions: [], venues: [], methodology_tasks: [], monthly_star_themes: [], announcements: [], events: [event] };
 const qa = { db: JSON.parse(localStorage.getItem("register-fixture-db") ?? "null") ?? initial, mode: "normal", calls: [], changed: 0, nextId: 1 };
 window.registerQa = qa;
 const persist = () => localStorage.setItem("register-fixture-db", JSON.stringify(qa.db));
@@ -54,11 +54,11 @@ const client = { from: (table) => new Query(table), rpc: async (name, args) => {
     card.is_voided = true; card.void_reason = args.p_reason;
     invalidate(); persist(); return { data: null, error: null };
   }
-  if (name === "complete_training_register") {
+  if (name === "complete_training_register" || name === "complete_training_register_with_club_cards") {
     if (qa.mode === "finalize-error") return { data: null, error: { message: "Offline" } };
     if (qa.mode === "null-finalize") return { data: null, error: null };
     if (qa.mode === "stale-register") return { data: null, error: { message: "REGISTER_CHANGED" } };
-    const completion = { event_id: event.id, completed_at: new Date().toISOString(), completed_by: profile.id, attendance_version: qa.db.attendance_sessions[0].server_version, present_count: qa.db.attendance_records.filter((row) => row.status === "present").length, player_count: qa.db.attendance_records.length, card_count: qa.db.player_behavior_cards.filter((row) => !row.is_voided).length };
+    const completion = { event_id: event.id, completed_at: new Date().toISOString(), completed_by: profile.id, attendance_version: qa.db.attendance_sessions[0].server_version, present_count: qa.db.attendance_records.filter((row) => row.status === "present").length, player_count: qa.db.attendance_records.length, card_count: qa.db.player_behavior_cards.filter((row) => !row.is_voided).length, club_card_count: (qa.db.player_club_cards ?? []).filter((row) => !row.is_voided).length };
     qa.db.training_register_completions = [completion]; persist();
     return { data: completion, error: null };
   }

@@ -16,6 +16,18 @@ export type Database = {
   }
   public: {
     Tables: {
+      player_club_cards: {
+        Row: { id: string; player_id: string; group_id: string; event_id: string; coach_id: string | null; coach_name_snapshot: string; occurred_on: string; comment: string | null; is_voided: boolean; voided_at: string | null; voided_by: string | null; void_reason: string | null; created_at: string; updated_at: string }
+        Insert: { id?: string; player_id: string; group_id: string; event_id: string; coach_id?: string | null; coach_name_snapshot: string; occurred_on: string; comment?: string | null; is_voided?: boolean; voided_at?: string | null; voided_by?: string | null; void_reason?: string | null; created_at?: string; updated_at?: string }
+        Update: { id?: string; player_id?: string; group_id?: string; event_id?: string; coach_id?: string | null; coach_name_snapshot?: string; occurred_on?: string; comment?: string | null; is_voided?: boolean; voided_at?: string | null; voided_by?: string | null; void_reason?: string | null; created_at?: string; updated_at?: string }
+        Relationships: [
+          { foreignKeyName: "player_club_cards_player_id_fkey"; columns: ["player_id"]; isOneToOne: false; referencedRelation: "players"; referencedColumns: ["id"] },
+          { foreignKeyName: "player_club_cards_group_id_fkey"; columns: ["group_id"]; isOneToOne: false; referencedRelation: "groups"; referencedColumns: ["id"] },
+          { foreignKeyName: "player_club_cards_event_id_fkey"; columns: ["event_id"]; isOneToOne: false; referencedRelation: "events"; referencedColumns: ["id"] },
+          { foreignKeyName: "player_club_cards_coach_id_fkey"; columns: ["coach_id"]; isOneToOne: false; referencedRelation: "profiles"; referencedColumns: ["id"] },
+          { foreignKeyName: "player_club_cards_voided_by_fkey"; columns: ["voided_by"]; isOneToOne: false; referencedRelation: "profiles"; referencedColumns: ["id"] }
+        ]
+      }
       club_season_settings: {
         Row: { id: boolean; start_year: number; updated_by: string | null; updated_at: string }
         Insert: { id?: boolean; start_year: number; updated_by?: string | null; updated_at?: string }
@@ -32,9 +44,9 @@ export type Database = {
         ]
       }
       training_register_completions: {
-        Row: { event_id: string; completed_at: string | null; completed_by: string | null; attendance_version: number; present_count: number; player_count: number; card_count: number; updated_at: string }
-        Insert: { event_id: string; completed_at?: string | null; completed_by?: string | null; attendance_version: number; present_count: number; player_count: number; card_count: number; updated_at?: string }
-        Update: { event_id?: string; completed_at?: string | null; completed_by?: string | null; attendance_version?: number; present_count?: number; player_count?: number; card_count?: number; updated_at?: string }
+        Row: { event_id: string; completed_at: string | null; completed_by: string | null; attendance_version: number; present_count: number; player_count: number; card_count: number; club_card_count: number; updated_at: string }
+        Insert: { event_id: string; completed_at?: string | null; completed_by?: string | null; attendance_version: number; present_count: number; player_count: number; card_count: number; club_card_count?: number; updated_at?: string }
+        Update: { event_id?: string; completed_at?: string | null; completed_by?: string | null; attendance_version?: number; present_count?: number; player_count?: number; card_count?: number; club_card_count?: number; updated_at?: string }
         Relationships: [
           { foreignKeyName: "training_register_completions_event_id_fkey"; columns: ["event_id"]; isOneToOne: true; referencedRelation: "events"; referencedColumns: ["id"] },
           { foreignKeyName: "training_register_completions_completed_by_fkey"; columns: ["completed_by"]; isOneToOne: false; referencedRelation: "profiles"; referencedColumns: ["id"] }
@@ -2731,6 +2743,11 @@ export type Database = {
       }
     }
     Functions: {
+      archive_content: { Args: { p_dataset: string; p_rows: Json; p_all?: boolean }; Returns: number }
+      replace_content_import: { Args: { p_job_id: string; p_expected_rows: Json }; Returns: number }
+      record_club_card: { Args: { p_event_id: string; p_player_id: string; p_comment?: string | null }; Returns: string }
+      void_club_card: { Args: { p_card_id: string; p_reason: string }; Returns: undefined }
+      complete_training_register_with_club_cards: { Args: { p_event_id: string; p_expected_attendance_version: number; p_expected_card_ids: string[]; p_expected_club_card_ids: string[]; p_expected_records: Json }; Returns: Json }
       register_player_photo_asset: { Args: { p_object_path: string; p_original_name: string; p_mime_type: string; p_size_bytes: number; p_group_id: string }; Returns: string }
       initialize_club_season: { Args: { p_start_year: number; p_cohorts: Json }; Returns: number }
       advance_club_season: { Args: { p_expected_start_year: number; p_next_start_year: number }; Returns: number }

@@ -1,4 +1,6 @@
 "use client";
+import { BulkContentActions } from "@/components/admin/bulk-content-actions";
+import { readContentRows } from "@/lib/domain/content-batch";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { FileText, FileUp, FolderPlus, Library, Pencil, Plus } from "lucide-react";
@@ -105,13 +107,15 @@ export function MethodologyManagement({
   );
 }
 
-function TerminologyManagement({
+export function TerminologyManagement({
   client,
   profile,
 }: {
   client: SupabaseClient;
   profile: Profile;
 }) {
+  const [selected, setSelected] = useState<string[]>([]);
+  const [showInactive, setShowInactive] = useState(false);
   const [terms, setTerms] = useState<TerminologyEntry[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -127,15 +131,10 @@ function TerminologyManagement({
   const formRef = useRef<HTMLFormElement>(null);
 
   const load = useCallback(async () => {
-    const result = await client
-      .from("terminology_entries")
-      .select("id, term, definition, category, source, is_active")
-      .order("term");
-    if (result.error) {
-      setMessage({ kind: "error", text: "Словник не завантажено." });
-      return;
-    }
-    setTerms((result.data ?? []) as TerminologyEntry[]);
+    try {
+      const rows = await readContentRows<TerminologyEntry>(client, "terminology");
+      setTerms(rows.sort((a,b) => a.term.localeCompare(b.term,"uk"))); setSelected([]);
+    } catch { setMessage({ kind: "error", text: "Словник не завантажено повністю. Оновіть перелік." }); }
   }, [client]);
 
   useEffect(() => {
@@ -217,14 +216,14 @@ function TerminologyManagement({
     const needle = query.trim().toLocaleLowerCase("uk-UA");
     return terms
       .filter(
-        (entry) =>
+        (entry) => (showInactive || entry.is_active) && (
           !needle ||
           `${entry.term} ${entry.definition} ${entry.category}`
             .toLocaleLowerCase("uk-UA")
-            .includes(needle),
+            .includes(needle)),
       )
       .slice(0, 100);
-  }, [query, terms]);
+  }, [query, terms, showInactive]);
 
   const categoryOptions = useMemo(
     () => [...new Set([...terminologyCategories, ...terms.map((entry) => entry.category)])]
@@ -275,10 +274,13 @@ function TerminologyManagement({
         </div>
       </form>
       <div>
+        <BulkContentActions client={client} dataset="terminology" rows={terms} selected={selected} onSelected={setSelected} onChanged={load} />
+        <label className="check-field"><input type="checkbox" checked={showInactive} onChange={event => setShowInactive(event.target.checked)} />Показати неактивні</label>
         <SearchField value={query} onChange={setQuery} placeholder="Пошук у словнику" />
         <div className="compact-list term-admin-list">
           {visible.map((entry) => (
             <article key={entry.id}>
+              {entry.is_active && <input className="bulk-row-checkbox" type="checkbox" aria-label={`Вибрати термін: ${entry.term}`} checked={selected.includes(entry.id)} onChange={event => setSelected(current => event.target.checked ? [...current,entry.id] : current.filter(id => id!==entry.id))} />}
               <div>
                 <b>{entry.term}</b>
                 <small>

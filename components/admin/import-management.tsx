@@ -1,9 +1,10 @@
 "use client";
+import { readContentRows, contentVersions, type ContentVersion } from "@/lib/domain/content-batch";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { Download, Upload } from "lucide-react";
 import { useState } from "react";
-import { Pill, StatusMessage } from "@/components/common/workspace-ui";
+import { Pill, StatusMessage, Modal } from "@/components/common/workspace-ui";
 import { MAX_AGE_GROUP, MIN_AGE_GROUP } from "@/lib/domain/age-groups";
 import { normalizeBirthDate, isMissingResult, planPlayerCompletion } from "@/lib/domain/player-import";
 import { groupAge, groupCode } from "@/lib/domain/seasons";
@@ -331,6 +332,7 @@ async function addDuplicateChecks(
   dataset: ImportDataset,
   sourceRows: PreviewRow[],
   groups: GroupSummary[],
+  replacing = false,
 ) {
   const rows = sourceRows.map((row) => ({
     ...row,
@@ -510,7 +512,7 @@ async function addDuplicateChecks(
     );
     for (const row of rows) {
       const key = `${taskPhase(row.values.phase ?? "")}|${taskLevel(row.values.level ?? "")}|${normalized(row.values.title ?? "")}|${row.values.age_from}|${row.values.age_to}`;
-      if (existing.has(key)) row.errors.push("Таке активне навчальне завдання вже існує");
+      if (!replacing && existing.has(key)) row.errors.push("Таке активне навчальне завдання вже існує");
       if (seen.has(key)) row.errors.push("Дублікат у цьому файлі");
       seen.add(key);
     }
@@ -533,6 +535,9 @@ async function addDuplicateChecks(
 }
 
 export function EnhancedImportManagement({ client, profile, groups }: Props) {
+  const [replaceAll, setReplaceAll] = useState(false);
+  const [expectedContent, setExpectedContent] = useState<ContentVersion[]>([]);
+  const [replacementOpen, setReplacementOpen] = useState(false);
   const [dataset, setDataset] = useState<ImportDataset>("players");
   const [physicalTestDate, setPhysicalTestDate] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -547,8 +552,12 @@ export function EnhancedImportManagement({ client, profile, groups }: Props) {
   async function preview() {
     if (!file) return;
     setBusy(true);
-    setMessage(null);
+    setMessage(null); setRows([]); setJobId(null); setReplacementOpen(false);
     try {
+      if (replaceAll && (dataset === "tasks" || dataset === "terminology")) {
+        const current = await readContentRows<ContentVersion & { is_active: boolean }>(client, dataset);
+        setExpectedContent(contentVersions(current.filter(row => row.is_active)));
+      }
       let previewRows: PreviewRow[];
       let asset: FileAsset | null = null;
       if (file.name.toLocaleLowerCase("uk-UA").endsWith(".csv")) {
@@ -587,7 +596,7 @@ export function EnhancedImportManagement({ client, profile, groups }: Props) {
         });
       }
 
-      previewRows = await addDuplicateChecks(client, dataset, previewRows, groups);
+      previewRows = await addDuplicateChecks(client, dataset, previewRows, groups, replaceAll);
       const errorCount = previewRows.filter((row) => row.errors.length).length;
       const job = await client
         .from("import_jobs")
@@ -646,9 +655,13 @@ export function EnhancedImportManagement({ client, profile, groups }: Props) {
     setBusy(true);
     setMessage(null);
     try {
-      const result = await client.rpc("confirm_import_job", { p_job_id: jobId });
-      if (result.error) throw result.error;
-      setMessage({ kind: "success", text: `Імпортовано ${Number(result.data ?? 0)} записів.` });
+      const replacing = replaceAll && (dataset === "tasks" || dataset === "terminology");
+      const result = replacing
+        ? await client.rpc("replace_content_import", { p_job_id: jobId, p_expected_rows: expectedContent })
+        : await client.rpc("confirm_import_job", { p_job_id: jobId });
+      if (result.error || !Number.isInteger(result.data) || result.data < 1) throw result.error ?? new Error("Не вдалося підтвердити імпорт.");
+      setReplacementOpen(false);
+      setMessage({ kind: "success", text: `${replacing ? "Перелік замінено. " : ""}Імпортовано ${Number(result.data)} записів.` });
       setRows([]);
       setJobId(null);
       setFile(null);
@@ -677,9 +690,9 @@ export function EnhancedImportManagement({ client, profile, groups }: Props) {
         <label>
           <span>Набір даних</span>
           <select
-            value={dataset}
+            value={dataset} disabled={busy || replacementOpen}
             onChange={(event) => {
-              setDataset(event.target.value as ImportDataset);
+              setDataset(event.target.value as ImportDataset); setReplaceAll(false); setExpectedContent([]); setReplacementOpen(false);
               setRows([]);
               setJobId(null);
             }}
@@ -698,7 +711,7 @@ export function EnhancedImportManagement({ client, profile, groups }: Props) {
         <label>
           <span>CSV, Excel або Word</span>
           <input
-            type="file"
+            type="file" disabled={busy || replacementOpen}
             accept=".csv,.xlsx,.docx"
             onChange={(event) => {
               setFile(event.target.files?.[0] ?? null);
@@ -718,6 +731,8 @@ export function EnhancedImportManagement({ client, profile, groups }: Props) {
         </button>
       </div>
 
+      {(dataset === "tasks" || dataset === "terminology") && <label className="check-field replacement-option"><input type="checkbox" checked={replaceAll} disabled={busy || replacementOpen} onChange={event => { setReplaceAll(event.target.checked); setRows([]); setJobId(null); }} />Замінити весь актуальний перелік{dataset === "tasks" ? " для всіх вікових груп" : " термінів"}</label>}
+      {replacementOpen && <Modal title="Підтвердіть повну заміну переліку" onClose={() => { if (!busy) setReplacementOpen(false); }} footer={<><button type="button" className="secondary-action" disabled={busy} onClick={() => setReplacementOpen(false)}>Скасувати</button><button type="button" className="warning-action" disabled={busy} onClick={() => void confirm()}>{busy ? "Заміна…" : "Підтвердити заміну"}</button></>}><p>Поточних записів: {expectedContent.length}. Нових рядків: {rows.length}. Усі нові записи буде збережено разом; помилка скасує всю заміну. Проведені тренування залишаться в історії.</p>{message?.kind === "error" && <StatusMessage kind="error">{message.text}</StatusMessage>}</Modal>}
       <div className="import-template-help">
         <div>
           <b>Обов’язкові колонки</b>
@@ -781,11 +796,11 @@ export function EnhancedImportManagement({ client, profile, groups }: Props) {
           <button
             className="primary-action"
             type="button"
-            onClick={() => void confirm()}
+            onClick={() => replaceAll ? setReplacementOpen(true) : void confirm()}
             disabled={busy || Boolean(errorCount)}
           >
             <Upload size={18} />
-            Підтвердити атомарний імпорт
+            {replaceAll ? "Переглянути заміну переліку" : "Підтвердити атомарний імпорт"}
           </button>
         </>
       )}

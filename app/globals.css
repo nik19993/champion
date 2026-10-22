@@ -637,7 +637,7 @@ textarea { resize: vertical; }
 .yellow-card-action:hover { background: #ffe65c; }
 .yellow-card-action.small, .primary-action.small { min-height: 36px; padding: 7px 10px; font-size: 12px; }
 .achievement-behavior { display: grid; gap: 13px; }
-.behavior-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.behavior-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr)); gap: 8px; }
 .behavior-summary > div { display: grid; gap: 5px; padding: 12px; border: 1px solid #dfd18a; border-radius: 12px; background: #fff9d7; }
 .behavior-summary span { color: var(--muted); font-size: 12px; }
 .behavior-summary b { color: #111; }
@@ -1193,3 +1193,14 @@ textarea { resize: vertical; }
 .venue-availability { padding: 12px; border: 1px solid var(--line, #dedede); border-radius: 12px; background: #fff8da; overflow-wrap: anywhere; }
 .venue-availability p { margin: 0 0 8px; }
 .venue-availability ul { margin: 0 0 10px; padding-left: 20px; }
+
+/* Club encouragement and administrator batch actions. */
+.club-card-control { display: grid; justify-items: start; gap: 7px; min-width: 0; }
+.club-card-recorded { display: inline-flex; align-items: center; gap: 5px; color: #236045; font-weight: 700; font-size: 13px; }
+.club-card-action { border-color: #b8dbc7; color: #236045; background: #edf8f0; }
+.behavior-summary .club-card-total { background: #edf8f0; border-color: #b8dbc7; }
+.bulk-content-actions { padding: 12px; margin-bottom: 14px; border: 1px solid var(--line); border-radius: 14px; background: #faf8f2; }
+.bulk-content-buttons { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.bulk-content-buttons strong { flex-basis: 100%; }
+.bulk-row-checkbox { width: 19px; height: 19px; flex: 0 0 19px; accent-color: #7453a3; }
+.replacement-option { padding: 12px; border: 1px solid #e1bb77; border-radius: 12px; background: #fff8e8; margin: 12px 0; }

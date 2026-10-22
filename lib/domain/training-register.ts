@@ -8,6 +8,7 @@ export interface TrainingRegisterCompletion {
   present_count: number;
   player_count: number;
   card_count: number;
+  club_card_count?: number;
 }
 
 export function relationOne<T>(value: T | T[] | null | undefined): T | null {
@@ -25,7 +26,7 @@ export function trainingRegisterLabel(event: EventItem): string {
   if (event.attendance_sync === "pending") return "Очікує синхронізації · облік не завершено";
   if (event.attendance_sync === "unknown") return "Потрібна перевірка синхронізації";
   const state = trainingRegisterState(event);
-  if (state.completion) return `✓ Облік завершено · присутні ${state.completion.present_count} із ${state.completion.player_count} · жовтих карток ${state.completion.card_count}`;
+  if (state.completion) return `✓ Облік завершено · присутні ${state.completion.present_count} із ${state.completion.player_count} · жовтих карток ${state.completion.card_count}${state.completion.club_card_count === undefined ? "" : ` · карток клубу ${state.completion.club_card_count}`}`;
   return state.attendanceSaved ? "Присутність збережена · облік не завершено" : "Присутність не збережена";
 }
 
@@ -37,5 +38,6 @@ export function completionResult(value: unknown): TrainingRegisterCompletion | n
     if (!Number.isInteger(row[name]) || (row[name] as number) < 0) return null;
   }
   if ((row.present_count as number) > (row.player_count as number)) return null;
+  if (row.club_card_count !== undefined && (!Number.isInteger(row.club_card_count) || (row.club_card_count as number) < 0)) return null;
   return row as unknown as TrainingRegisterCompletion;
 }

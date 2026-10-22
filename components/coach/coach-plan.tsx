@@ -134,7 +134,7 @@ export function CoachPlan({ client, profile, groups }: Props) {
     const groupIds = groups.map((group) => group.id);
     const nowIso = new Date().toISOString();
     const [eventResult, announcementResult, venueResult, taskResult, queue] = await Promise.all([
-      client.from("events").select("id, group_id, event_type, start_at, duration_minutes, venue_id, venue_part, task_id, coach_id, title, notes, organizational_need, coach_comment, needs_substitute, substitute_coach_id, original_start_at, is_rescheduled, status, groups(code, display_code, cohort_birth_year, season, age, group_kind), venues(name, parent_venue_id), methodology_tasks(title), attendance_sessions(id, completed_at, server_version), training_register_completions(completed_at, completed_by, attendance_version, present_count, player_count, card_count)").in("group_id", groupIds).gte("start_at", rangeStart.toISOString()).lt("start_at", rangeEnd.toISOString()).neq("status", "cancelled").order("start_at"),
+      client.from("events").select("id, group_id, event_type, start_at, duration_minutes, venue_id, venue_part, task_id, coach_id, title, notes, organizational_need, coach_comment, needs_substitute, substitute_coach_id, original_start_at, is_rescheduled, status, groups(code, display_code, cohort_birth_year, season, age, group_kind), venues(name, parent_venue_id), methodology_tasks(title), attendance_sessions(id, completed_at, server_version), training_register_completions(completed_at, completed_by, attendance_version, present_count, player_count, card_count, club_card_count)").in("group_id", groupIds).gte("start_at", rangeStart.toISOString()).lt("start_at", rangeEnd.toISOString()).neq("status", "cancelled").order("start_at"),
       client.from("announcements").select("id, title, body, starts_at, ends_at, require_acknowledgement, announcement_reads(read_at)").eq("is_active", true).lte("starts_at", nowIso).or(`ends_at.is.null,ends_at.gte.${nowIso}`).order("starts_at", { ascending: false }),
       client.from("venues").select(VENUE_SELECT).eq("is_active", true).order("name"),
       client.from("methodology_tasks").select("id, phase, level, component, title, description, age_from, age_to, sort_order, is_active").eq("is_active", true).order("sort_order"),
@@ -173,7 +173,7 @@ export function CoachPlan({ client, profile, groups }: Props) {
   function registerCompleted(completion: TrainingRegisterCompletion) {
     setRegisterEvent(null);
     setEventMode(null);
-    setNotice(`✓ Облік завершено · присутні ${completion.present_count} із ${completion.player_count} · жовтих карток ${completion.card_count}`);
+    setNotice(`✓ Облік завершено · присутні ${completion.present_count} із ${completion.player_count} · жовтих карток ${completion.card_count} · карток клубу ${completion.club_card_count ?? 0}`);
     void load(true);
   }
 

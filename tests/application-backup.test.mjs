@@ -40,10 +40,10 @@ function fixture(options = {}) {
   return { client, data, calls };
 }
 
-test("backup includes all 46 application tables and paginates beyond a lowered server cap", async () => {
+test("backup includes all 47 application tables and paginates beyond a lowered server cap", async () => {
   const { client, calls } = fixture();
   const backup = await collectApplicationBackup(client, "admin");
-  assert.equal(APPLICATION_BACKUP_TABLES.length, 46);
+  assert.equal(APPLICATION_BACKUP_TABLES.length, 47);
   assert.equal(backup.players.length, 1207);
   assert.equal(backup.row_counts.players, 1207);
   assert.equal(backup.full_recovery_backup, false);
