@@ -1,0 +1,291 @@
+{
+  "scope": "Isolated synthetic test only; not the working database migration ledger",
+  "project_id": "nkaeucxurtittyqxnaok",
+  "verified_on": "2026-10-23",
+  "historical_file_count": 36,
+  "proposal_file_count": 9,
+  "applied_migrations": [
+    {
+      "version": "20261023053956",
+      "name": "full_test_verified_baseline_01",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20260917154528_foundation_0_2_2.sql",
+          "sha256": "478f5402dcff37e2dddd69918c35efb6e5bbc99220f9c83070fa714957ea0029"
+        },
+        {
+          "path": "supabase/migrations/20260917154737_working_modules_schema_0_2_2.sql",
+          "sha256": "f8d427a2a53ee8b03eef58d0efa5e9872207ebb63807fe5feba06b73f3a2539d"
+        }
+      ]
+    },
+    {
+      "version": "20261023054633",
+      "name": "full_test_verified_baseline_02",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20260917154826_working_access_helpers_0_2_2.sql",
+          "sha256": "c9738cbda89ed0f2a8069381376c2597d16ef07294a6be9d3e79051c1cec55a7"
+        },
+        {
+          "path": "supabase/migrations/20260917154843_working_business_triggers_0_2_2.sql",
+          "sha256": "d89c1baa229bce821c976ba870b0895f2e849bb9dd6fc265fdf191f5c12b3321"
+        },
+        {
+          "path": "supabase/migrations/20260917154917_working_file_validation_trigger_0_2_2.sql",
+          "sha256": "3bb6446d33629bf7051efa939ab4db549653c7f1f17318aa6abd2a1a394acc69"
+        },
+        {
+          "path": "supabase/migrations/20260917154932_working_audit_helper_0_2_2.sql",
+          "sha256": "928e71172c5daa0d709eef00916ebd77879df94e0ba964ae35214fc879f18cef"
+        },
+        {
+          "path": "supabase/migrations/20260917155511_working_file_read_helper_0_2_2_hotfix.sql",
+          "sha256": "a32faea5e0a07183f0166fa35e7c3290d0da6b5e7a99e3f291cb35b7346a8ad7"
+        },
+        {
+          "path": "supabase/migrations/20260917155528_working_storage_read_helper_0_2_2.sql",
+          "sha256": "c1151051c882ebdc85f07282a8ed851abd5c2a151a0df34c3e932ec9a1fd58f3"
+        },
+        {
+          "path": "supabase/migrations/20260917155555_working_atomic_workflows_0_2_2.sql",
+          "sha256": "a8fdd08f8eafaf1ed110b25adc7b31a677cf37ae3d842cb36a6d2605bbf50807"
+        }
+      ]
+    },
+    {
+      "version": "20261023054722",
+      "name": "full_test_verified_baseline_03",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20260917155612_working_admin_workflows_0_2_2.sql",
+          "sha256": "0282d7e223cd5097a567b585bb5e62b08b5657c9b52dfd62f4a22ba534e5715d"
+        },
+        {
+          "path": "supabase/migrations/20260917155631_working_function_grants_triggers_0_2_2.sql",
+          "sha256": "cefcc70489d35a8c0273532db8e16d17590015ac32fdb297fe3dc56fb4febc60"
+        }
+      ]
+    },
+    {
+      "version": "20261023054916",
+      "name": "full_test_verified_baseline_04",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20260917155702_working_rls_policies_0_2_2.sql",
+          "sha256": "d299e0dbf3e4eb0991a35152670b9b998d0b6bd9bbd0b3f8d3535f65520f268e"
+        },
+        {
+          "path": "supabase/migrations/20260917155725_working_data_api_grants_0_2_2.sql",
+          "sha256": "e0f70423614f51e88f790670bc63381abbca40188959988d59469f253d13f6b1"
+        },
+        {
+          "path": "supabase/migrations/20260917155740_working_private_storage_0_2_2.sql",
+          "sha256": "ac9eb2fd1e29a84697f78789e8005482b486006cd95d7767bc8279f0e8e89374"
+        },
+        {
+          "path": "supabase/migrations/20260917155756_goalkeeper_groups_0_2_2.sql",
+          "sha256": "a324f8ca3f04d80b48b7fc4b71d1951511695055a8d68f06016a112d6c0ec06a"
+        },
+        {
+          "path": "supabase/migrations/20260917160515_payment_audit_actor_hotfix.sql",
+          "sha256": "146c0cd41aecda0b9b235397f0b2375953e244bd7be828db21b9bf30ab6a22af"
+        },
+        {
+          "path": "supabase/migrations/20260917161057_file_access_helper_grant_hotfix.sql",
+          "sha256": "2a8a6e9a2b87a17654ddf096f3c0725b417c3781918e2b2305ec1797eeaedf68"
+        }
+      ]
+    },
+    {
+      "version": "20261023054921",
+      "name": "full_test_verified_baseline_05",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20260917161812_staging_security_hardening.sql",
+          "sha256": "3bbb251927f807c4495d3b0d12299992013593506a0782857e39cfea185c890c"
+        },
+        {
+          "path": "supabase/migrations/20260918064008_glossary_term_category_key.sql",
+          "sha256": "eaf835531e3d1444de87de54e6c8555f6254bf6d6936a358b5b3f6fa20445e04"
+        },
+        {
+          "path": "supabase/migrations/20260918121638_evaluation_metric_catalogs.sql",
+          "sha256": "91a59befb93df3e6226f1f1498d01d2910cafe38321430b308d3c11eab6f7444"
+        },
+        {
+          "path": "supabase/migrations/20260918121843_evaluation_metric_fk_indexes.sql",
+          "sha256": "6f8b4aca1ed686ccd18b69e8555d641702434babce725029ee9890b3bbc0e682"
+        },
+        {
+          "path": "supabase/migrations/20260919083847_import_results_group_scope.sql",
+          "sha256": "32dd4d0e8aa1dc85a831c2bf918a47772ba4ea0519ca326243422f407b79efe5"
+        }
+      ]
+    },
+    {
+      "version": "20261023060831",
+      "name": "full_test_verified_baseline_06",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20260919140000_goalkeeper_announcements_methodology_library.sql",
+          "sha256": "2c478be252a655aaaa4833eb06795139a573eae031cf03e00c4cb4bd29625c36"
+        },
+        {
+          "path": "supabase/migrations/20260919173000_evaluation_metric_age_bands.sql",
+          "sha256": "bdd932e92e7e3339c9a305fc817b6e894a3bb90d2fb002dc5d47c5af53c1e5b8"
+        }
+      ]
+    },
+    {
+      "version": "20261023061217",
+      "name": "full_test_verified_baseline_07",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20260920090000_physical_test_components.sql",
+          "sha256": "f62945eae248a9103d81fdb0b11ec0a62c65438b01020c82717b3af5178c4b4e"
+        }
+      ]
+    },
+    {
+      "version": "20261023063703",
+      "name": "full_test_verified_baseline_08",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20260926195000_monthly_star_program.sql",
+          "sha256": "361a71ec09ae1fac5b570589f36d804962c334766ddf0f8683839f59ee15b1f2"
+        },
+        {
+          "path": "supabase/migrations/20260926195500_monthly_star_void_security.sql",
+          "sha256": "bd7c874784b58aeef3d77836dae39613ea9f0f39684ccc55ad60ab60970e24e9"
+        },
+        {
+          "path": "supabase/migrations/20260926200500_monthly_star_award_rpc.sql",
+          "sha256": "cf4473169eda54c174f2a498ec722f1164a9399c39fdfef79f23b60e579849c4"
+        },
+        {
+          "path": "supabase/migrations/20260926203000_coach_deletion_history.sql",
+          "sha256": "7a08331761e4fd04c6da565a2269c756cbf6a2983c0e5a07fc0177664b8eaa5b"
+        },
+        {
+          "path": "supabase/migrations/20260926204000_monthly_star_generated_month_guard.sql",
+          "sha256": "114649956cdbb485fa43088d6ca0365b4bb1d349ea095373595bae41c20ab9ea"
+        }
+      ]
+    },
+    {
+      "version": "20261023063846",
+      "name": "full_test_verified_baseline_09",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20260927103625_extend_groups_and_player_characteristics.sql",
+          "sha256": "cb729761ccf520f072d4dd73bfe710b5e40c9a7453beb37a195a88a16120d952"
+        },
+        {
+          "path": "supabase/migrations/20260927194151_coach_photo_attendance_card_scope.sql",
+          "sha256": "c914e4848db9a6e82b2799c151c2813a294add1086f685e45cee078a46b74fba"
+        }
+      ]
+    },
+    {
+      "version": "20261023064020",
+      "name": "full_test_verified_baseline_10",
+      "source_files": [
+        {
+          "path": "supabase/migrations/20260928092916_coach_photo_and_training_card_rules.sql",
+          "sha256": "507e18742c41cbb7a5ef3fa0d7907bdd79aed96507e8b2ff2aff565b0363d2d8"
+        },
+        {
+          "path": "supabase/migrations/20260928093957_qualify_behavior_card_policy_scope.sql",
+          "sha256": "0ea9c972ab04c0be4d026ed9f942f7792db4e4c572937aec1a26beebf8f310ac"
+        },
+        {
+          "path": "supabase/migrations/20260928172946_register_player_photo_asset.sql",
+          "sha256": "83d20c4ffee00a232fee3810cf73e62c78338a1193ea8e2d3a6b3742770b3449"
+        },
+        {
+          "path": "supabase/migrations/20260928184744_remove_forward_pass_test_metric.sql",
+          "sha256": "550b5652d3eedfce87d2db53b1901f99708cdce2595027fbc5ed82cc3edd5f77"
+        },
+        {
+          "path": "supabase/proposals/20261009121140_admin_group_seasons.sql",
+          "sha256": "cf577af5d4ab2a61a3bbffb1ecc5bec2f9f92ce4929992b465308661accda8d0"
+        },
+        {
+          "path": "supabase/proposals/20261009121142_player_profile_workflows.sql",
+          "sha256": "e06410ee88a5349a6dcf14f5b1cc5a2c40812549c598ee3076c5b68e4ff53502"
+        }
+      ]
+    },
+    {
+      "version": "20261023065821",
+      "name": "full_test_incremental_import",
+      "source_files": [
+        {
+          "path": "supabase/proposals/20261009121145_incremental_player_import.sql",
+          "sha256": "4f3de289da25e382b5f729ad164634a8ca6c5d357b7e57ee2366c322fb21a6f6"
+        }
+      ]
+    },
+    {
+      "version": "20261023070801",
+      "name": "full_test_venue_half_bookings",
+      "source_files": [
+        {
+          "path": "supabase/proposals/20261011202346_venue_half_bookings.sql",
+          "sha256": "328f1f88b1f561e8d42affd230c592ba378540eb659003b9608a3cd1dfcfcd36"
+        }
+      ]
+    },
+    {
+      "version": "20261023070927",
+      "name": "full_test_training_register_completion",
+      "source_files": [
+        {
+          "path": "supabase/proposals/20261013212252_training_register_completion.sql",
+          "sha256": "058a69ebb4c9b8123749e5cb42d96bb546614720172b910067830fd7694ad818"
+        }
+      ]
+    },
+    {
+      "version": "20261023082208",
+      "name": "full_test_bulk_content_management",
+      "source_files": [
+        {
+          "path": "supabase/proposals/20261022181737_bulk_content_management.sql",
+          "sha256": "5f0d4c71846ae11e332f687feea01b6d6de88a0c9e10169cb484ec2cf8c9305a"
+        }
+      ]
+    },
+    {
+      "version": "20261023082345",
+      "name": "full_test_season_effective_age_access",
+      "source_files": [
+        {
+          "path": "supabase/proposals/20261014071648_season_effective_age_access.sql",
+          "sha256": "de0536cbd31105b7c4ea9902c9aa434716cf2eb4d8cc7a4e7205367b70d76b28"
+        }
+      ]
+    },
+    {
+      "version": "20261023082411",
+      "name": "full_test_club_cards",
+      "source_files": [
+        {
+          "path": "supabase/proposals/20261022181735_club_cards.sql",
+          "sha256": "4f7b3274c09197405297836e5531315046e635e6c9a86619f8f18f290a22880b"
+        }
+      ]
+    },
+    {
+      "version": "20261023115642",
+      "name": "full_test_coach_event_cancellation",
+      "source_files": [
+        {
+          "path": "supabase/proposals/20261023115516_coach_event_cancellation.sql",
+          "sha256": "076a30757aa93660e951d7677fb80eb7da65687b03d72d000b042a75ee7b9be7"
+        }
+      ]
+    }
+  ]
+}

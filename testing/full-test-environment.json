@@ -2,7 +2,8 @@
   "supabase_project_id": "nkaeucxurtittyqxnaok",
   "supabase_project_name": "champion-full-test",
   "site_project_id": "appgprj_6ada5259fbb88191aedc47021d1aba93",
-  "baseline_github_commit": "b1ef836ab7bcf089d38e00ee43c37c05f652f4ee",
+  "baseline_github_commit": "13cf5ef50d5abf3396930b478d1ebe31c2fdfcd3",
   "data": "synthetic only",
-  "cost_quoted_usd_monthly": 0
+  "cost_quoted_usd_monthly": 0,
+  "schema_manifest": "testing/full-test-migration-manifest.json"
 }
