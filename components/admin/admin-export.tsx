@@ -1,10 +1,18 @@
 "use client";
 
+import { OPERATIONAL_REPORT_SELECT, operationalReportRow } from "@/lib/domain/operational-report";
+
+import { groupCode, groupLabel } from "@/lib/domain/seasons";
+import { firstRelation } from "@/lib/domain/operational-report";
+import { createPlayerProfilePdf } from "@/lib/domain/player-profile-pdf";
+import { assessmentLabel, playerProfileHistory, profileExportRange, type ProfileExportFilter, type ProfilePhysicalResult, type ProfileActivityResult } from "@/lib/domain/player-profile-report";
+
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { Download, FileJson } from "lucide-react";
 import { useEffect, useState } from "react";
 import { EmptyState, GroupSelect, Pill, StatusMessage, WorkspaceHeader } from "@/components/common/workspace-ui";
 import { encryptBackup } from "@/lib/domain/backup";
+import { collectApplicationBackup, APPLICATION_BACKUP_TABLES } from "@/lib/domain/application-backup";
 import { downloadBlob, downloadText, formatDate, formatMonth, toCsv, toMonthInput } from "@/lib/domain/format";
 import { createMonthlyStarAwardPdf } from "@/lib/domain/monthly-star-award-pdf";
 import { createTableReportPdf } from "@/lib/domain/report-pdf";
@@ -28,7 +36,7 @@ interface CurrentPhotoRow {
 const ALL_GROUPS_VALUE = "__all_groups__";
 
 function playerGroupCode(player: Player) {
-  return player.groups?.code ?? "—";
+  return groupCode(player.groups);
 }
 
 export function AdminExport({ client, profile, groups }: Props) {
@@ -36,12 +44,16 @@ export function AdminExport({ client, profile, groups }: Props) {
   const [players, setPlayers] = useState<Player[]>([]);
   const [playerId, setPlayerId] = useState("");
   const [starMonth, setStarMonth] = useState(() => toMonthInput());
+  const [profilePeriod, setProfilePeriod] = useState<ProfileExportFilter["mode"]>("all");
+  const [profileYear, setProfileYear] = useState(() => String(new Date().getFullYear()));
+  const [profileFrom, setProfileFrom] = useState("");
+  const [profileTo, setProfileTo] = useState("");
   const [message, setMessage] = useState<{ kind: "success" | "error" | "warning"; text: string } | null>(null);
   const [busy, setBusy] = useState<ExportKind | null>(null);
   const allGroups = groupId === ALL_GROUPS_VALUE;
   const group = groups.find((item) => item.id === groupId);
-  const selectionLabel = allGroups ? "Усі групи" : group?.code ?? "Група";
-  const selectionFileLabel = allGroups ? "усі_групи" : group?.code ?? "група";
+  const selectionLabel = allGroups ? "Усі групи" : group ? groupCode(group) : "Група";
+  const selectionFileLabel = allGroups ? "усі_групи" : group ? groupCode(group) : "група";
 
   useEffect(() => {
     let active = true;
@@ -53,7 +65,7 @@ export function AdminExport({ client, profile, groups }: Props) {
     void (async () => {
       let query = client
         .from("players")
-        .select("id, group_id, full_name, birth_date, birth_year, position, dominant_foot, coach_note, coach_note_author_id, coach_note_author_name, coach_note_updated_at, is_active, groups(code)")
+        .select("id, group_id, full_name, birth_date, birth_year, position, dominant_foot, coach_note, coach_note_author_id, coach_note_author_name, coach_note_updated_at, is_active, groups(code, display_code, cohort_birth_year, season)")
         .eq("is_active", true);
       if (!allGroups) query = query.eq("group_id", groupId);
       const result = await query.order("full_name");
@@ -89,6 +101,7 @@ export function AdminExport({ client, profile, groups }: Props) {
       const rows = players.map((player) => ({
         "Група": playerGroupCode(player),
         "ПІБ": player.full_name,
+        "Дата народження": player.birth_date ? formatDate(player.birth_date) : "",
         "Рік народження": player.birth_date ? new Date(player.birth_date).getFullYear() : player.birth_year ?? "",
         "Амплуа": player.position ?? "",
         "Провідна нога": player.dominant_foot ?? "",
@@ -99,9 +112,9 @@ export function AdminExport({ client, profile, groups }: Props) {
         const pdf = await createTableReportPdf({
           title: allGroups ? "Список гравців усіх груп" : `Список команди ${selectionLabel}`,
           subtitle: selectionLabel,
-          headers: ["Група", "ПІБ", "Рік народження", "Амплуа", "Провідна нога"],
+          headers: ["Група", "ПІБ", "Дата народження", "Рік народження", "Амплуа", "Провідна нога"],
           rows: rows.map(Object.values),
-          columnWeights: [0.8, 2.1, 1.1, 1.3, 1.2],
+          columnWeights: [0.8, 2.1, 1.2, 1.1, 1.3, 1.2],
           emptyMessage: "Дані не внесено",
         });
         downloadBlob(`ЧЕМПІОН_${selectionFileLabel}_гравці.pdf`, pdf);
@@ -117,47 +130,58 @@ export function AdminExport({ client, profile, groups }: Props) {
 
   async function exportPlayer() {
     const player = players.find((item) => item.id === playerId);
-    if (!player) return;
+    if (!player || busy) return;
+    const filter: ProfileExportFilter = { mode: profilePeriod, year: profileYear, from: profileFrom, to: profileTo };
+    try { profileExportRange(filter); } catch (error) { setMessage({ kind: "error", text: (error as Error).message }); return; }
     setBusy("player");
     setMessage(null);
     try {
-      const [guardianResult, testResult, activityResult] = await Promise.all([
+      // Paginate the complete history rather than accepting the Data API's first 1000 rows.
+      async function historyRows(table: "physical_test_results" | "game_activity_results", fields: string, order: string) {
+        const rows: unknown[] = [];
+        for (let offset = 0; ; offset += 1000) {
+          const result = await client.from(table).select(fields).eq("player_id", player!.id).order(order, { ascending: true }).order("id", { ascending: true }).range(offset, offset + 999);
+          if (result.error) throw new Error("Не вдалося завантажити історію результатів для PDF.");
+          rows.push(...(result.data ?? []));
+          if ((result.data ?? []).length < 1000) return rows;
+        }
+      }
+      const [guardianResult, tests, activity, photoResult] = await Promise.all([
         client.from("guardians").select("full_name, relation, phone, email").eq("player_id", player.id),
-        client.from("physical_test_results").select("measured_on, metric_name, field_name, value, unit").eq("player_id", player.id).order("measured_on", { ascending: false }),
-        client.from("game_activity_results").select("period, metric_name, value").eq("player_id", player.id).order("created_at", { ascending: false }),
+        historyRows("physical_test_results", "measured_on, metric_name, field_name, value, unit", "measured_on"),
+        historyRows("game_activity_results", "period, metric_name, value", "period"),
+        Promise.resolve(client.from("player_photos").select("file_assets!inner(bucket, object_path, scan_status)").eq("player_id", player.id).eq("is_current", true).eq("file_assets.scan_status", "clean").maybeSingle()).catch(() => ({ data: null, error: { message: "Photo unavailable" } })),
       ]);
-      if (guardianResult.error || testResult.error || activityResult.error) throw new Error("Дані профілю для PDF не завантажено.");
+      if (guardianResult.error) throw new Error("Контакти профілю для PDF не завантажено.");
       const guardians = guardianResult.data ?? [];
-      const tests = testResult.data ?? [];
-      const activity = activityResult.data ?? [];
-      const rows: Array<Array<string | number | null | undefined>> = [
-        ["Група", playerGroupCode(player)],
-        ["Рік народження", player.birth_date ? new Date(player.birth_date).getFullYear() : player.birth_year ?? "Дані не внесено"],
-        ["Амплуа", player.position || "Дані не внесено"],
-        ["Провідна нога", player.dominant_foot || "Дані не внесено"],
-        ["Коротка характеристика тренера", player.coach_note || "Дані не внесено"],
-        ...(player.coach_note_updated_at ? [["Характеристику оновлено", `${formatDate(player.coach_note_updated_at)}${player.coach_note_author_name ? ` · ${player.coach_note_author_name}` : ""}`]] : []),
-        ...(guardians.length
-          ? guardians.map((guardian) => [`Контакт батьків · ${guardian.relation || "контакт"}`, [guardian.full_name, guardian.phone, guardian.email].filter(Boolean).join(" · ")])
-          : [["Контакти батьків", "Дані не внесено"]]),
-        ...(tests.length
-          ? tests.map((test) => [`Тест ${formatDate(test.measured_on)}`, `${test.metric_name}: ${test.field_name} — ${test.value} ${test.unit ?? ""}`])
-          : [["Тестування фізичної підготовленості", "Дані не внесено"]]),
-        ...(activity.length
-          ? activity.map((item) => [`Ігрова діяльність ${item.period}`, `${item.metric_name}: ${item.value}`])
-          : [["Оцінювання ігрової діяльності", "Дані не внесено"]]),
-      ];
-      const pdf = await createTableReportPdf({
-        title: `Профіль гравця ${player.full_name}`,
-        subtitle: `Група ${playerGroupCode(player)}`,
-        headers: ["Поле", "Значення"],
-        rows,
-        columnWeights: [1.35, 3.65],
-        emptyMessage: "Дані не внесено",
+      let photo: Blob | null = null;
+      let photoWarning = Boolean(photoResult.error);
+      const asset = firstRelation((photoResult.data as unknown as { file_assets?: CurrentPhotoRow["file_assets"] | CurrentPhotoRow["file_assets"][] } | null)?.file_assets);
+      if (asset?.scan_status === "clean") {
+        try { const download = await client.storage.from(asset.bucket).download(asset.object_path); photo = download.data; photoWarning ||= Boolean(download.error || !photo); }
+        catch { photoWarning = true; }
+      }
+      const history = playerProfileHistory(tests as ProfilePhysicalResult[], activity as ProfileActivityResult[], filter);
+      const playerGroup = firstRelation(player.groups);
+      const { pdf, photoUnavailable, emblemUnavailable } = await createPlayerProfilePdf({
+        fullName: player.full_name,
+        details: [
+          ["Дата народження", player.birth_date ? assessmentLabel(player.birth_date) : player.birth_year ? `${player.birth_year} р.н. (повна дата невідома)` : "Не внесено"],
+          ["Група", playerGroup ? groupLabel(playerGroup) : "Не вказано"],
+          ["Амплуа", player.position || "Не внесено"],
+          ["Сезон", playerGroup?.season || "Не вказано"],
+          ["Провідна нога", player.dominant_foot || "Не внесено"],
+        ],
+        coachNote: player.coach_note || "Характеристику не внесено.",
+        coachNoteAt: player.coach_note_updated_at ? formatDate(player.coach_note_updated_at) : undefined,
+        coachNoteAuthor: player.coach_note_author_name ?? undefined,
+        rangeLabel: history.range.label, history, photo,
+        guardians: guardians.map((guardian) => [guardian.relation, guardian.full_name, guardian.phone, guardian.email].filter(Boolean).join(" · ")),
       });
       downloadBlob(`ЧЕМПІОН_профіль_${player.full_name}.pdf`, pdf);
-      await audit("player", { player_id: player.id, format: "pdf" });
-      setMessage({ kind: "success", text: `PDF профілю ${player.full_name} завантажено.` });
+      await audit("player", { player_id: player.id, format: "pdf", period: history.range.label });
+      const warnings = [photoWarning || photoUnavailable ? "Фото тимчасово недоступне." : "", emblemUnavailable ? "Емблема тимчасово недоступна." : "", history.undatedExcluded ? "Записи без точної дати доступні в режимі «Уся історія»." : ""].filter(Boolean);
+      setMessage({ kind: warnings.length ? "warning" : "success", text: `PDF профілю ${player.full_name} завантажено.${warnings.length ? ` ${warnings.join(" ")}` : ""}` });
     } catch (error) {
       setMessage({ kind: "error", text: error instanceof Error ? error.message : "PDF профілю не сформовано." });
     } finally {
@@ -170,8 +194,8 @@ export function AdminExport({ client, profile, groups }: Props) {
     setMessage(null);
     try {
       let query = kind === "tests"
-        ? client.from("physical_test_results").select("measured_on, metric_name, field_name, value, unit, players!inner(full_name, group_id, groups!inner(code))")
-        : client.from("game_activity_results").select("period, metric_name, value, players!inner(full_name, group_id, groups!inner(code))");
+        ? client.from("physical_test_results").select("measured_on, metric_name, field_name, value, unit, players!inner(full_name, birth_date, birth_year, group_id, groups!inner(code, display_code, cohort_birth_year, season))")
+        : client.from("game_activity_results").select("period, metric_name, value, players!inner(full_name, birth_date, birth_year, group_id, groups!inner(code, display_code, cohort_birth_year, season))");
       if (!allGroups) query = query.eq("players.group_id", groupId);
       const result = await query;
       if (result.error) throw new Error("Не вдалося сформувати експорт.");
@@ -182,11 +206,11 @@ export function AdminExport({ client, profile, groups }: Props) {
         field_name?: string;
         value: string;
         unit?: string | null;
-        players: { full_name: string; groups: { code: string } };
+        players: { full_name: string; birth_date: string | null; birth_year: number | null; groups: { code: string; display_code?: string | null } };
       }>;
       const rows = raw.map((row) => kind === "tests"
-        ? { "Група": row.players.groups.code, "Гравець": row.players.full_name, "Дата": row.measured_on ?? "", "Тест": row.metric_name, "Поле результату": row.field_name ?? "", "Значення": row.value, "Одиниця": row.unit ?? "" }
-        : { "Група": row.players.groups.code, "Гравець": row.players.full_name, "Період": row.period ?? "", "Показник": row.metric_name, "Значення": row.value });
+        ? { "Група": groupCode(row.players.groups), "Гравець": row.players.full_name, "Дата народження": row.players.birth_date ? formatDate(row.players.birth_date) : "", "Рік народження": row.players.birth_year ?? "", "Дата": row.measured_on ?? "", "Тест": row.metric_name, "Поле результату": row.field_name ?? "", "Значення": row.value, "Одиниця": row.unit ?? "" }
+        : { "Група": groupCode(row.players.groups), "Гравець": row.players.full_name, "Дата народження": row.players.birth_date ? formatDate(row.players.birth_date) : "", "Рік народження": row.players.birth_year ?? "", "Період": row.period ?? "", "Показник": row.metric_name, "Значення": row.value });
       if (format === "csv") {
         downloadText(`ЧЕМПІОН_${selectionFileLabel}_${kind}.csv`, toCsv(rows), "text/csv;charset=utf-8");
       } else {
@@ -195,10 +219,10 @@ export function AdminExport({ client, profile, groups }: Props) {
           title: isTests ? "Тестування фізичної підготовленості" : "Складові ігрової діяльності",
           subtitle: selectionLabel,
           headers: isTests
-            ? ["Група", "Гравець", "Дата", "Тест", "Поле результату", "Значення", "Одиниця"]
-            : ["Група", "Гравець", "Період", "Показник", "Значення"],
+            ? ["Група", "Гравець", "Дата народження", "Рік народження", "Дата", "Тест", "Поле результату", "Значення", "Одиниця"]
+            : ["Група", "Гравець", "Дата народження", "Рік народження", "Період", "Показник", "Значення"],
           rows: rows.map(Object.values),
-          columnWeights: isTests ? [0.8, 1.8, 1.1, 1.5, 1.5, 0.9, 0.8] : [0.8, 1.8, 1.1, 2.2, 0.9],
+          columnWeights: isTests ? [0.8, 1.8, 1.1, 1.0, 1.1, 1.5, 1.5, 0.9, 0.8] : [0.8, 1.8, 1.1, 1.0, 1.1, 2.2, 0.9],
           emptyMessage: "Дані не внесено",
         });
         downloadBlob(`ЧЕМПІОН_${selectionFileLabel}_${kind}.pdf`, pdf);
@@ -218,7 +242,7 @@ export function AdminExport({ client, profile, groups }: Props) {
     try {
       const now = new Date();
       const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
-      let playerQuery = client.from("players").select("id, full_name, group_id, groups(code)").eq("is_active", true);
+      let playerQuery = client.from("players").select("id, full_name, group_id, groups(code, display_code, cohort_birth_year, season)").eq("is_active", true);
       if (!allGroups) playerQuery = playerQuery.eq("group_id", groupId);
       const playerResult = await playerQuery.order("full_name");
       if (playerResult.error) throw new Error("Не вдалося завантажити гравців для звіту.");
@@ -236,7 +260,7 @@ export function AdminExport({ client, profile, groups }: Props) {
         const months = [...unpaidMonths].sort().reverse();
         if (!months.length) return [];
         return [{
-          "Група": player.groups.code,
+          "Група": groupCode(player.groups),
           "Гравець": player.full_name,
           "Неоплачені місяці": months.map((month) => formatMonth(month.slice(0, 7))).join("; "),
           "Кількість неоплачених місяців": months.length,
@@ -277,7 +301,7 @@ export function AdminExport({ client, profile, groups }: Props) {
     try {
       let awardQuery = client
         .from("monthly_star_awards")
-        .select("player_id, players!inner(id, full_name), groups!inner(code), monthly_star_themes!inner(title)")
+        .select("player_id, players!inner(id, full_name), groups!inner(code, display_code, cohort_birth_year, season), monthly_star_themes!inner(title)")
         .eq("month", `${starMonth}-01`)
         .is("revoked_at", null);
       if (!allGroups) awardQuery = awardQuery.eq("group_id", groupId);
@@ -285,7 +309,7 @@ export function AdminExport({ client, profile, groups }: Props) {
       if (awardResult.error) throw new Error("Не вдалося завантажити перелік нагороджених гравців.");
 
       const awards = ((awardResult.data ?? []) as unknown as MonthlyStarExportRow[]).sort((left, right) => (
-        left.groups.code.localeCompare(right.groups.code, "uk-UA")
+        groupCode(left.groups).localeCompare(groupCode(right.groups), "uk-UA")
         || left.players.full_name.localeCompare(right.players.full_name, "uk-UA")
       ));
       if (!awards.length) {
@@ -316,7 +340,7 @@ export function AdminExport({ client, profile, groups }: Props) {
       );
       const missingPhotoAwards = awards.filter((award) => !currentPhotos.has(award.player_id));
       if (missingPhotoAwards.length) {
-        const playersWithoutPhotos = [...new Set(missingPhotoAwards.map((award) => `${award.players.full_name} (${award.groups.code})`))];
+        const playersWithoutPhotos = [...new Set(missingPhotoAwards.map((award) => `${award.players.full_name} (${groupCode(award.groups)})`))];
         setMessage({ kind: "error", text: `PDF не сформовано. Додайте фото у профілі: ${playersWithoutPhotos.join(", ")}.` });
         return;
       }
@@ -328,18 +352,18 @@ export function AdminExport({ client, profile, groups }: Props) {
       }));
       const unavailablePhotos = downloadedPhotos.filter((item) => !item.photo);
       if (unavailablePhotos.length) {
-        const playerNames = [...new Set(unavailablePhotos.map(({ award }) => `${award.players.full_name} (${award.groups.code})`))];
+        const playerNames = [...new Set(unavailablePhotos.map(({ award }) => `${award.players.full_name} (${groupCode(award.groups)})`))];
         setMessage({ kind: "error", text: `PDF не сформовано. Не вдалося завантажити фото: ${playerNames.join(", ")}. Перевірте фото у профілі.` });
         return;
       }
 
       const pdf = await createMonthlyStarAwardPdf(downloadedPhotos.map(({ award, photo }) => ({
         fullName: award.players.full_name,
-        groupCode: award.groups.code,
+        groupCode: groupCode(award.groups),
         themeTitle: award.monthly_star_themes.title,
         photo: photo!,
       })));
-      const awardCountsByGroup = awards.reduce((counts, award) => counts.set(award.groups.code, (counts.get(award.groups.code) ?? 0) + 1), new Map<string, number>());
+      const awardCountsByGroup = awards.reduce((counts, award) => counts.set(groupCode(award.groups), (counts.get(groupCode(award.groups)) ?? 0) + 1), new Map<string, number>());
       const sheetCount = [...awardCountsByGroup.values()].reduce((total, count) => total + Math.ceil(count / 2), 0);
       downloadBlob(`ЧЕМПІОН_Зірка_місяця_${starMonth}_${selectionFileLabel}_A4_2xA5.pdf`, pdf);
       await audit("monthly-star", { month: `${starMonth}-01`, format: "pdf-a4-two-a5", awards: awards.length, sheets: sheetCount });
@@ -353,13 +377,13 @@ export function AdminExport({ client, profile, groups }: Props) {
 
   async function exportUniform() {
     setBusy("uniform");
-    let query = client.from("uniform_requests").select("status, number, surname_print, admin_note, players!inner(full_name, group_id, groups!inner(id, code)), uniform_request_items(size, quantity, uniform_catalog_items(name))");
+    let query = client.from("uniform_requests").select("status, number, surname_print, admin_note, players!inner(full_name, group_id, groups!inner(id, code, display_code, cohort_birth_year, season)), uniform_request_items(size, quantity, uniform_catalog_items(name))");
     if (!allGroups) query = query.eq("players.group_id", groupId);
     const result = await query;
     const rows = (result.data ?? []).flatMap((request) => {
       const player = request.players as unknown as { full_name: string; groups: { code: string } };
       const items = request.uniform_request_items as unknown as Array<{ size: string; quantity: number; uniform_catalog_items: { name: string } }>;
-      return items.map((item) => ({ "Гравець": player.full_name, "Команда": player.groups.code, "Прізвище": request.surname_print ?? "", "Номер": request.number ?? "", "Позиція": item.uniform_catalog_items.name, "Розмір": item.size, "Кількість": item.quantity, "Стан": request.status }));
+      return items.map((item) => ({ "Гравець": player.full_name, "Команда": groupCode(player.groups), "Прізвище": request.surname_print ?? "", "Номер": request.number ?? "", "Позиція": item.uniform_catalog_items.name, "Розмір": item.size, "Кількість": item.quantity, "Стан": request.status }));
     });
     downloadText(`ЧЕМПІОН_${selectionFileLabel}_форма.csv`, toCsv(rows), "text/csv;charset=utf-8");
     await audit("uniform", { format: "csv" });
@@ -367,34 +391,35 @@ export function AdminExport({ client, profile, groups }: Props) {
   }
 
   async function exportOperations() {
-    setBusy("operations");
-    const start = new Date();
-    start.setDate(start.getDate() - 30);
-    let query = client.from("operational_items").select("created_at, group_id, item_type, status, title, comment, groups(code)").neq("item_type", "conflict").gte("created_at", start.toISOString());
-    if (!allGroups) query = query.eq("group_id", groupId);
-    const result = await query.order("created_at", { ascending: false });
-    const rows = (result.data ?? []).map((item) => ({ "Дата": item.created_at, "Команда": (item.groups as unknown as { code: string })?.code ?? "", "Тип": item.item_type, "Стан": item.status, "Ситуація": item.title, "Коментар": item.comment ?? "" }));
-    downloadText(`ЧЕМПІОН_${selectionFileLabel}_операційний_звіт.csv`, toCsv(rows), "text/csv;charset=utf-8");
-    await audit("operations", { period_days: 30, format: "csv" });
-    setBusy(null);
+    if (busy === "operations") return;
+    setBusy("operations"); setMessage(null);
+    try {
+      const start = new Date();
+      start.setDate(start.getDate() - 30);
+      let query = client.from("operational_items").select(OPERATIONAL_REPORT_SELECT).neq("item_type", "conflict").gte("created_at", start.toISOString());
+      if (!allGroups) query = query.eq("group_id", groupId);
+      const result = await query.order("created_at", { ascending: false });
+      if (result.error) throw result.error;
+      const rows = (result.data ?? []).map((item) => { const row = operationalReportRow(item as unknown as import("@/lib/domain/types").OperationalItem); return { "Дата": row.date, "Вікова група": row.group, "Тренер": row.coach, "Що потрібно зробити / коментар": row.action, "Подія / ситуація": row.context, "Стан": row.status }; });
+      downloadText(`ЧЕМПІОН_${selectionFileLabel}_операційний_звіт.csv`, toCsv(rows), "text/csv;charset=utf-8");
+      await audit("operations", { period_days: 30, format: "csv" });
+    } catch {
+      setMessage({ kind: "error", text: "Не вдалося сформувати звіт. Перевірте з’єднання й повторіть спробу." });
+    } finally { setBusy(null); }
   }
 
   async function backup() {
     const passphrase = window.prompt("Задайте пароль резервної копії (щонайменше 12 символів). Збережіть його окремо: відновити втрачений пароль неможливо.");
     if (!passphrase) return;
+    if (passphrase.length < 12) { setMessage({ kind: "error", text: "Пароль резервної копії має містити щонайменше 12 символів." }); return; }
     setBusy("backup");
     setMessage(null);
     try {
-      const tables = ["profiles", "groups", "coach_group_assignments", "venues", "players", "guardians", "evaluation_metrics", "evaluation_metric_fields", "physical_test_sessions", "physical_test_results", "game_activity_results", "monthly_payments", "uniform_catalog_items", "uniform_requests", "uniform_request_items", "methodology_tasks", "terminology_entries", "training_structures", "training_structure_steps", "methodology_sections", "methodology_section_materials", "events", "attendance_sessions", "attendance_records", "operational_items", "inventory_items", "inventory_permissions", "inventory_adjustments", "announcements", "announcement_targets", "announcement_reads", "file_assets", "player_photos", "event_materials", "methodology_materials", "monthly_star_themes", "player_behavior_cards", "parent_contact_actions", "monthly_star_awards"];
-      const data: Record<string, unknown> = { generated_at: new Date().toISOString(), club: "Клуб Чемпіон", schema_version: "1.4" };
-      for (const table of tables) {
-        const result = await client.from(table).select("*");
-        if (result.error) throw new Error(`Помилка таблиці ${table}`);
-        data[table] = result.data;
-      }
+      const data = await collectApplicationBackup(client, profile.id);
       const encrypted = await encryptBackup(JSON.stringify(data), passphrase);
       downloadText(`ЧЕМПІОН_backup_${new Date().toISOString().slice(0, 10)}.encrypted.json`, JSON.stringify(encrypted), "application/json");
-      await audit("backup", { tables: tables.length, format: "encrypted-json", cipher: encrypted.cipher });
+      await audit("backup", { tables: APPLICATION_BACKUP_TABLES.length, format: "encrypted-json", cipher: encrypted.cipher });
+      setMessage({ kind: "success", text: "Зашифровану копію даних застосунку завантажено. Файли й облікові записи потребують окремої резервної копії." });
     } catch (error) {
       setMessage({ kind: "error", text: error instanceof Error ? error.message : "Резервну копію не сформовано." });
     } finally {
@@ -404,14 +429,14 @@ export function AdminExport({ client, profile, groups }: Props) {
 
   const cards: Array<{ kind: ExportKind; title: string; description: string; actions: React.ReactNode }> = [
     { kind: "group", title: allGroups ? "Список усіх груп" : "Список команди", description: "Група, ПІБ, рік народження, амплуа та провідна нога.", actions: <><button onClick={() => void exportGroup("pdf")} disabled={busy === "group"}><Download />Завантажити PDF</button><button onClick={() => void exportGroup("csv")} disabled={busy === "group"}><Download />CSV</button></> },
-    { kind: "player", title: "Профіль гравця", description: "Контакти, коротка характеристика тренера, тести та дозволені результати оцінювання.", actions: <button onClick={() => void exportPlayer()} disabled={!playerId || busy === "player"}><Download />Завантажити PDF</button> },
+    { kind: "player", title: "Профіль гравця", description: "Фото, характеристика тренера та динаміка результатів за датами. Контакти батьків збережено.", actions: <><div className="profile-export-period"><label><span>Період профілю</span><select aria-label="Період профілю" value={profilePeriod} onChange={(event) => setProfilePeriod(event.target.value as ProfileExportFilter["mode"])}><option value="all">Уся історія</option><option value="year">Окремий рік</option><option value="range">Діапазон дат</option></select></label>{profilePeriod === "year" && <label><span>Рік результатів</span><input aria-label="Рік результатів" type="number" min={1900} max={2199} value={profileYear} onChange={(event) => setProfileYear(event.target.value)} /></label>}{profilePeriod === "range" && <><label><span>Від дати</span><input aria-label="Від дати" type="date" value={profileFrom} onChange={(event) => setProfileFrom(event.target.value)} /></label><label><span>До дати</span><input aria-label="До дати" type="date" value={profileTo} onChange={(event) => setProfileTo(event.target.value)} /></label></>}</div><button onClick={() => void exportPlayer()} disabled={!playerId || busy === "player"}><Download />Завантажити PDF</button></> },
     { kind: "tests", title: "Тестування фізичної підготовленості", description: "Первинні результати вибраних груп без автоматичного рейтингу.", actions: <><button onClick={() => void exportDataset("tests", "pdf")} disabled={busy === "tests"}><Download />Завантажити PDF</button><button onClick={() => void exportDataset("tests", "csv")} disabled={busy === "tests"}><Download />CSV</button></> },
     { kind: "activity", title: "Складові ігрової діяльності", description: "Структуровані результати вибраних груп без загальної оцінки 50/50.", actions: <><button onClick={() => void exportDataset("activity", "pdf")} disabled={busy === "activity"}><Download />Завантажити PDF</button><button onClick={() => void exportDataset("activity", "csv")} disabled={busy === "activity"}><Download />CSV</button></> },
     { kind: "monthly-star", title: "Нагороди «Зірка місяця»", description: "Один PDF: дві вертикальні нагороди A5 для переможців групи поруч на одному горизонтальному аркуші A4. Фото автоматично береться з профілю гравця.", actions: <><label className="export-month-field"><span>Місяць нагородження</span><input type="month" value={starMonth} onChange={(event) => setStarMonth(event.target.value)} /></label><button onClick={() => void exportMonthlyStars()} disabled={!starMonth || busy === "monthly-star"}><Download />Завантажити PDF A4</button></> },
     { kind: "debts", title: "Заборгованість гравців", description: "Лише гравці вибраних груп із несплатою за поточний або минулі місяці.", actions: <><button onClick={() => void exportDebts("pdf")} disabled={busy === "debts"}><Download />Завантажити PDF</button><button onClick={() => void exportDebts("csv")} disabled={busy === "debts"}><Download />CSV</button></> },
     { kind: "uniform", title: "Запити на форму", description: "Позиції, розміри, номери та стан підготовки у вибраних групах.", actions: <button onClick={() => void exportUniform()}><Download />CSV</button> },
     { kind: "operations", title: "План і загальний звіт", description: "Операційні ситуації вибраних груп за останні 30 днів.", actions: <button onClick={() => void exportOperations()}><Download />CSV</button> },
-    { kind: "backup", title: "Адміністративна резервна копія", description: "JSON, зашифрований AES-256-GCM вашим паролем. Завжди містить усі дозволені дані.", actions: <button onClick={() => void backup()}><FileJson />Зашифрований JSON</button> },
+    { kind: "backup", title: "Адміністративна резервна копія", description: "Зашифрована копія даних застосунку. Файли та облікові записи зберігаються окремо.", actions: <button onClick={() => void backup()} disabled={busy !== null}><FileJson />Зашифрований JSON</button> },
   ];
 
   return <div className="workspace-stack">

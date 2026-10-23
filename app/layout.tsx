@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import { TestEnvironmentNotice } from "@/components/common/test-environment-notice";
 
 export const metadata: Metadata = {
   title: "Клуб Чемпіон — робочий простір",
@@ -20,7 +21,7 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="uk">
-      <body>{children}</body>
+      <body><TestEnvironmentNotice />{children}</body>
     </html>
   );
 }

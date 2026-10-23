@@ -1,10 +1,13 @@
 "use client";
+import { readContentRows, contentVersions, type ContentVersion } from "@/lib/domain/content-batch";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { Download, Upload } from "lucide-react";
 import { useState } from "react";
-import { Pill, StatusMessage } from "@/components/common/workspace-ui";
+import { Pill, StatusMessage, Modal } from "@/components/common/workspace-ui";
 import { MAX_AGE_GROUP, MIN_AGE_GROUP } from "@/lib/domain/age-groups";
+import { normalizeBirthDate, isMissingResult, planPlayerCompletion } from "@/lib/domain/player-import";
+import { groupAge, groupCode } from "@/lib/domain/seasons";
 import { safeError } from "@/lib/domain/format";
 import type { FileAsset, GroupSummary, Profile } from "@/lib/domain/types";
 import { uploadPrivateFile } from "@/lib/supabase/files";
@@ -38,7 +41,7 @@ const datasetLabels: Record<ImportDataset, string> = {
 };
 
 const requiredFields: Record<ImportDataset, string[]> = {
-  players: ["group", "full_name", "birth_year"],
+  players: ["group", "full_name"],
   physical_tests: ["group", "player", "date", "metric", "field", "value"],
   game_activity: ["group", "player", "period", "metric", "value"],
   tasks: ["phase", "level", "age_from", "age_to", "title"],
@@ -51,6 +54,8 @@ const aliases: Record<string, string> = {
   піб: "full_name",
   прізвище_імя: "full_name",
   рік_народження: "birth_year",
+  дата_народження: "birth_date",
+  провідна_нога: "dominant_foot",
   амплуа: "position",
   гравець: "player",
   дата: "date",
@@ -72,6 +77,7 @@ const aliases: Record<string, string> = {
   взуття: "footwear",
   примітки_сесії: "session_notes",
   період: "period",
+  дата_оцінювання: "period",
   фаза: "phase",
   рівень: "level",
   вік_від: "age_from",
@@ -89,12 +95,15 @@ const fieldLabels: Record<string, string> = {
   group: "Команда",
   full_name: "ПІБ",
   birth_year: "Рік народження",
+  birth_date: "Дата народження",
+  position: "Амплуа",
+  dominant_foot: "Провідна нога",
   player: "Гравець",
   date: "Дата",
   metric: "Показник",
   field: "Поле результату",
   value: "Значення",
-  period: "Період",
+  period: "Дата оцінювання / історичний період",
   phase: "Фаза",
   level: "Рівень",
   age_from: "Вік від",
@@ -237,10 +246,20 @@ export function parseDelimited(text: string, delimiter = detectDelimiter(text)) 
 }
 
 function validateValues(dataset: ImportDataset, values: Record<string, string>) {
+  if ((dataset === "physical_tests" || dataset === "game_activity") && isMissingResult(values.value)) return [];
+  if (dataset === "players" && values.birth_date) {
+    const date = normalizeBirthDate(normalizeImportDate(values.birth_date));
+    if (date) values.birth_date = date;
+  }
   const errors = requiredFields[dataset]
     .filter((field) => !values[field]?.trim())
     .map((field) => `Не заповнено «${fieldLabels[field] ?? field}»`);
 
+  if (dataset === "players" && values.birth_date) {
+    if (!normalizeBirthDate(values.birth_date)) errors.push("Некоректна повна дата народження");
+    else if (values.birth_year && Number(values.birth_year) !== Number(values.birth_date.slice(0, 4))) errors.push("Рік і дата народження не збігаються");
+    else if (!values.birth_year) values.birth_year = values.birth_date.slice(0, 4);
+  }
   if (dataset === "players" && values.birth_year) {
     const year = Number(values.birth_year);
     if (!Number.isInteger(year) || year < 2000 || year > 2100) {
@@ -313,6 +332,7 @@ async function addDuplicateChecks(
   dataset: ImportDataset,
   sourceRows: PreviewRow[],
   groups: GroupSummary[],
+  replacing = false,
 ) {
   const rows = sourceRows.map((row) => ({
     ...row,
@@ -324,23 +344,31 @@ async function addDuplicateChecks(
   if (dataset === "players") {
     const result = await client
       .from("players")
-      .select("group_id, full_name")
+      .select("id, group_id, full_name, birth_date, birth_year, position, dominant_foot")
       .eq("is_active", true)
       .limit(5000);
     if (result.error) throw result.error;
-    const existing = new Set(
-      (result.data ?? []).map((player) => `${player.group_id}|${normalized(player.full_name)}`),
-    );
+    const existing = new Map<string, Array<Record<string, unknown>>>();
+    for (const player of result.data ?? []) {
+      const key = `${player.group_id}|${normalized(player.full_name)}`;
+      existing.set(key, [...(existing.get(key) ?? []), player]);
+    }
     for (const row of rows) {
       const group = groups.find(
-        (item) => normalized(item.code) === normalized(row.values.group ?? ""),
+        (item) => normalized(groupCode(item)) === normalized(row.values.group ?? ""),
       );
       if (!group) {
         row.errors.push(`Невідома команда «${row.values.group || "—"}»`);
         continue;
       }
       const key = `${group.id}|${normalized(row.values.full_name ?? "")}`;
-      if (existing.has(key)) row.errors.push("Активний гравець із таким ПІБ уже є в команді");
+      const matches = existing.get(key) ?? [];
+      if (matches.length > 1) row.errors.push("Є кілька гравців із таким ПІБ. Потрібне ручне уточнення.");
+      else if (matches.length === 1) {
+        const plan = planPlayerCompletion(matches[0], row.values);
+        if (plan.conflicts.length) row.errors.push(`Існуючі дані відрізняються: ${plan.conflicts.map((field) => fieldLabels[field] ?? field).join(", ")}. Перевірте профіль вручну.`);
+        row.warnings.push(Object.keys(plan.updates).length ? `Буде доповнено: ${Object.keys(plan.updates).map((field) => fieldLabels[field] ?? field).join(", ")}` : "Дані вже внесено; повторний запис не створюється");
+      } else if (!row.values.birth_year && !row.values.birth_date) row.errors.push("Для нового гравця вкажіть рік або повну дату народження");
       if (seen.has(key)) row.errors.push("Дублікат у цьому файлі");
       seen.add(key);
     }
@@ -386,34 +414,31 @@ async function addDuplicateChecks(
       byGroupAndName.set(key, [...(byGroupAndName.get(key) ?? []), player]);
     }
 
-    let existing: Set<string>;
+    let existing: Map<string, string>;
     if (dataset === "physical_tests") {
       const result = await client
         .from("physical_test_results")
-        .select("player_id, measured_on, metric_name, field_name")
+        .select("player_id, measured_on, metric_name, field_name, value")
         .limit(10000);
       if (result.error) throw result.error;
-      existing = new Set(
-        (result.data ?? []).map((entry) =>
-          `${entry.player_id}|${entry.measured_on}|${normalized(entry.metric_name)}|${normalized(entry.field_name)}`,
-        ),
+      existing = new Map(
+        (result.data ?? []).map((entry) => [`${entry.player_id}|${entry.measured_on}|${normalized(entry.metric_name)}|${normalized(entry.field_name)}`, entry.value]),
       );
     } else {
       const result = await client
         .from("game_activity_results")
-        .select("player_id, period, metric_name")
+        .select("player_id, period, metric_name, value")
         .limit(10000);
       if (result.error) throw result.error;
-      existing = new Set(
-        (result.data ?? []).map((entry) =>
-          `${entry.player_id}|${entry.period}|${normalized(entry.metric_name)}`,
-        ),
+      existing = new Map(
+        (result.data ?? []).map((entry) => [`${entry.player_id}|${entry.period}|${normalized(entry.metric_name)}`, entry.value]),
       );
     }
 
     for (const row of rows) {
+      if (isMissingResult(row.values.value)) { row.errors = []; row.warnings.push("Результат відсутній — рядок буде пропущено, нуль не записується."); continue; }
       const group = groups.find(
-        (item) => normalized(item.code) === normalized(row.values.group ?? ""),
+        (item) => normalized(groupCode(item)) === normalized(row.values.group ?? ""),
       );
       if (!group) {
         row.errors.push(`Невідома команда «${row.values.group || "—"}»`);
@@ -431,7 +456,7 @@ async function addDuplicateChecks(
         continue;
       }
       const batteryAge = dataset === "physical_tests"
-        ? group.age ?? physicalBatteryAge(
+        ? groupAge(group) ?? physicalBatteryAge(
             matches[0].birth_date,
             matches[0].birth_year,
             row.values.date ?? "",
@@ -465,7 +490,10 @@ async function addDuplicateChecks(
         dataset === "physical_tests"
           ? `${matches[0].id}|${row.values.date}|${normalized(row.values.metric ?? "")}|${normalized(row.values.field ?? "")}`
           : `${matches[0].id}|${row.values.period}|${normalized(row.values.metric ?? "")}`;
-      if (existing.has(key)) row.errors.push("Такий результат уже збережено");
+      if (existing.has(key)) {
+        if (existing.get(key)?.trim() === row.values.value?.trim()) row.warnings.push("Цей результат уже внесено; повторний запис буде пропущено.");
+        else row.errors.push("За цією датою/періодом уже є інший результат. Перевірте його вручну.");
+      }
       if (seen.has(key)) row.errors.push("Дублікат у цьому файлі");
       seen.add(key);
     }
@@ -484,7 +512,7 @@ async function addDuplicateChecks(
     );
     for (const row of rows) {
       const key = `${taskPhase(row.values.phase ?? "")}|${taskLevel(row.values.level ?? "")}|${normalized(row.values.title ?? "")}|${row.values.age_from}|${row.values.age_to}`;
-      if (existing.has(key)) row.errors.push("Таке активне навчальне завдання вже існує");
+      if (!replacing && existing.has(key)) row.errors.push("Таке активне навчальне завдання вже існує");
       if (seen.has(key)) row.errors.push("Дублікат у цьому файлі");
       seen.add(key);
     }
@@ -507,6 +535,9 @@ async function addDuplicateChecks(
 }
 
 export function EnhancedImportManagement({ client, profile, groups }: Props) {
+  const [replaceAll, setReplaceAll] = useState(false);
+  const [expectedContent, setExpectedContent] = useState<ContentVersion[]>([]);
+  const [replacementOpen, setReplacementOpen] = useState(false);
   const [dataset, setDataset] = useState<ImportDataset>("players");
   const [physicalTestDate, setPhysicalTestDate] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -521,8 +552,12 @@ export function EnhancedImportManagement({ client, profile, groups }: Props) {
   async function preview() {
     if (!file) return;
     setBusy(true);
-    setMessage(null);
+    setMessage(null); setRows([]); setJobId(null); setReplacementOpen(false);
     try {
+      if (replaceAll && (dataset === "tasks" || dataset === "terminology")) {
+        const current = await readContentRows<ContentVersion & { is_active: boolean }>(client, dataset);
+        setExpectedContent(contentVersions(current.filter(row => row.is_active)));
+      }
       let previewRows: PreviewRow[];
       let asset: FileAsset | null = null;
       if (file.name.toLocaleLowerCase("uk-UA").endsWith(".csv")) {
@@ -561,7 +596,7 @@ export function EnhancedImportManagement({ client, profile, groups }: Props) {
         });
       }
 
-      previewRows = await addDuplicateChecks(client, dataset, previewRows, groups);
+      previewRows = await addDuplicateChecks(client, dataset, previewRows, groups, replaceAll);
       const errorCount = previewRows.filter((row) => row.errors.length).length;
       const job = await client
         .from("import_jobs")
@@ -620,9 +655,13 @@ export function EnhancedImportManagement({ client, profile, groups }: Props) {
     setBusy(true);
     setMessage(null);
     try {
-      const result = await client.rpc("confirm_import_job", { p_job_id: jobId });
-      if (result.error) throw result.error;
-      setMessage({ kind: "success", text: `Імпортовано ${Number(result.data ?? 0)} записів.` });
+      const replacing = replaceAll && (dataset === "tasks" || dataset === "terminology");
+      const result = replacing
+        ? await client.rpc("replace_content_import", { p_job_id: jobId, p_expected_rows: expectedContent })
+        : await client.rpc("confirm_import_job", { p_job_id: jobId });
+      if (result.error || !Number.isInteger(result.data) || result.data < 1) throw result.error ?? new Error("Не вдалося підтвердити імпорт.");
+      setReplacementOpen(false);
+      setMessage({ kind: "success", text: `${replacing ? "Перелік замінено. " : ""}Імпортовано ${Number(result.data)} записів.` });
       setRows([]);
       setJobId(null);
       setFile(null);
@@ -651,9 +690,9 @@ export function EnhancedImportManagement({ client, profile, groups }: Props) {
         <label>
           <span>Набір даних</span>
           <select
-            value={dataset}
+            value={dataset} disabled={busy || replacementOpen}
             onChange={(event) => {
-              setDataset(event.target.value as ImportDataset);
+              setDataset(event.target.value as ImportDataset); setReplaceAll(false); setExpectedContent([]); setReplacementOpen(false);
               setRows([]);
               setJobId(null);
             }}
@@ -672,7 +711,7 @@ export function EnhancedImportManagement({ client, profile, groups }: Props) {
         <label>
           <span>CSV, Excel або Word</span>
           <input
-            type="file"
+            type="file" disabled={busy || replacementOpen}
             accept=".csv,.xlsx,.docx"
             onChange={(event) => {
               setFile(event.target.files?.[0] ?? null);
@@ -692,13 +731,17 @@ export function EnhancedImportManagement({ client, profile, groups }: Props) {
         </button>
       </div>
 
+      {(dataset === "tasks" || dataset === "terminology") && <label className="check-field replacement-option"><input type="checkbox" checked={replaceAll} disabled={busy || replacementOpen} onChange={event => { setReplaceAll(event.target.checked); setRows([]); setJobId(null); }} />Замінити весь актуальний перелік{dataset === "tasks" ? " для всіх вікових груп" : " термінів"}</label>}
+      {replacementOpen && <Modal title="Підтвердіть повну заміну переліку" onClose={() => { if (!busy) setReplacementOpen(false); }} footer={<><button type="button" className="secondary-action" disabled={busy} onClick={() => setReplacementOpen(false)}>Скасувати</button><button type="button" className="warning-action" disabled={busy} onClick={() => void confirm()}>{busy ? "Заміна…" : "Підтвердити заміну"}</button></>}><p>Поточних записів: {expectedContent.length}. Нових рядків: {rows.length}. Усі нові записи буде збережено разом; помилка скасує всю заміну. Проведені тренування залишаться в історії.</p>{message?.kind === "error" && <StatusMessage kind="error">{message.text}</StatusMessage>}</Modal>}
       <div className="import-template-help">
         <div>
           <b>Обов’язкові колонки</b>
           <p>{requiredFields[dataset].map((field) => fieldLabels[field] ?? field).join(", ")}.</p>
           <p>Заповніть аркуш або таблицю «{templateSectionLabels[dataset]}». Усі рядки «ПРИКЛАД» система пропускає автоматично — вони показують формат, а не обмежують кількість даних.</p>
+          {dataset === "players" && <p>Повторний імпорт доповнює лише порожні поля наявного гравця. Порожні клітинки зберігають чинні дані. Відмінні значення потрібно перевірити та змінити у профілі вручну. Для нового гравця потрібен рік або повна дата народження; колонка «Дата народження» приймає РРРР-ММ-ДД або ДД.ММ.РРРР.</p>}
+          {(dataset === "physical_tests" || dataset === "game_activity") && <p>Рисочка або порожній результат означає, що даних поки немає. Такий рядок буде пропущено; результати можна довнести пізніше. Нова дата/період зберігається окремо від попередніх.</p>}
           {dataset === "physical_tests" && <p>Шаблон містить 4 тести для кожного вікового набору, але окремий рядок для кожного поля результату: 5 полів для U6–U12 і 6 для U13–U17. Для воротарів 9–12 років використовується молодший набір, для воротарів 13–17 — старший; набір визначається за датою або роком народження гравця. Якщо всі вимірювання виконані в один день, виберіть «Спільну дату тестування» — система підставить її в усі порожні клітинки «Дата». Назви тесту та поля мають точно збігатися з довідником у «Тестування й оцінювання».</p>}
-          {dataset === "game_activity" && <p>Шаблон містить усі 3 складові: лідерські якості, психоемоційну та тактико-технічну підготовленість.</p>}
+          {dataset === "game_activity" && <p>Шаблон містить усі 3 складові: лідерські якості, психоемоційну та тактико-технічну підготовленість. Для нового оцінювання в колонці «Період» або «Дата оцінювання» вкажіть фактичну дату: 2026-09-20 або 20.09.2026. У PDF вона стане окремою колонкою. Старі назви періодів підтримуються та зберігаються без вигаданої дати.</p>}
         </div>
         <div className="import-template-actions">{templateLinks.map((template) => <a className="secondary-action" href={template.href} download key={template.format}><Download size={18} />{template.label}</a>)}</div>
       </div>
@@ -753,11 +796,11 @@ export function EnhancedImportManagement({ client, profile, groups }: Props) {
           <button
             className="primary-action"
             type="button"
-            onClick={() => void confirm()}
+            onClick={() => replaceAll ? setReplacementOpen(true) : void confirm()}
             disabled={busy || Boolean(errorCount)}
           >
             <Upload size={18} />
-            Підтвердити атомарний імпорт
+            {replaceAll ? "Переглянути заміну переліку" : "Підтвердити атомарний імпорт"}
           </button>
         </>
       )}

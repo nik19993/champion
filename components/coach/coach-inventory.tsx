@@ -99,9 +99,9 @@ export function CoachInventory({ client, profile, groups }: Props) {
     setSaving(item.id); setSaveStates((states) => ({ ...states, [item.id]: "saving" })); setMessage(null);
     const previous = savedItems[item.id] ?? inventoryValues(item);
     const payload = editablePayload(inventoryValues(item));
-    const result = await client.from("inventory_items").update(payload).eq("id", item.id);
+    const result = await client.from("inventory_items").update(payload).eq("id", item.id).select("id").single();
     setSaving(null);
-    if (result.error) { setSaveStates((states) => ({ ...states, [item.id]: "error" })); setMessage({ kind: "error", text: "Зміни не збережено. Перевірте дозвіл адміністратора." }); return; }
+    if (result.error || result.data?.id !== item.id) { setSaveStates((states) => ({ ...states, [item.id]: "error" })); setMessage({ kind: "error", text: "Зміни не збережено. Перевірте дозвіл адміністратора." }); return; }
     setSavedItems((values) => ({ ...values, [item.id]: inventoryValues(item) }));
     setSaveStates((states) => ({ ...states, [item.id]: "saved" }));
     setUndoItem({ id: item.id, name: item.name, previous });
@@ -111,9 +111,10 @@ export function CoachInventory({ client, profile, groups }: Props) {
   async function undoLastItem() {
     if (!undoItem) return;
     setSaving(undoItem.id);
-    const result = await client.from("inventory_items").update(editablePayload(undoItem.previous)).eq("id", undoItem.id);
+    const result = await client.from("inventory_items").update(editablePayload(undoItem.previous)).eq("id", undoItem.id).select("id").single();
     setSaving(null);
-    if (result.error) {
+    if (result.error || result.data?.id !== undoItem.id) {
+      setSaveStates((states) => ({ ...states, [undoItem.id]: "error" }));
       setMessage({ kind: "error", text: "Останню зміну інвентарю не скасовано." });
       return;
     }
@@ -130,7 +131,7 @@ export function CoachInventory({ client, profile, groups }: Props) {
     setSaving("new"); setMessage(null);
     const result = await client.from("inventory_items").insert({ group_id: groupId, name: newName.trim(), quantity: Math.max(0, newQuantity), damaged: 0, lost: 0, needed: 0, created_by: profile.id }).select("id, group_id, name, quantity, damaged, lost, needed, is_active").single();
     setSaving(null);
-    if (result.error) { setMessage({ kind: "error", text: "Позицію не додано. Можливо, така назва вже існує." }); return; }
+    if (result.error || !result.data?.id) { setMessage({ kind: "error", text: "Позицію не додано. Можливо, така назва вже існує." }); return; }
     setItems((rows) => [...rows, result.data as InventoryItem].sort((a, b) => a.name.localeCompare(b.name, "uk")));
     setNewName(""); setNewQuantity(0); setMessage({ kind: "success", text: "Нову позицію додано й синхронізовано з адміністратором." });
   }

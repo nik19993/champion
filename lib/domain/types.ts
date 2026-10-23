@@ -35,6 +35,10 @@ export interface GroupSummary {
   competition_format?: string | null;
   regulation_source?: string | null;
   regulation_verified_on?: string | null;
+  season?: string | null;
+  cohort_birth_year?: number | null;
+  display_code?: string | null;
+  display_age?: number | null;
 }
 
 export interface Venue {
@@ -42,6 +46,9 @@ export interface Venue {
   name: string;
   venue_type: string;
   is_active: boolean;
+  supports_half_booking?: boolean;
+  parent_venue_id?: string | null;
+  venue_part?: "whole" | "left" | "right";
 }
 
 export interface Player {
@@ -60,7 +67,8 @@ export interface Player {
   coach_note_author_name?: string | null;
   coach_note_updated_at?: string | null;
   is_active: boolean;
-  groups?: { code: string } | null;
+  updated_at?: string;
+  groups?: { code: string; display_code?: string | null; cohort_birth_year?: number | null; season?: string | null } | null;
 }
 
 export interface Guardian {
@@ -79,6 +87,7 @@ export interface EventItem {
   start_at: string;
   duration_minutes: number;
   venue_id?: string | null;
+  venue_part?: "whole" | "left" | "right";
   task_id?: string | null;
   coach_id: string;
   title?: string | null;
@@ -90,10 +99,12 @@ export interface EventItem {
   original_start_at?: string | null;
   is_rescheduled?: boolean;
   status: "scheduled" | "cancelled" | "completed";
-  groups?: { code: string; age?: number | null; group_kind?: GroupKind } | null;
-  venues?: { name: string } | null;
+  groups?: { code: string; display_code?: string | null; cohort_birth_year?: number | null; season?: string | null; age?: number | null; group_kind?: GroupKind } | null;
+  venues?: { name: string; parent_venue_id?: string | null } | null;
   methodology_tasks?: { title: string } | null;
-  attendance_sessions?: { id: string; completed_at?: string | null } | Array<{ id: string; completed_at?: string | null }> | null;
+  attendance_sessions?: { id: string; completed_at?: string | null; server_version?: number } | Array<{ id: string; completed_at?: string | null; server_version?: number }> | null;
+  attendance_sync?: "synced" | "pending" | "unknown";
+  training_register_completions?: import("./training-register").TrainingRegisterCompletion | import("./training-register").TrainingRegisterCompletion[] | null;
 }
 
 export interface Announcement {
@@ -112,6 +123,14 @@ export interface MonthlyStarTheme {
   title: string;
   description: string;
   criteria?: string | null;
+}
+
+export interface PlayerClubCard {
+  id: string;
+  player_id: string;
+  group_id: string;
+  event_id: string;
+  is_voided: boolean;
 }
 
 export interface PlayerBehaviorCard {
@@ -154,6 +173,7 @@ export interface MonthlyStarAward {
 }
 
 export interface MethodologyTask {
+  updated_at: string;
   id: string;
   phase: MethodologyPhase;
   level: MethodologyLevel;
@@ -167,6 +187,7 @@ export interface MethodologyTask {
 }
 
 export interface TerminologyEntry {
+  updated_at: string;
   id: string;
   term: string;
   definition: string;
@@ -241,8 +262,23 @@ export interface OperationalItem {
   comment?: string | null;
   due_at?: string | null;
   created_at: string;
-  groups?: { code: string } | null;
-  events?: { start_at: string; event_type: EventType } | null;
+  groups?: { code: string; display_code?: string | null; cohort_birth_year?: number | null; season?: string | null } | Array<{ code: string; display_code?: string | null; cohort_birth_year?: number | null; season?: string | null }> | null;
+  creator?: { full_name: string; role?: string } | Array<{ full_name: string; role?: string }> | null;
+  events?: OperationalReportEvent | OperationalReportEvent[] | null;
+}
+
+export interface OperationalReportEvent {
+  start_at: string;
+  event_type: EventType;
+  venue_part?: "whole" | "left" | "right";
+  title?: string | null;
+  coach_comment?: string | null;
+  organizational_need?: string | null;
+  status?: EventItem["status"];
+  venues?: { name: string; parent_venue_id?: string | null } | Array<{ name: string; parent_venue_id?: string | null }> | null;
+  methodology_tasks?: { title: string } | Array<{ title: string }> | null;
+  coach?: { full_name: string } | Array<{ full_name: string }> | null;
+  substitute?: { full_name: string } | Array<{ full_name: string }> | null;
 }
 
 export interface UniformCatalogItem {

@@ -7,6 +7,14 @@ export const A4_LANDSCAPE_PDF_HEIGHT_PT = A5_PDF_HEIGHT_PT;
 export const AWARD_CANVAS_WIDTH = 1240;
 export const AWARD_CANVAS_HEIGHT = 1760;
 
+// Club player names are entered as surname, given name, then optional patronymic.
+// Only the award caption is shortened; the stored profile name stays unchanged.
+export function awardDisplayName(fullName: string) {
+  return fullName.trim().split(/\s+/).slice(0, 2).join(" ");
+}
+
+const STAR_COLORS = ["#f6a21b", "#258b2c", "#0087c4", "#cf0878", "#e51122"];
+
 export interface MonthlyStarAwardPage {
   fullName: string;
   groupCode: string;
@@ -188,12 +196,12 @@ function drawAwardPage(context: CanvasRenderingContext2D, page: MonthlyStarAward
   context.restore();
 
   const decorativeStars: Array<[number, number, number, boolean]> = [
-    [75, 520, 26, false], [150, 650, 18, true], [105, 820, 34, false], [180, 980, 16, false],
-    [1065, 690, 22, false], [1140, 835, 30, true], [1080, 1050, 19, false], [1150, 1220, 29, false],
-    [90, 1250, 20, true], [170, 1370, 31, false], [1030, 1360, 20, true], [1120, 1470, 26, false],
-    [360, 490, 14, false], [820, 470, 17, true], [300, 1160, 13, true], [930, 1190, 14, false],
+    [75, 520, 40, false], [150, 650, 32, true], [105, 820, 48, false], [180, 980, 28, false],
+    [1065, 765, 37, false], [1140, 835, 44, true], [1080, 1050, 32, false], [1150, 1220, 43, false],
+    [90, 1250, 35, true], [170, 1370, 46, false], [1030, 1360, 34, true], [1120, 1640, 41, false],
+    [360, 490, 26, false], [820, 470, 27, true], [300, 1160, 24, true], [930, 1190, 25, false],
   ];
-  for (const [x, y, radius, outlined] of decorativeStars) drawStar(context, x, y, radius, outlined ? "#f2c313" : "#ffd224", outlined);
+  decorativeStars.forEach(([x, y, radius, outlined], index) => drawStar(context, x, y, radius, STAR_COLORS[index % STAR_COLORS.length], outlined));
 
   context.save();
   roundedRect(context, 52, 50, 250, 250, 42);
@@ -218,13 +226,13 @@ function drawAwardPage(context: CanvasRenderingContext2D, page: MonthlyStarAward
   context.font = "900 105px Arial, sans-serif";
   context.fillText("МІСЯЦЯ", 770, 302);
 
-  const themeText = `ТЕМА МІСЯЦЯ: ${page.themeTitle}`.toLocaleUpperCase("uk-UA");
+  const themeText = page.themeTitle.trim().toLocaleUpperCase("uk-UA");
   context.fillStyle = "#171717";
-  skewedRect(context, 390, 390, 700, 78, 20);
+  skewedRect(context, 340, 390, 800, 98, 20);
   context.fill();
-  context.fillStyle = "#ffffff";
-  fittedFont(context, themeText, 625, 38, 23, 800);
-  context.fillText(themeText, 740, 430);
+  context.fillStyle = "#ffdf26";
+  fittedFont(context, themeText, 725, 56, 26, 900);
+  context.fillText(themeText, 740, 440);
 
   context.save();
   context.shadowColor = "rgba(20, 16, 8, 0.24)";
@@ -251,7 +259,9 @@ function drawAwardPage(context: CanvasRenderingContext2D, page: MonthlyStarAward
   context.stroke();
 
   context.save();
-  context.globalAlpha = 0.96;
+  // White becomes neutral when compositing, so the exact supplied artwork can
+  // sit naturally over the award without a white rectangle or a redrawn logo.
+  context.globalCompositeOperation = "multiply";
   drawContain(context, starMark, 930, 480, 245, 245);
   context.restore();
 
@@ -262,7 +272,7 @@ function drawAwardPage(context: CanvasRenderingContext2D, page: MonthlyStarAward
   context.lineWidth = 10;
   skewedRect(context, 42, 1375, 1156, 138, 30);
   context.stroke();
-  const playerName = page.fullName.toLocaleUpperCase("uk-UA");
+  const playerName = awardDisplayName(page.fullName).toLocaleUpperCase("uk-UA");
   context.fillStyle = "#080808";
   fittedFont(context, playerName, 1030, 76, 42);
   context.fillText(playerName, 620, 1446);

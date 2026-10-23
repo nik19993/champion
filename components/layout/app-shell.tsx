@@ -2,7 +2,8 @@
 
 import Image from "next/image";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { BarChart3, BookOpen, CalendarDays, Download, LogOut, PackageOpen, Settings2, Shirt, Users } from "lucide-react";
+import { BarChart3, BookOpen, CalendarDays, Download, LogOut, MapPinned, PackageOpen, Settings2, Shirt, Users } from "lucide-react";
+import { VenueOccupancy } from "@/components/admin/venue-occupancy";
 import { useCallback, useEffect, useState } from "react";
 import { AdminExport } from "@/components/admin/admin-export";
 import { AdminGroups } from "@/components/admin/admin-groups";
@@ -20,7 +21,7 @@ import type { GroupSummary, Profile } from "@/lib/domain/types";
 
 interface Props { client: SupabaseClient; profile: Profile; onMfaRequired?: () => void; }
 type CoachView = "plan" | "players" | "methodology" | "inventory";
-type AdminView = "plan" | "groups" | "uniform" | "management" | "report" | "export";
+type AdminView = "plan" | "groups" | "uniform" | "management" | "report" | "export" | "venues";
 type View = CoachView | AdminView;
 
 const coachNavigation: Array<{ value: CoachView; label: string; icon: typeof CalendarDays }> = [
@@ -33,6 +34,7 @@ const coachNavigation: Array<{ value: CoachView; label: string; icon: typeof Cal
 const adminNavigation: Array<{ value: AdminView; label: string; icon: typeof CalendarDays }> = [
   { value: "plan", label: "План", icon: CalendarDays },
   { value: "groups", label: "Групи", icon: Users },
+  { value: "venues", label: "Майданчики", icon: MapPinned },
   { value: "uniform", label: "Форма", icon: Shirt },
   { value: "management", label: "Керування", icon: Settings2 },
   { value: "report", label: "Загальний звіт", icon: BarChart3 },
@@ -53,7 +55,7 @@ export function AppShell({ client, profile, onMfaRequired }: Props) {
 
   const loadGroups = useCallback(async () => {
     setLoading(true); setLoadError(null);
-    const fetchGroups = () => client.from("groups").select("id, code, age, team_suffix, group_kind, competition_format, regulation_source, regulation_verified_on").eq("is_active", true).order("group_kind").order("age", { nullsFirst: false }).order("team_suffix");
+    const fetchGroups = () => client.from("groups").select("id, code, age, team_suffix, group_kind, competition_format, regulation_source, regulation_verified_on, season, cohort_birth_year, display_age, display_code").eq("is_active", true).order("group_kind").order("age", { nullsFirst: false }).order("team_suffix");
     if (profile.role === "admin") {
       const refreshed = await client.auth.refreshSession();
       if (refreshed.error) {
@@ -99,6 +101,7 @@ export function AppShell({ client, profile, onMfaRequired }: Props) {
       return <CoachPlan client={client} profile={profile} groups={groups} />;
     }
     if (activeView === "groups") return <AdminGroups client={client} groups={groups} onRefresh={() => void loadGroups()} />;
+    if (activeView === "venues") return <VenueOccupancy client={client} />;
     if (activeView === "uniform") return <AdminUniform client={client} profile={profile} groups={groups} />;
     if (activeView === "management") return <AdminManagement client={client} profile={profile} groups={groups} onMfaRequired={onMfaRequired} />;
     if (activeView === "report") return <AdminReport client={client} />;

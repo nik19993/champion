@@ -12,5 +12,5 @@ export default defineConfig([
       "react-hooks/set-state-in-effect": "off",
     },
   },
-  globalIgnores([".next/**", "out/**", "next-env.d.ts", "supabase/functions/**"]),
+  globalIgnores([".next/**", "out/**", "review-dist/**", "next-env.d.ts", "supabase/functions/**"]),
 ]);

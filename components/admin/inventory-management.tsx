@@ -153,10 +153,12 @@ export function InventoryManagement({ client, profile, groups }: Props) {
         needed: item.needed,
         updated_by: profile.id,
       })
-      .eq("id", item.id);
+      .eq("id", item.id)
+      .select("id").single();
 
     setSavingId(null);
-    if (!result.error) {
+    const failed = Boolean(result.error) || result.data?.id !== item.id;
+    if (!failed) {
       setSavedItems((values) => ({ ...values, [item.id]: inventoryValues(item) }));
       setSaveStates((states) => ({ ...states, [item.id]: "saved" }));
       setUndoItem({ id: item.id, name: item.name, previous });
@@ -165,7 +167,7 @@ export function InventoryManagement({ client, profile, groups }: Props) {
     }
 
     setMessage(
-      result.error
+      failed
         ? { kind: "error", text: "Позицію не збережено." }
         : { kind: "success", text: `Позицію «${item.name}» оновлено.` },
     );
@@ -177,9 +179,11 @@ export function InventoryManagement({ client, profile, groups }: Props) {
     const result = await client
       .from("inventory_items")
       .update({ ...undoItem.previous, updated_by: profile.id })
-      .eq("id", undoItem.id);
+      .eq("id", undoItem.id)
+      .select("id").single();
     setSavingId(null);
-    if (result.error) {
+    if (result.error || result.data?.id !== undoItem.id) {
+      setSaveStates((states) => ({ ...states, [undoItem.id]: "error" }));
       setMessage({ kind: "error", text: "Останню зміну інвентарю не скасовано." });
       return;
     }

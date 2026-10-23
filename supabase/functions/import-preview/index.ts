@@ -7,7 +7,7 @@ type Dataset = "players" | "physical_tests" | "game_activity" | "tasks" | "termi
 type CandidateTable = { source: string; rows: string[][] };
 
 const required: Record<Dataset, string[]> = {
-  players: ["group", "full_name", "birth_year"],
+  players: ["group", "full_name"],
   physical_tests: ["group", "player", "date", "metric", "field", "value"],
   game_activity: ["group", "player", "period", "metric", "value"],
   tasks: ["phase", "level", "age_from", "age_to", "title"],
@@ -20,6 +20,8 @@ const aliases: Record<string, string> = {
   піб: "full_name",
   прізвище_імя: "full_name",
   рік_народження: "birth_year",
+  дата_народження: "birth_date",
+  провідна_нога: "dominant_foot",
   амплуа: "position",
   гравець: "player",
   дата: "date",
@@ -41,6 +43,7 @@ const aliases: Record<string, string> = {
   взуття: "footwear",
   примітки_сесії: "session_notes",
   період: "period",
+  дата_оцінювання: "period",
   фаза: "phase",
   рівень: "level",
   вік_від: "age_from",
@@ -86,7 +89,7 @@ const fieldLabels: Record<string, string> = {
   metric: "Тест або показник",
   field: "Поле результату",
   value: "Значення",
-  period: "Період",
+  period: "Дата оцінювання / історичний період",
   phase: "Фаза",
   level: "Рівень",
   age_from: "Вік від",
@@ -193,6 +196,7 @@ function rowsForDataset(candidates: CandidateTable[], dataset: Dataset, defaultD
           }
         }
       }
+      if (dataset === "players" && values.birth_date) values.birth_date = normalizeDate(values.birth_date);
       const errors = required[dataset]
         .filter((field) => !values[field])
         .map((field) => `Не заповнено «${fieldLabels[field] ?? field}»`);
