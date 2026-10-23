@@ -1204,3 +1204,18 @@ textarea { resize: vertical; }
 .bulk-content-buttons strong { flex-basis: 100%; }
 .bulk-row-checkbox { width: 19px; height: 19px; flex: 0 0 19px; accent-color: #7453a3; }
 .replacement-option { padding: 12px; border: 1px solid #e1bb77; border-radius: 12px; background: #fff8e8; margin: 12px 0; }
+/* The full test uses the same app and a separate, explicitly marked backend. */
+.test-environment-notice { display:flex; justify-content:center; gap:12px; flex-wrap:wrap; padding:9px 16px; background:#eaf4ec; color:#28583d; border-bottom:1px solid #bfd8c6; font-size:13px; text-align:center; }
+.occupancy-venues { display:grid; gap:20px; }
+.occupancy-venue h2 { margin:0 0 16px; font-size:20px; }
+.occupancy-hours { display:flex; justify-content:space-between; font-size:12px; color:#6c6872; margin-bottom:10px; }
+.occupancy-row { padding:10px 0; border-bottom:1px solid #e7e3dd; }
+.occupancy-row > b { font-size:14px; }
+.occupancy-track { position:relative; height:21px; margin:7px 0; border:1px solid #c4dcc7; background:repeating-linear-gradient(90deg,#edf6ef 0, #edf6ef calc(8.333333% - 1px),#d6e4d8 calc(8.333333% - 1px),#d6e4d8 8.333333%); border-radius:6px; overflow:hidden; }
+.occupancy-block { position:absolute; top:0; bottom:0; background:#d4a9ae; border-right:1px solid #ad7f87; border-left:1px solid #ad7f87; }
+.occupancy-free { font-size:13px; line-height:1.6; margin:4px 0; color:#376044; }
+.occupancy-bookings { list-style:none; padding:0; margin:14px 0 0; }
+.occupancy-bookings li { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 0; border-bottom:1px solid #eee; }
+.occupancy-bookings li > div { display:grid; gap:4px; min-width:0; overflow-wrap:anywhere; }
+.occupancy-bookings small { color:#777; }
+@media(max-width:600px) { .occupancy-bookings li { align-items:stretch; flex-direction:column; } .test-environment-notice { gap:3px; font-size:12px; } }
