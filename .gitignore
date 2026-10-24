@@ -14,3 +14,5 @@ supabase/.temp/
 *.tar.gz
 
 review-dist/
+
+dist/

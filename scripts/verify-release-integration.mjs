@@ -70,6 +70,8 @@ try {
  assert.equal(before.rows[0].tables,43);checks++;
  const proposals=(await fs.readdir(path.join(root,"supabase/proposals"))).filter(f=>f.endsWith(".sql")).sort();
  for(const name of proposals){console.log("PROPOSAL",name);await db.exec(await fs.readFile(path.join(root,"supabase/proposals",name),"utf8"));}
+ const releaseMigrations=(await fs.readdir(path.join(root,"supabase/migrations"))).filter(f=>/^20261024.*\.sql$/.test(f)).sort();
+ for(const name of releaseMigrations){console.log("RELEASE MIGRATION",name);await db.exec(await fs.readFile(path.join(root,"supabase/migrations",name),"utf8"));}
  const after=await db.query("select count(*)::int as tables from pg_tables where schemaname='public'");
  assert.equal(after.rows[0].tables,47);checks++;
  const rls=await db.query("select count(*)::int as disabled from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relkind='r' and not c.relrowsecurity");
@@ -105,7 +107,7 @@ try {
    const args=member(functions.members.find(item=>item.name.text===fn.name).type,"Args");
    assert.deepEqual(ts.isTypeLiteralNode(args)?args.members.map(item=>item.name.text).sort():[],(fn.names??[]).slice(0,fn.pronargs).sort(),fn.name);checks++;
  }
- console.log(`PASS: 36 historical migrations + ${proposals.length} proposals; 47 RLS tables; types/backup schema checks (${checks}). Synthetic Auth/storage only; this is not a full recovery restore.`);
+ console.log(`PASS: 36 historical migrations + ${proposals.length} proposals + ${releaseMigrations.length} release migrations; 47 RLS tables; types/backup schema checks (${checks}). Synthetic Auth/storage only; this is not a full recovery restore.`);
 
  const coach="00000000-0000-4000-8000-000000000011",admin="00000000-0000-4000-8000-000000000012";
  const scalar=async(sql,args=[]) => (await db.query(sql,args)).rows[0].value;
@@ -194,5 +196,18 @@ try {
  test(await scalar("select count(*)::int as value from profiles where id=$1",[coach]),1);
  test(await scalar("select count(*)::int as value from player_behavior_cards where event_id=$1",[event]),1);
  test(await scalar("select count(*)::int as value from attendance_records r join attendance_sessions s on s.id=r.session_id where s.event_id=$1",[event]),2);
+ // Apply the exact release content on the synthetic historical database.
+ let privateContent;
+ try { privateContent=await fs.readFile(path.join(root,"release/2026-10-24/approved_curriculum.sql"),"utf8"); }
+ catch(error) { if(error.code!=="ENOENT")throw error; console.log("SKIP private curriculum content: not included in public repository."); }
+ if(privateContent) {
+ const historyBefore=await scalar("select count(*)::int as value from events");
+ await db.exec(privateContent);
+ test(await scalar("select count(*)::int as value from methodology_tasks where is_active"),349);
+ test(await scalar("select count(*)::int as value from methodology_tasks where is_active and context='standard'"),64);
+ test(await scalar("select count(*)::int as value from events"),historyBefore);
+ test(await scalar("select count(*)::int as value from methodology_tasks where id in($1,$2)",[oldTask,newTask]),2);
+ test(await scalar("select count(*)::int as value from attendance_records r join attendance_sessions s on s.id=r.session_id where s.event_id=$1",[event]),2);
+ }
  console.log("PASS full-schema functional checks:",checks,"assertions with synthetic users; real Auth service and concurrent PostgreSQL sessions are not covered.");
 }catch(e){console.error("REHEARSAL FAILED after",checks,"checks:",e.message,e.code);process.exitCode=1;}finally{await db.close();}

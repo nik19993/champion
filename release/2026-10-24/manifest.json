@@ -1,0 +1,70 @@
+{
+  "description": "Source-only file list and SHA256 checksums. No environment/project identifiers, runtime metadata, backup status, user records or secrets.",
+  "schema_steps": [
+    {
+      "path": "supabase/proposals/20261009121140_admin_group_seasons.sql",
+      "sha256": "cf577af5d4ab2a61a3bbffb1ecc5bec2f9f92ce4929992b465308661accda8d0"
+    },
+    {
+      "path": "supabase/proposals/20261009121142_player_profile_workflows.sql",
+      "sha256": "e06410ee88a5349a6dcf14f5b1cc5a2c40812549c598ee3076c5b68e4ff53502"
+    },
+    {
+      "path": "supabase/proposals/20261009121145_incremental_player_import.sql",
+      "sha256": "4f3de289da25e382b5f729ad164634a8ca6c5d357b7e57ee2366c322fb21a6f6"
+    },
+    {
+      "path": "supabase/proposals/20261011202346_venue_half_bookings.sql",
+      "sha256": "328f1f88b1f561e8d42affd230c592ba378540eb659003b9608a3cd1dfcfcd36"
+    },
+    {
+      "path": "supabase/proposals/20261013212252_training_register_completion.sql",
+      "sha256": "058a69ebb4c9b8123749e5cb42d96bb546614720172b910067830fd7694ad818"
+    },
+    {
+      "path": "supabase/proposals/20261014071648_season_effective_age_access.sql",
+      "sha256": "de0536cbd31105b7c4ea9902c9aa434716cf2eb4d8cc7a4e7205367b70d76b28"
+    },
+    {
+      "path": "supabase/proposals/20261022181735_club_cards.sql",
+      "sha256": "4f7b3274c09197405297836e5531315046e635e6c9a86619f8f18f290a22880b"
+    },
+    {
+      "path": "supabase/proposals/20261022181737_bulk_content_management.sql",
+      "sha256": "5f0d4c71846ae11e332f687feea01b6d6de88a0c9e10169cb484ec2cf8c9305a"
+    },
+    {
+      "path": "supabase/proposals/20261023115516_coach_event_cancellation.sql",
+      "sha256": "076a30757aa93660e951d7677fb80eb7da65687b03d72d000b042a75ee7b9be7"
+    },
+    {
+      "path": "supabase/migrations/20261024111017_curriculum_metadata.sql",
+      "sha256": "78ba02f6290e446ac8c719353db6a47dcd3a8726327e0fb309045d1a3a8619de"
+    },
+    {
+      "path": "supabase/migrations/20261024111413_curriculum_group_visibility.sql",
+      "sha256": "4e79383f4a177d5fd73e8da2f3f26193f6a655e9da899de4face6a053db0fa09"
+    },
+    {
+      "path": "supabase/migrations/20261024111430_curriculum_material_replacement.sql",
+      "sha256": "11c04f43907e3ae08da5db2b2137ed27accd6a8ee501b3e5fbe279561b5bb1b4"
+    },
+    {
+      "path": "supabase/migrations/20261024111456_curriculum_import_metadata.sql",
+      "sha256": "66bf6b3fa7377591bf2036689434321031b9fe2b6e94f648d0d6da111f9db3a9"
+    },
+    {
+      "path": "supabase/migrations/20261024111917_curriculum_stage_validation.sql",
+      "sha256": "5984b6f73efe16e9f294e370baab3661f5465336d0a8c20b31f8389dde72bfe7"
+    },
+    {
+      "path": "supabase/migrations/20261024124706_player_group_transfer.sql",
+      "sha256": "4c312d7d4c859cbd72094ba6271dc8eb5991ae4955257d30aadd8857d0487f4b"
+    }
+  ],
+  "content_step": {
+    "path": "release/2026-10-24/approved_curriculum.sql",
+    "sha256": "e8d2ba941aca99423c87baea90953a4a42475cc14e7ebaafd8e66ffb823183eb",
+    "tasks": 349
+  }
+}
