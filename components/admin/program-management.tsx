@@ -1,4 +1,6 @@
 "use client";
+import { BulkContentActions } from "@/components/admin/bulk-content-actions";
+import { readContentRows } from "@/lib/domain/content-batch";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { ArrowDown, ArrowUp, ListChecks, Pencil, RotateCcw } from "lucide-react";
@@ -23,16 +25,21 @@ interface Props {
 }
 
 const emptyForm = {
+  audience: "field" as "field" | "goalkeeper",
+  goalkeeperStage: "A",
+  context: "play" as "play" | "standard",
   phase: "attack" as MethodologyPhase,
   level: "individual" as MethodologyLevel,
   title: "",
   component: "",
   description: "",
   ageFrom: 6,
-  ageTo: MAX_AGE_GROUP,
+  ageTo: 6,
 };
 
 export function EnhancedProgramManagement({ client, profile }: Props) {
+  const [selected, setSelected] = useState<string[]>([]);
+  const [showInactive, setShowInactive] = useState(false);
   const [tasks, setTasks] = useState<MethodologyTask[]>([]);
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -43,21 +50,11 @@ export function EnhancedProgramManagement({ client, profile }: Props) {
   } | null>(null);
 
   const load = useCallback(async () => {
-    const result = await client
-      .from("methodology_tasks")
-      .select(
-        "id, phase, level, component, title, description, age_from, age_to, sort_order, is_active",
-      )
-      .order("phase")
-      .order("level")
-      .order("sort_order")
-      .order("title");
-
-    if (result.error) {
-      setMessage({ kind: "error", text: "Програму занять не завантажено." });
-      return;
-    }
-    setTasks((result.data ?? []) as MethodologyTask[]);
+    try {
+      const rows = await readContentRows<MethodologyTask>(client, "tasks");
+      setTasks(rows.sort((a,b) => a.phase.localeCompare(b.phase) || a.level.localeCompare(b.level) || a.sort_order-b.sort_order || a.title.localeCompare(b.title,"uk")));
+      setSelected([]);
+    } catch { setMessage({ kind: "error", text: "Програму занять не завантажено повністю. Оновіть перелік." }); }
   }, [client]);
 
   useEffect(() => {
@@ -72,6 +69,9 @@ export function EnhancedProgramManagement({ client, profile }: Props) {
   function edit(task: MethodologyTask) {
     setEditingId(task.id);
     setForm({
+      audience: task.audience ?? "field",
+      goalkeeperStage: task.goalkeeper_stage ?? "A",
+      context: task.context ?? "play",
       phase: task.phase,
       level: task.level,
       title: task.title,
@@ -86,12 +86,18 @@ export function EnhancedProgramManagement({ client, profile }: Props) {
   async function save(event: FormEvent) {
     event.preventDefault();
     setMessage(null);
+    if (form.audience === "field" && (form.ageFrom !== form.ageTo || form.ageFrom === 17)) {
+      setMessage({kind:"error",text:"Оберіть одну категорію U6–U16. Завдання U17 формулює тренер."}); return;
+    }
     if (form.ageFrom > form.ageTo) {
       setMessage({ kind: "error", text: "Початковий вік не може бути більшим за кінцевий." });
       return;
     }
 
     const payload = {
+      audience: form.audience,
+      goalkeeper_stage: form.audience === "goalkeeper" ? form.goalkeeperStage : null,
+      context: form.context,
       phase: form.phase,
       level: form.level,
       component: form.component.trim() || null,
@@ -159,13 +165,13 @@ export function EnhancedProgramManagement({ client, profile }: Props) {
   const visible = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase("uk-UA");
     return tasks.filter(
-      (task) =>
+      (task) => (showInactive || task.is_active) && (
         !needle ||
         `${task.title} ${task.component ?? ""} ${task.description ?? ""}`
           .toLocaleLowerCase("uk-UA")
-          .includes(needle),
+          .includes(needle)),
     );
-  }, [query, tasks]);
+  }, [query, tasks, showInactive]);
 
   return (
     <div className="management-grid">
@@ -201,6 +207,9 @@ export function EnhancedProgramManagement({ client, profile }: Props) {
             ))}
           </select>
         </label>
+        <label><span>Програма</span><select value={form.audience} onChange={e=>setForm({...form,audience:e.target.value as "field"|"goalkeeper",goalkeeperStage:"A",ageFrom:6,ageTo:e.target.value === "goalkeeper" ? 8 : 6})}><option value="field">Польові футболісти</option><option value="goalkeeper">Воротарі</option></select></label>
+        {form.audience === "goalkeeper" && <label><span>Воротарська група</span><select value={form.goalkeeperStage} onChange={e=>{const stage=e.target.value;const ages=stage==="A"?[6,8]:stage==="B"?[9,12]:[13,16];setForm({...form,goalkeeperStage:stage,ageFrom:ages[0],ageTo:ages[1]});}}>{["A","B","C"].map(stage=><option key={stage}>{stage}</option>)}</select></label>}
+        <label><span>Контекст</span><select value={form.context} onChange={e=>setForm({...form,context:e.target.value as "play"|"standard"})}><option value="play">З гри</option><option value="standard">Стандартні положення</option></select></label>
         <label>
           <span>Назва</span>
           <input
@@ -267,11 +276,14 @@ export function EnhancedProgramManagement({ client, profile }: Props) {
       </form>
 
       <div>
+        <BulkContentActions client={client} dataset="tasks" rows={tasks} selected={selected} onSelected={setSelected} onChanged={load} />
+        <label className="check-field"><input type="checkbox" checked={showInactive} onChange={event => setShowInactive(event.target.checked)} />Показати неактивні</label>
         <SearchField value={query} onChange={setQuery} placeholder="Пошук у програмі" />
         {visible.length ? (
           <div className="compact-list task-admin-list">
             {visible.map((task) => (
               <article key={task.id}>
+                {task.is_active && <input className="bulk-row-checkbox" type="checkbox" aria-label={`Вибрати завдання: ${task.title}`} checked={selected.includes(task.id)} onChange={event => setSelected(current => event.target.checked ? [...current,task.id] : current.filter(id => id!==task.id))} />}
                 <div>
                   <b>{task.title}</b>
                   <small>

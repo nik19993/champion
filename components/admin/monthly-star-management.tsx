@@ -1,5 +1,7 @@
 "use client";
 
+import { groupCode } from "@/lib/domain/seasons";
+
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { Pencil, Save, Star, Trophy } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useState } from "react";
@@ -40,7 +42,7 @@ function AdminMonthlyStarResults({ client, group, month, theme }: { client: Supa
   }, [client, group.id, month]);
 
   return <div className="admin-star-results">
-    <div className="monthly-star-group-theme"><Star /><div><p>Зірка місяця · {group.code}</p><h3>{theme ? `${formatMonth(month).split(" ")[0]} — ${theme.title}` : formatMonth(month)}</h3>{theme && <span>{theme.description}</span>}</div></div>
+    <div className="monthly-star-group-theme"><Star /><div><p>Зірка місяця · {groupCode(group)}</p><h3>{theme ? `${formatMonth(month).split(" ")[0]} — ${theme.title}` : formatMonth(month)}</h3>{theme && <span>{theme.description}</span>}</div></div>
     <StatusMessage kind="success">Переможців визначає тренер групи. Адміністратор переглядає результат і керує темою місяця, але не ставить карток та не змінює вибір тренера.</StatusMessage>
     {error && <StatusMessage kind="error">{error}</StatusMessage>}
     {loading ? <LoadingState /> : awards.length ? <div className="admin-star-winner-list">{awards.map((award) => <article key={award.id}><span className="tile-icon gold"><Trophy /></span><div><b>{relationOne(award.players)?.full_name ?? "Гравець"}</b><small>Зірка місяця</small></div></article>)}</div> : <EmptyState title="Тренер ще не визначив зірок за цей місяць" />}

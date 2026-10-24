@@ -1,0 +1,98 @@
+// Real SQL/RLS execution against a synthetic isolated PGlite database.
+import assert from "node:assert/strict";
+import { readFile, readdir } from "node:fs/promises";
+import { join, dirname } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { historicalFiles, reviewBootstrap } from "./lib/review-schema.mjs";
+const root=fileURLToPath(new URL("../",import.meta.url)),modulePath=process.argv[2];
+const { PGlite }=await import(pathToFileURL(modulePath).href);
+const { btree_gist }=await import(pathToFileURL(join(dirname(modulePath),"contrib/btree_gist.js")).href);
+const db=new PGlite({extensions:{btree_gist}});let checks=0;
+const coach="00000000-0000-4000-8000-000000000011",admin="00000000-0000-4000-8000-000000000012",other="00000000-0000-4000-8000-000000000013";
+const event="00000000-0000-4000-8000-000000000501",player="00000000-0000-4000-8000-000000000201",absent="00000000-0000-4000-8000-000000000202",third="00000000-0000-4000-8000-000000000203";
+const q=async(sql,args=[])=> (await db.query(sql,args)).rows[0]?.value;
+const identity=async(id,aal="aal1",role="authenticated")=>{await db.exec("reset role");await q("select set_config('request.jwt.claims',$1,false) as value",[JSON.stringify({sub:id,aal})]);await db.exec(`set role ${role}`);};
+const equal=(a,b)=>{assert.deepEqual(a,b);checks++;};
+const rejects=async(sql,args=[],code)=>{await assert.rejects(db.query(sql,args),error=>!code||error.code===code);checks++;};
+try {
+ await db.exec(reviewBootstrap);
+ for(const file of historicalFiles)await db.exec(await readFile(join(root,"supabase/migrations",file),"utf8"));
+ for(const file of (await readdir(join(root,"supabase/proposals"))).filter(f=>f.endsWith('.sql')).sort())await db.exec(await readFile(join(root,"supabase/proposals",file),"utf8"));
+ await db.exec(await readFile(join(root,"review/seed.sql"),"utf8"));
+ await identity(coach);
+ await rejects("select record_club_card($1,$2,null)",[event,player],"23514");
+ const records=[{player_id:player,status:"present"},{player_id:absent,status:"absent"},{player_id:third,status:"present"}];
+ await q("select save_attendance($1,gen_random_uuid(),now(),$2) as value",[event,records]);
+ const version=await q("select server_version as value from attendance_sessions where event_id=$1",[event]);
+ const expected=records.map(row=>({...row,note:null}));
+ const finish=async(ids=[])=>q("select complete_training_register_with_club_cards($1,$2,'{}'::uuid[],$3,$4) as value",[event,version,ids,expected]);
+ equal((await finish()).club_card_count,0);
+ const card=await q("select record_club_card($1,$2,'Підтримав партнера') as value",[event,player]);
+ equal(await q("select record_club_card($1,$2,'Повторне натискання') as value",[event,player]),card);
+ equal(await q("select count(*)::int as value from player_club_cards where not is_voided"),1);
+ equal(await q("select completed_at is null as value from training_register_completions where event_id=$1",[event]),true);
+ equal(await q("select count(*)::int as value from player_behavior_cards"),0);
+ await rejects("select record_club_card($1,$2,null)",[event,absent],"23514");
+ await rejects("select record_club_card($1,$2,null)",[event,"00000000-0000-4000-8000-000000000204"],"23514");
+ await rejects("select complete_training_register_with_club_cards($1,$2,'{}'::uuid[],'{}'::uuid[],$3)",[event,version,expected],"40001");
+ equal((await finish([card])).club_card_count,1);
+ // Legacy completion also receives the server-calculated club count.
+ equal((await q("select complete_training_register($1,$2,'{}'::uuid[],$3) as value",[event,version,expected])).club_card_count,1);
+ await identity(other);equal(await q("select count(*)::int as value from player_club_cards"),0);
+ await rejects("select record_club_card($1,$2,null)",[event,third],"42501");
+ await rejects("select void_club_card($1,'Помилка')",[card],"42501");
+ await identity(coach,null,"anon");await rejects("select record_club_card($1,$2,null)",[event,third],"42501");
+ await identity(coach);await rejects("update player_club_cards set is_voided=true",[],"42501");
+ await rejects("delete from player_club_cards",[],"42501");
+ await rejects("select void_club_card($1,'')",[card],"22023");
+ await q("select void_club_card($1,'Помилково відзначено')",[card]);
+ equal(await q("select count(*)::int as value from player_club_cards where not is_voided"),0);
+ equal(await q("select count(*)::int as value from player_club_cards"),1);
+ equal((await finish()).club_card_count,0);
+ // Bulk archival is admin/MFA only, detects stale previews and preserves FKs.
+ const snapshot=async(table)=>q(`select coalesce(jsonb_agg(jsonb_build_object('id',id,'updated_at',updated_at)),'[]') as value from ${table} where is_active`);
+ await rejects("select archive_content('tasks','[]',true)",[],"42501");
+ await identity(admin);await rejects("select archive_content('tasks','[]',true)",[],"42501");
+ await identity(admin,"aal2");let old=await snapshot("methodology_tasks");
+ await rejects("select archive_content('players',$1,true)",[old],"22023");
+ await rejects("select archive_content('tasks',$1,true)",[old.slice(1)],"40001");
+ await rejects("select archive_content('tasks',$1,true)",[[...old,old[0]]],"22023");
+ const stale=old.map((row,i)=>i===0?{...row,updated_at:"2000-01-01T00:00:00Z"}:row);
+ await rejects("select archive_content('tasks',$1,true)",[stale],"40001");
+ equal(await q("select archive_content('tasks',$1,false) as value",[[old[0]]]),1);
+ equal(await q("select count(*)::int as value from methodology_tasks where is_active"),old.length-1);
+ old=await snapshot("methodology_tasks");
+ equal(await q("select archive_content('tasks',$1,true) as value",[old]),old.length);
+ equal(await q("select count(*)::int as value from events where task_id='00000000-0000-4000-8000-000000000302'"),1);
+ await identity(coach);equal(await q("select title as value from methodology_tasks where id='00000000-0000-4000-8000-000000000302'"),"Відкривання для передачі");
+ await identity(admin,"aal2");
+ async function job(dataset,values,isValid=true){
+   const id=await q("insert into import_jobs(dataset,status,total_rows,valid_rows,error_rows,created_by) values($1,'previewed',$2,$2,0,$3) returning id as value",[dataset,values.length,admin]);
+   for(let i=0;i<values.length;i++)await db.query("insert into import_rows(import_job_id,row_number,payload,is_valid,errors) values($1,$2,$3,$4,'{}')",[id,i+1,values[i],isValid]);
+   return id;
+ }
+ const incoming=[{phase:"attack",level:"individual",title:"Нове завдання U6–U8",age_from:"6",age_to:"8"},{phase:"defence",level:"team",title:"Нове завдання U13–U17",age_from:"13",age_to:"17"}];
+ let id=await job("tasks",incoming);
+ equal(await q("select replace_content_import($1,$2) as value",[id,[]]),2);
+ old=await snapshot("methodology_tasks");
+ id=await job("tasks",[incoming[0],{...incoming[1],age_from:"99"}]);
+ await rejects("select replace_content_import($1,$2)",[id,old]);
+ equal(await q("select count(*)::int as value from methodology_tasks where is_active"),2);
+ equal(await q("select status::text as value from import_jobs where id=$1",[id]),"previewed");
+ id=await job("tasks",incoming,false);await rejects("select replace_content_import($1,$2)",[id,old]);
+ equal(await q("select count(*)::int as value from methodology_tasks where is_active"),2);
+ id=await job("tasks",incoming);equal(await q("select replace_content_import($1,$2) as value",[id,old]),2);
+ await rejects("select replace_content_import($1,$2)",[id,await snapshot("methodology_tasks")],"22023");
+ const terms=await snapshot("terminology_entries");
+ equal(await q("select archive_content('terminology',$1,true) as value",[terms]),terms.length);
+ id=await job("terminology",[{term:"Відкривання",definition:"Оновлене визначення",category:"Індивідуальна тактика нападу"},{term:"Передача",definition:"Тестове визначення",category:"Групова тактика нападу"}]);
+ equal(await q("select replace_content_import($1,'[]') as value",[id]),2);
+ equal(await q("select count(*)::int as value from terminology_entries where is_active"),2);
+ // Existing attendance/card histories and a cancelled training stay intact.
+ await db.exec("reset role");await q("select set_config('request.jwt.claims','{}',false) as value");
+ await db.query("update profiles set status='suspended' where id=$1",[coach]);
+ await identity(coach);await rejects("select record_club_card($1,$2,null)",[event,third],"42501");
+ await db.exec("reset role");equal(await q("select count(*)::int as value from attendance_records"),3);
+ equal(await q("select count(*)::int as value from player_club_cards"),1);
+ console.log(`PASS: ${checks} isolated club-card/content SQL checks; no external service used.`);
+} finally {await db.close();}

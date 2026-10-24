@@ -160,6 +160,9 @@ export function toCsv(rows: Array<Record<string, unknown>>) {
 }
 
 export function safeError(error: unknown, fallback = "Не вдалося виконати дію.") {
+  if (error && typeof error === "object" && "code" in error && error.code === "23P01" && !("message" in error && typeof error.message === "string" && error.message.includes("EVENT_CONFLICT"))) {
+    return "Конфлікт: майданчик або тренер уже зайнятий у цей час. Дані оновлюються автоматично. Виберіть інший час чи майданчик.";
+  }
   if (error && typeof error === "object" && "message" in error && typeof error.message === "string") {
     if (error.message.includes("EVENT_CONFLICT")) {
       const message = error.message.replace(/^.*EVENT_CONFLICT:?\s*/i, "Конфлікт: ");

@@ -33,7 +33,7 @@ async function resolveProfile(client: SupabaseClient, session: Session): Promise
 export function AuthGate() {
   const [state, setState] = useState<State>(() => isSupabaseConfigured ? { kind: "checking" } : { kind: "signed-out" });
   const [mfaVerified, setMfaVerified] = useState(false);
-  const [passwordChanged, setPasswordChanged] = useState(false);
+  const [passwordChangedUserId, setPasswordChangedUserId] = useState<string | null>(null);
   const readyUserId = useRef<string | null>(null);
   const handleMfaVerified = useCallback(() => setMfaVerified(true), []);
   const handleMfaRequired = useCallback(() => setMfaVerified(false), []);
@@ -55,28 +55,43 @@ export function AuthGate() {
     if (!isSupabaseConfigured) return;
     const client = getSupabaseBrowserClient();
     let active = true;
+    let resolution = 0;
 
     async function applySession(session: Session | null) {
       if (!active) return;
+      const request = ++resolution;
       if (session && readyUserId.current === session.user.id) {
         setState((current) => current.kind === "ready" ? { ...current, session } : current);
         return;
       }
       setMfaVerified(false);
+      setPasswordChangedUserId(null);
+      readyUserId.current = null;
       if (!session) {
-        readyUserId.current = null;
         setState({ kind: "signed-out" });
         return;
       }
       setState({ kind: "checking" });
-      const next = await resolveProfile(client, session);
-      if (active) {
+      let next: State;
+      try {
+        next = await resolveProfile(client, session);
+      } catch {
+        next = { kind: "blocked", message: "Не вдалося перевірити профіль. Спробуйте увійти ще раз." };
+      }
+      if (active && request === resolution) {
         readyUserId.current = next.kind === "ready" ? next.profile.id : null;
         setState(next);
       }
     }
 
-    void client.auth.getSession().then(({ data }) => applySession(data.session));
+    const initialResolution = resolution;
+    void client.auth.getSession().then(({ data }) => {
+      if (active && resolution === initialResolution) return applySession(data.session);
+    }).catch(() => {
+      if (active && resolution === initialResolution) {
+        setState({ kind: "blocked", message: "Не вдалося відновити сесію. Спробуйте увійти ще раз." });
+      }
+    });
     const { data: listener } = client.auth.onAuthStateChange((event, session) => {
       if (event === "PASSWORD_RECOVERY") {
         window.location.replace("/password-reset/");
@@ -105,8 +120,8 @@ export function AuthGate() {
   if (state.profile.role === "admin" && !mfaVerified) {
     return <MfaGate client={getSupabaseBrowserClient()} onVerified={handleMfaVerified} />;
   }
-  if (state.profile.must_change_password && !passwordChanged) {
-    return <PasswordChange client={getSupabaseBrowserClient()} onComplete={() => setPasswordChanged(true)} />;
+  if (state.profile.must_change_password && passwordChangedUserId !== state.profile.id) {
+    return <PasswordChange client={getSupabaseBrowserClient()} onComplete={() => setPasswordChangedUserId(state.profile.id)} />;
   }
   return <AppShell client={getSupabaseBrowserClient()} profile={state.profile} onMfaRequired={handleMfaRequired} />;
 }

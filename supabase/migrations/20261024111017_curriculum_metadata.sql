@@ -1,0 +1,1 @@
+alter table public.methodology_tasks add column audience text not null default 'field' check (audience in ('field','goalkeeper')), add column goalkeeper_stage text, add column context text not null default 'play' check (context in ('play','standard')); alter table public.methodology_sections add column bundled_key text;

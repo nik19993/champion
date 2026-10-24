@@ -1,0 +1,9 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "git": {
+    "deploymentEnabled": {
+      "work/season-player-updates-20261009": false,
+      "main": false
+    }
+  }
+}

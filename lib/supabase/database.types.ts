@@ -10,7 +10,7 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.5"
+    PostgrestVersion: "14.18"
   }
   public: {
     Tables: {
@@ -309,6 +309,35 @@ export type Database = {
           },
         ]
       }
+      club_season_settings: {
+        Row: {
+          id: boolean
+          start_year: number
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          id?: boolean
+          start_year: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          id?: boolean
+          start_year?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "club_season_settings_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       coach_group_assignments: {
         Row: {
           assignment_role: Database["public"]["Enums"]["assignment_role"]
@@ -548,6 +577,8 @@ export type Database = {
       }
       events: {
         Row: {
+          booking_part: string
+          booking_venue_id: string | null
           coach_comment: string | null
           coach_id: string
           created_at: string
@@ -571,8 +602,11 @@ export type Database = {
           updated_at: string
           updated_by: string | null
           venue_id: string | null
+          venue_part: string
         }
         Insert: {
+          booking_part?: string
+          booking_venue_id?: string | null
           coach_comment?: string | null
           coach_id: string
           created_at?: string
@@ -596,8 +630,11 @@ export type Database = {
           updated_at?: string
           updated_by?: string | null
           venue_id?: string | null
+          venue_part?: string
         }
         Update: {
+          booking_part?: string
+          booking_venue_id?: string | null
           coach_comment?: string | null
           coach_id?: string
           created_at?: string
@@ -621,6 +658,7 @@ export type Database = {
           updated_at?: string
           updated_by?: string | null
           venue_id?: string | null
+          venue_part?: string
         }
         Relationships: [
           {
@@ -846,12 +884,57 @@ export type Database = {
           },
         ]
       }
+      group_season_history: {
+        Row: {
+          birth_year: number
+          changed_at: string
+          changed_by: string | null
+          code: string
+          group_id: string
+          start_year: number
+        }
+        Insert: {
+          birth_year: number
+          changed_at?: string
+          changed_by?: string | null
+          code: string
+          group_id: string
+          start_year: number
+        }
+        Update: {
+          birth_year?: number
+          changed_at?: string
+          changed_by?: string | null
+          code?: string
+          group_id?: string
+          start_year?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "group_season_history_changed_by_fkey"
+            columns: ["changed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "group_season_history_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "groups"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       groups: {
         Row: {
           age: number | null
           code: string
+          cohort_birth_year: number | null
           competition_format: string | null
           created_at: string
+          display_age: number | null
+          display_code: string | null
           group_kind: string
           id: string
           is_active: boolean
@@ -864,8 +947,11 @@ export type Database = {
         Insert: {
           age?: number | null
           code: string
+          cohort_birth_year?: number | null
           competition_format?: string | null
           created_at?: string
+          display_age?: number | null
+          display_code?: string | null
           group_kind?: string
           id?: string
           is_active?: boolean
@@ -878,8 +964,11 @@ export type Database = {
         Update: {
           age?: number | null
           code?: string
+          cohort_birth_year?: number | null
           competition_format?: string | null
           created_at?: string
+          display_age?: number | null
+          display_code?: string | null
           group_kind?: string
           id?: string
           is_active?: boolean
@@ -1336,6 +1425,7 @@ export type Database = {
       }
       methodology_sections: {
         Row: {
+          bundled_key: string | null
           created_at: string
           created_by: string | null
           description: string | null
@@ -1347,6 +1437,7 @@ export type Database = {
           updated_by: string | null
         }
         Insert: {
+          bundled_key?: string | null
           created_at?: string
           created_by?: string | null
           description?: string | null
@@ -1358,6 +1449,7 @@ export type Database = {
           updated_by?: string | null
         }
         Update: {
+          bundled_key?: string | null
           created_at?: string
           created_by?: string | null
           description?: string | null
@@ -1389,10 +1481,13 @@ export type Database = {
         Row: {
           age_from: number
           age_to: number
+          audience: string
           component: string | null
+          context: string
           created_at: string
           created_by: string | null
           description: string | null
+          goalkeeper_stage: string | null
           id: string
           is_active: boolean
           level: Database["public"]["Enums"]["methodology_level"]
@@ -1405,10 +1500,13 @@ export type Database = {
         Insert: {
           age_from: number
           age_to: number
+          audience?: string
           component?: string | null
+          context?: string
           created_at?: string
           created_by?: string | null
           description?: string | null
+          goalkeeper_stage?: string | null
           id?: string
           is_active?: boolean
           level: Database["public"]["Enums"]["methodology_level"]
@@ -1421,10 +1519,13 @@ export type Database = {
         Update: {
           age_from?: number
           age_to?: number
+          audience?: string
           component?: string | null
+          context?: string
           created_at?: string
           created_by?: string | null
           description?: string | null
+          goalkeeper_stage?: string | null
           id?: string
           is_active?: boolean
           level?: Database["public"]["Enums"]["methodology_level"]
@@ -2062,6 +2163,93 @@ export type Database = {
           },
         ]
       }
+      player_club_cards: {
+        Row: {
+          coach_id: string | null
+          coach_name_snapshot: string
+          comment: string | null
+          created_at: string
+          event_id: string
+          group_id: string
+          id: string
+          is_voided: boolean
+          occurred_on: string
+          player_id: string
+          updated_at: string
+          void_reason: string | null
+          voided_at: string | null
+          voided_by: string | null
+        }
+        Insert: {
+          coach_id?: string | null
+          coach_name_snapshot: string
+          comment?: string | null
+          created_at?: string
+          event_id: string
+          group_id: string
+          id?: string
+          is_voided?: boolean
+          occurred_on: string
+          player_id: string
+          updated_at?: string
+          void_reason?: string | null
+          voided_at?: string | null
+          voided_by?: string | null
+        }
+        Update: {
+          coach_id?: string | null
+          coach_name_snapshot?: string
+          comment?: string | null
+          created_at?: string
+          event_id?: string
+          group_id?: string
+          id?: string
+          is_voided?: boolean
+          occurred_on?: string
+          player_id?: string
+          updated_at?: string
+          void_reason?: string | null
+          voided_at?: string | null
+          voided_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "player_club_cards_coach_id_fkey"
+            columns: ["coach_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "player_club_cards_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: false
+            referencedRelation: "events"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "player_club_cards_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "groups"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "player_club_cards_player_id_fkey"
+            columns: ["player_id"]
+            isOneToOne: false
+            referencedRelation: "players"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "player_club_cards_voided_by_fkey"
+            columns: ["voided_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       player_photos: {
         Row: {
           created_at: string
@@ -2314,6 +2502,57 @@ export type Database = {
             columns: ["updated_by"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      training_register_completions: {
+        Row: {
+          attendance_version: number
+          card_count: number
+          club_card_count: number
+          completed_at: string | null
+          completed_by: string | null
+          event_id: string
+          player_count: number
+          present_count: number
+          updated_at: string
+        }
+        Insert: {
+          attendance_version: number
+          card_count: number
+          club_card_count?: number
+          completed_at?: string | null
+          completed_by?: string | null
+          event_id: string
+          player_count: number
+          present_count: number
+          updated_at?: string
+        }
+        Update: {
+          attendance_version?: number
+          card_count?: number
+          club_card_count?: number
+          completed_at?: string | null
+          completed_by?: string | null
+          event_id?: string
+          player_count?: number
+          present_count?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "training_register_completions_completed_by_fkey"
+            columns: ["completed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "training_register_completions_event_id_fkey"
+            columns: ["event_id"]
+            isOneToOne: true
+            referencedRelation: "events"
             referencedColumns: ["id"]
           },
         ]
@@ -2601,8 +2840,11 @@ export type Database = {
           id: string
           is_active: boolean
           name: string
+          parent_venue_id: string | null
+          supports_half_booking: boolean
           updated_at: string
           updated_by: string | null
+          venue_part: string
           venue_type: string
         }
         Insert: {
@@ -2611,8 +2853,11 @@ export type Database = {
           id?: string
           is_active?: boolean
           name: string
+          parent_venue_id?: string | null
+          supports_half_booking?: boolean
           updated_at?: string
           updated_by?: string | null
+          venue_part?: string
           venue_type?: string
         }
         Update: {
@@ -2621,8 +2866,11 @@ export type Database = {
           id?: string
           is_active?: boolean
           name?: string
+          parent_venue_id?: string | null
+          supports_half_booking?: boolean
           updated_at?: string
           updated_by?: string | null
+          venue_part?: string
           venue_type?: string
         }
         Relationships: [
@@ -2631,6 +2879,13 @@ export type Database = {
             columns: ["created_by"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "venues_parent_venue_id_fkey"
+            columns: ["parent_venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
             referencedColumns: ["id"]
           },
           {
@@ -2674,6 +2929,18 @@ export type Database = {
         Args: { p_coach_id: string; p_group_ids: string[] }
         Returns: undefined
       }
+      advance_club_season: {
+        Args: { p_expected_start_year: number; p_next_start_year: number }
+        Returns: number
+      }
+      archive_content: {
+        Args: { p_all?: boolean; p_dataset: string; p_rows: Json }
+        Returns: number
+      }
+      archive_player: {
+        Args: { p_expected_updated_at: string; p_player_id: string }
+        Returns: undefined
+      }
       attach_event_material: {
         Args: { p_event_id: string; p_file_asset_id: string }
         Returns: undefined
@@ -2683,10 +2950,33 @@ export type Database = {
         Returns: undefined
       }
       complete_password_change: { Args: never; Returns: undefined }
+      complete_training_register: {
+        Args: {
+          p_event_id: string
+          p_expected_attendance_version: number
+          p_expected_card_ids: string[]
+          p_expected_records: Json
+        }
+        Returns: Json
+      }
+      complete_training_register_with_club_cards: {
+        Args: {
+          p_event_id: string
+          p_expected_attendance_version: number
+          p_expected_card_ids: string[]
+          p_expected_club_card_ids: string[]
+          p_expected_records: Json
+        }
+        Returns: Json
+      }
       confirm_import_job: { Args: { p_job_id: string }; Returns: number }
       finalize_coach_deletion: {
         Args: { p_admin_id: string; p_coach_id: string; p_reason?: string }
         Returns: Json
+      }
+      initialize_club_season: {
+        Args: { p_cohorts: Json; p_start_year: number }
+        Returns: number
       }
       move_methodology_task: {
         Args: { p_direction: number; p_task_id: string }
@@ -2695,6 +2985,34 @@ export type Database = {
       move_training_step: {
         Args: { p_direction: number; p_step_id: string }
         Returns: undefined
+      }
+      record_club_card: {
+        Args: { p_comment?: string; p_event_id: string; p_player_id: string }
+        Returns: string
+      }
+      register_player_photo_asset: {
+        Args: {
+          p_group_id: string
+          p_mime_type: string
+          p_object_path: string
+          p_original_name: string
+          p_size_bytes: number
+        }
+        Returns: string
+      }
+      replace_content_import: {
+        Args: { p_expected_rows: Json; p_job_id: string }
+        Returns: number
+      }
+      replace_methodology_section: {
+        Args: {
+          p_asset_id: string
+          p_description: string
+          p_expected: Json
+          p_section_id: string
+          p_title: string
+        }
+        Returns: string
       }
       save_attendance: {
         Args: {
@@ -2731,8 +3049,17 @@ export type Database = {
         Args: { p_note: string; p_player_id: string }
         Returns: string
       }
-      set_player_photo: {
-        Args: { p_file_asset_id: string; p_player_id: string }
+      save_player_guardian: {
+        Args: { p_guardian_id: string; p_player_id: string; p_values: Json }
+        Returns: string
+      }
+      save_player_profile: {
+        Args: {
+          p_expected_updated_at: string
+          p_group_id: string
+          p_player_id: string
+          p_values: Json
+        }
         Returns: string
       }
       save_uniform_request: {
@@ -2744,7 +3071,37 @@ export type Database = {
         }
         Returns: string
       }
+      set_player_photo: {
+        Args: { p_file_asset_id: string; p_player_id: string }
+        Returns: string
+      }
+      transfer_player_group: {
+        Args: {
+          p_expected_updated_at: string
+          p_player_id: string
+          p_target_group_id: string
+        }
+        Returns: string
+      }
+      venue_booking_conflicts: {
+        Args: {
+          p_duration_minutes: number
+          p_exclude_event_id?: string
+          p_start_at: string
+          p_venue_id: string
+        }
+        Returns: {
+          ends_at: string
+          group_code: string
+          start_at: string
+          venue_part: string
+        }[]
+      }
       void_behavior_card: {
+        Args: { p_card_id: string; p_reason: string }
+        Returns: undefined
+      }
+      void_club_card: {
         Args: { p_card_id: string; p_reason: string }
         Returns: undefined
       }

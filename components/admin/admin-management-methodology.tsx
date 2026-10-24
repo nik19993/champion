@@ -1,4 +1,6 @@
 "use client";
+import { BulkContentActions } from "@/components/admin/bulk-content-actions";
+import { readContentRows } from "@/lib/domain/content-batch";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { FileText, FileUp, FolderPlus, Library, Pencil, Plus } from "lucide-react";
@@ -105,13 +107,15 @@ export function MethodologyManagement({
   );
 }
 
-function TerminologyManagement({
+export function TerminologyManagement({
   client,
   profile,
 }: {
   client: SupabaseClient;
   profile: Profile;
 }) {
+  const [selected, setSelected] = useState<string[]>([]);
+  const [showInactive, setShowInactive] = useState(false);
   const [terms, setTerms] = useState<TerminologyEntry[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -127,15 +131,10 @@ function TerminologyManagement({
   const formRef = useRef<HTMLFormElement>(null);
 
   const load = useCallback(async () => {
-    const result = await client
-      .from("terminology_entries")
-      .select("id, term, definition, category, source, is_active")
-      .order("term");
-    if (result.error) {
-      setMessage({ kind: "error", text: "Словник не завантажено." });
-      return;
-    }
-    setTerms((result.data ?? []) as TerminologyEntry[]);
+    try {
+      const rows = await readContentRows<TerminologyEntry>(client, "terminology");
+      setTerms(rows.sort((a,b) => a.term.localeCompare(b.term,"uk"))); setSelected([]);
+    } catch { setMessage({ kind: "error", text: "Словник не завантажено повністю. Оновіть перелік." }); }
   }, [client]);
 
   useEffect(() => {
@@ -217,14 +216,14 @@ function TerminologyManagement({
     const needle = query.trim().toLocaleLowerCase("uk-UA");
     return terms
       .filter(
-        (entry) =>
+        (entry) => (showInactive || entry.is_active) && (
           !needle ||
           `${entry.term} ${entry.definition} ${entry.category}`
             .toLocaleLowerCase("uk-UA")
-            .includes(needle),
+            .includes(needle)),
       )
       .slice(0, 100);
-  }, [query, terms]);
+  }, [query, terms, showInactive]);
 
   const categoryOptions = useMemo(
     () => [...new Set([...terminologyCategories, ...terms.map((entry) => entry.category)])]
@@ -275,10 +274,13 @@ function TerminologyManagement({
         </div>
       </form>
       <div>
+        <BulkContentActions client={client} dataset="terminology" rows={terms} selected={selected} onSelected={setSelected} onChanged={load} />
+        <label className="check-field"><input type="checkbox" checked={showInactive} onChange={event => setShowInactive(event.target.checked)} />Показати неактивні</label>
         <SearchField value={query} onChange={setQuery} placeholder="Пошук у словнику" />
         <div className="compact-list term-admin-list">
           {visible.map((entry) => (
             <article key={entry.id}>
+              {entry.is_active && <input className="bulk-row-checkbox" type="checkbox" aria-label={`Вибрати термін: ${entry.term}`} checked={selected.includes(entry.id)} onChange={event => setSelected(current => event.target.checked ? [...current,entry.id] : current.filter(id => id!==entry.id))} />}
               <div>
                 <b>{entry.term}</b>
                 <small>
@@ -325,6 +327,7 @@ function MaterialsManagement({
   const [ageFrom, setAgeFrom] = useState(6);
   const [ageTo, setAgeTo] = useState(MAX_AGE_GROUP);
   const [taskFile, setTaskFile] = useState<File | null>(null);
+  const [replaceSection, setReplaceSection] = useState(false);
   const [sectionFile, setSectionFile] = useState<File | null>(null);
   const [sectionId, setSectionId] = useState("");
   const [sectionTitle, setSectionTitle] = useState("");
@@ -349,7 +352,7 @@ function MaterialsManagement({
         .order("title"),
       client
         .from("methodology_sections")
-        .select("id, title, description, sort_order, is_active, methodology_section_materials(id, section_id, file_asset_id, title, description, is_active, file_assets(*))")
+        .select("id, title, description, sort_order, is_active, bundled_key, methodology_section_materials(id, updated_at, section_id, file_asset_id, title, description, is_active, file_assets(*))")
         .order("sort_order")
         .order("title"),
     ]);
@@ -452,6 +455,7 @@ function MaterialsManagement({
   async function submitSectionMaterial(event: FormEvent) {
     event.preventDefault();
     if (!sectionFile || !sectionId) return;
+    if (replaceSection && !window.confirm("Замінити всі актуальні матеріали обраного розділу новим документом? Попередні файли збережуться в архіві.")) return;
     setBusy(true);
     setMessage(null);
     let uploaded: FileAsset | null = null;
@@ -461,7 +465,11 @@ function MaterialsManagement({
         ownerId: profile.id,
         contextType: "methodology_section_material",
       });
-      const result = await client.from("methodology_section_materials").insert({
+      const targetSection = sections.find(section => section.id === sectionId);
+      const expected = (targetSection?.methodology_section_materials ?? []).filter(material => material.is_active).map(material => ({id:material.id,updated_at:material.updated_at}));
+      const result = replaceSection ? await client.rpc("replace_methodology_section", {
+        p_section_id:sectionId,p_asset_id:uploaded.id,p_title:materialTitle.trim() || sectionFile.name,p_description:materialDescription.trim() || null,p_expected:expected,
+      }) : await client.from("methodology_section_materials").insert({
         section_id: sectionId,
         file_asset_id: uploaded.id,
         title: materialTitle.trim() || sectionFile.name,
@@ -474,7 +482,7 @@ function MaterialsManagement({
       setMaterialTitle("");
       setMaterialDescription("");
       setFileInputKey((value) => value + 1);
-      setMessage({ kind: "success", text: "Матеріал додано до обраного розділу." });
+      setMessage({ kind: "success", text: replaceSection ? "Матеріали розділу замінено. Попередня редакція збережена в архіві." : "Матеріал додано до обраного розділу." });
       await load();
     } catch (error) {
       if (uploaded) {
@@ -535,7 +543,7 @@ function MaterialsManagement({
               </div>
             </form>
             <form className="form-stack management-form" onSubmit={submitSectionMaterial}>
-              <h3>Додати матеріал у розділ</h3>
+              <h3>Додати матеріал у розділ</h3><label className="check-field"><input type="checkbox" checked={replaceSection} onChange={event=>setReplaceSection(event.target.checked)} /><span>Повністю замінити матеріали обраного розділу</span></label>
               <label><span>Розділ</span><select value={sectionId} onChange={(event) => setSectionId(event.target.value)} required><option value="">Оберіть розділ</option>{sections.filter((section) => section.is_active).map((section) => <option value={section.id} key={section.id}>{section.title}</option>)}</select></label>
               <label><span>Назва матеріалу</span><input value={materialTitle} onChange={(event) => setMaterialTitle(event.target.value)} placeholder="Якщо порожньо — буде назва файла" /></label>
               <label><span>Опис</span><textarea rows={3} value={materialDescription} onChange={(event) => setMaterialDescription(event.target.value)} /></label>

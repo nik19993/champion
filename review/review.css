@@ -1,0 +1,22 @@
+body { margin: 0; background: #f5f3ed; }
+.review-shell { max-width: 1200px; padding: 24px; margin: 0 auto; color: #282534; }
+.review-header { display: flex; align-items: center; gap: 16px; padding: 8px 0 22px; }
+.review-header img { width: 56px; height: 64px; object-fit: contain; }
+.review-header h1 { font-size: clamp(21px, 4vw, 30px); margin: 3px 0; }
+.review-badge { margin-left: auto; border: 1px solid #cabce1; background: #eee7f8; color: #65448d; border-radius: 20px; padding: 7px 12px; white-space: nowrap; font-size: 12px; font-weight: 700; }
+.review-notice { display: grid; gap: 4px; padding: 14px 18px; background: #edf7f0; border: 1px solid #c3ddca; border-radius: 14px; line-height: 1.5; }
+.review-notice span { color: #43604c; font-size: 14px; }
+.review-notice.error { background: #fff0ed; border-color: #e9b4a5; }
+.review-nav { display: flex; flex-wrap: wrap; gap: 8px; margin: 20px 0; }
+.review-nav button { padding: 11px 16px; background: #fff; border: 1px solid #dcd5e2; border-radius: 11px; color: #51475b; font-weight: 700; }
+.review-nav button.selected { background: #7453a3; color: #fff; border-color: #7453a3; }
+.review-workspace { border: 1px solid #e1dce6; border-radius: 18px; padding: 22px; background: #fff; min-height: 240px; }
+.review-section-title { display: flex; justify-content: space-between; gap: 10px; align-items: center; margin-bottom: 16px; }
+.review-section-title h2 { margin: 0; font-size: 22px; }
+.review-section-title > span { font-size: 12px; color: #756b80; }
+.review-loading { text-align: center; padding: 50px 15px; }
+.review-loading .loading-star { display: inline-block; color: #9b73c8; font-size: 48px; }
+.review-samples { display: flex; flex-wrap: wrap; gap: 12px; padding: 14px; background: #f5f0fa; border-radius: 12px; }
+.review-samples a { color: #62448a; text-decoration: underline; }
+.review-player-select { display: grid; gap: 5px; max-width: 340px; margin-bottom: 20px; }
+@media(max-width:600px) { .review-shell {padding:12px;} .review-header {gap:10px; flex-wrap:wrap;} .review-badge{margin-left:0;} .review-workspace{padding:14px;} .review-nav button{flex:1 1 140px;padding:10px;} .review-section-title{align-items:start;flex-direction:column;} }
