@@ -28,7 +28,7 @@ test("labels retain unknown and legacy venue names without duplicate suffixes", 
   assert.equal(eventVenueLabel("Поле 1 — ліва половина","left",true),"Поле 1 — ліва половина");
 });
 test("atomic constraint conflicts produce a readable retry message", () => {
-  assert.match(safeError({code:"23P01",message:'conflicting key value violates exclusion constraint "events_venue_booking_excl"'}),/^Конфлікт:.*Оновіть/);
+  assert.match(safeError({code:"23P01",message:'conflicting key value violates exclusion constraint "events_venue_booking_excl"'}),/^Конфлікт:.*автоматично/);
   assert.match(safeError({code:"23P01",message:"EVENT_CONFLICT: майданчик зайнятий"}),/^Конфлікт: майданчик/);
 });
 test("operational report includes the booked half with nullable relations", () => {

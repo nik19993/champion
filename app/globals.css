@@ -1219,3 +1219,8 @@ textarea { resize: vertical; }
 .occupancy-bookings li > div { display:grid; gap:4px; min-width:0; overflow-wrap:anywhere; }
 .occupancy-bookings small { color:#777; }
 @media(max-width:600px) { .occupancy-bookings li { align-items:stretch; flex-direction:column; } .test-environment-notice { gap:3px; font-size:12px; } }
+
+/* Full curriculum wording remains readable below the native mobile picker. */
+.task-selection-text { margin: 8px 0 0; font-size: 16px; font-weight: 400; line-height: 1.5; overflow-wrap: anywhere; }
+
+.player-profile-actions { flex-wrap: wrap; justify-content: flex-start; }

@@ -101,7 +101,7 @@ export interface EventItem {
   status: "scheduled" | "cancelled" | "completed";
   groups?: { code: string; display_code?: string | null; cohort_birth_year?: number | null; season?: string | null; age?: number | null; group_kind?: GroupKind } | null;
   venues?: { name: string; parent_venue_id?: string | null } | null;
-  methodology_tasks?: { title: string } | null;
+  methodology_tasks?: { title: string; component?: string | null; description?: string | null } | null;
   attendance_sessions?: { id: string; completed_at?: string | null; server_version?: number } | Array<{ id: string; completed_at?: string | null; server_version?: number }> | null;
   attendance_sync?: "synced" | "pending" | "unknown";
   training_register_completions?: import("./training-register").TrainingRegisterCompletion | import("./training-register").TrainingRegisterCompletion[] | null;
@@ -173,6 +173,9 @@ export interface MonthlyStarAward {
 }
 
 export interface MethodologyTask {
+  audience?: "field" | "goalkeeper";
+  goalkeeper_stage?: string | null;
+  context?: "play" | "standard";
   updated_at: string;
   id: string;
   phase: MethodologyPhase;
@@ -197,6 +200,7 @@ export interface TerminologyEntry {
 }
 
 export interface MethodologySectionMaterial {
+  updated_at?: string;
   id: string;
   section_id: string;
   file_asset_id: string;
@@ -207,6 +211,7 @@ export interface MethodologySectionMaterial {
 }
 
 export interface MethodologySection {
+  bundled_key?: string | null;
   id: string;
   title: string;
   description?: string | null;
@@ -276,7 +281,7 @@ export interface OperationalReportEvent {
   organizational_need?: string | null;
   status?: EventItem["status"];
   venues?: { name: string; parent_venue_id?: string | null } | Array<{ name: string; parent_venue_id?: string | null }> | null;
-  methodology_tasks?: { title: string } | Array<{ title: string }> | null;
+  methodology_tasks?: { title: string; component?: string | null; description?: string | null } | Array<{ title: string }> | null;
   coach?: { full_name: string } | Array<{ full_name: string }> | null;
   substitute?: { full_name: string } | Array<{ full_name: string }> | null;
 }

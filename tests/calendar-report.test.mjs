@@ -28,7 +28,7 @@ const item = {
 test("report shows the exact comment, actual event date, cohort and named coach", () => {
   const row = operationalReportRow(item);
   assert.equal(row.action, item.comment);
-  assert.equal(row.group, "U12A · 2016 р.н.");
+  assert.equal(row.group, "U12A · 2016");
   assert.equal(row.coach, "Тестовий тренер");
   assert.match(row.date, /09\.10\.2026/);
   assert.match(row.context, /Турнір.*Турнір групи.*Тестове поле/);
@@ -38,7 +38,7 @@ test("report accepts array relations and identifies an appointed substitute", ()
   const row = operationalReportRow({ ...item, groups: [item.groups], events: [{ ...item.events, coach: [item.events.coach], substitute: [{ full_name: "Тренер на заміну" }], venues: [item.events.venues], status: "cancelled" }] });
   assert.equal(row.coach, "Тренер на заміну");
   assert.match(row.context, /Скасовано/);
-  assert.equal(row.group, "U12A · 2016 р.н.");
+  assert.equal(row.group, "U12A · 2016");
 });
 
 test("missing report relations never identify the administrator as a coach", () => {

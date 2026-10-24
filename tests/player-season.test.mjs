@@ -12,7 +12,7 @@ test("season labels follow the selected season, preserving the birth cohort and 
   assert.deepEqual(previewSeason(groups, 2026), [{ id: "stable-id", previous: "U11A", next: "U11A", birthYear: 2016, age: 11 }]);
   assert.equal(previewSeason(groups, 2027)[0].next, "U12A");
   assert.deepEqual(groups, original);
-  assert.equal(groupLabel({ ...groups[0], display_code: "U12A" }), "U12A · 2016 р.н.");
+  assert.equal(groupLabel({ ...groups[0], display_code: "U12A" }), "U12A · 2016");
   assert.equal(previewSeason([{ ...groups[0], group_kind: "goalkeeper" }], 2027).length, 0);
   assert.equal(previewSeason([{ ...groups[0], cohort_birth_year: null }], 2027)[0].next, null);
 });
@@ -66,8 +66,8 @@ test("award uses the exact supplied five-figure star and the topic title without
 });
 
 test("award caption omits the patronymic while preserving surname and given name", () => {
-  assert.equal(awardDisplayName("Коваль Марко Андрійович"), "Коваль Марко");
-  assert.equal(awardDisplayName("  Коваль-Гнатюк\tМарко-Іван   Андрійович "), "Коваль-Гнатюк Марко-Іван");
-  assert.equal(awardDisplayName("Яцик Дем’ян"), "Яцик Дем’ян");
-  assert.equal(awardDisplayName("Широкий"), "Широкий");
+  assert.equal(awardDisplayName("Прізвище Ім’я По-батькові"), "Прізвище Ім’я");
+  assert.equal(awardDisplayName("  Прізвище-Одне\tІм’я-Друге   По-батькові "), "Прізвище-Одне Ім’я-Друге");
+  assert.equal(awardDisplayName("Прізвище Ім’я"), "Прізвище Ім’я");
+  assert.equal(awardDisplayName("Прізвище"), "Прізвище");
 });

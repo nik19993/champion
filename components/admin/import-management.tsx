@@ -120,6 +120,7 @@ const universalTemplates = [
 ];
 
 const datasetExcelTemplates: Partial<Record<ImportDataset, { href: string; label: string; format: string }>> = {
+  tasks: { href: "/templates/champion-import-tasks.csv", label: "Погоджений набір завдань U6–U16 та воротарів A/B/C", format: "tasks-CSV" },
   players: { href: "/templates/champion-import-players.xlsx", label: "Excel лише для гравців", format: "players-XLSX" },
   physical_tests: { href: "/templates/champion-import-physical-tests.xlsx", label: "Excel для фізичних тестів", format: "physical-XLSX" },
   game_activity: { href: "/templates/champion-import-game-activity.xlsx", label: "Excel для ігрової діяльності", format: "activity-XLSX" },
@@ -281,6 +282,11 @@ function validateValues(dataset: ImportDataset, values: Record<string, string>) 
     }
   }
   if (dataset === "tasks") {
+    const audience=values.audience || "field";
+    if (!["field","goalkeeper"].includes(audience)) errors.push("Програма: field або goalkeeper.");
+    if (audience === "goalkeeper" && !["A","B","C"].includes(values.goalkeeper_stage || "")) errors.push("Оберіть воротарську групу A, B або C.");
+    if (audience === "field" && (values.age_from !== values.age_to || Number(values.age_from) === 17)) errors.push("Для польових футболістів вкажіть одну категорію U6–U16.");
+    if (values.context && !["play","standard"].includes(values.context)) errors.push("Контекст: play або standard.");
     const from = Number(values.age_from);
     const to = Number(values.age_to);
     if (!Number.isInteger(from) || !Number.isInteger(to) || from < MIN_AGE_GROUP || to > MAX_AGE_GROUP || from > to) {

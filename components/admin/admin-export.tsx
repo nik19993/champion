@@ -166,7 +166,7 @@ export function AdminExport({ client, profile, groups }: Props) {
       const { pdf, photoUnavailable, emblemUnavailable } = await createPlayerProfilePdf({
         fullName: player.full_name,
         details: [
-          ["Дата народження", player.birth_date ? assessmentLabel(player.birth_date) : player.birth_year ? `${player.birth_year} р.н. (повна дата невідома)` : "Не внесено"],
+          ["Дата народження", player.birth_date ? assessmentLabel(player.birth_date) : player.birth_year ? `${player.birth_year} (повна дата невідома)` : "Не внесено"],
           ["Група", playerGroup ? groupLabel(playerGroup) : "Не вказано"],
           ["Амплуа", player.position || "Не внесено"],
           ["Сезон", playerGroup?.season || "Не вказано"],

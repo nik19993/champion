@@ -25,13 +25,16 @@ interface Props {
 }
 
 const emptyForm = {
+  audience: "field" as "field" | "goalkeeper",
+  goalkeeperStage: "A",
+  context: "play" as "play" | "standard",
   phase: "attack" as MethodologyPhase,
   level: "individual" as MethodologyLevel,
   title: "",
   component: "",
   description: "",
   ageFrom: 6,
-  ageTo: MAX_AGE_GROUP,
+  ageTo: 6,
 };
 
 export function EnhancedProgramManagement({ client, profile }: Props) {
@@ -66,6 +69,9 @@ export function EnhancedProgramManagement({ client, profile }: Props) {
   function edit(task: MethodologyTask) {
     setEditingId(task.id);
     setForm({
+      audience: task.audience ?? "field",
+      goalkeeperStage: task.goalkeeper_stage ?? "A",
+      context: task.context ?? "play",
       phase: task.phase,
       level: task.level,
       title: task.title,
@@ -80,12 +86,18 @@ export function EnhancedProgramManagement({ client, profile }: Props) {
   async function save(event: FormEvent) {
     event.preventDefault();
     setMessage(null);
+    if (form.audience === "field" && (form.ageFrom !== form.ageTo || form.ageFrom === 17)) {
+      setMessage({kind:"error",text:"Оберіть одну категорію U6–U16. Завдання U17 формулює тренер."}); return;
+    }
     if (form.ageFrom > form.ageTo) {
       setMessage({ kind: "error", text: "Початковий вік не може бути більшим за кінцевий." });
       return;
     }
 
     const payload = {
+      audience: form.audience,
+      goalkeeper_stage: form.audience === "goalkeeper" ? form.goalkeeperStage : null,
+      context: form.context,
       phase: form.phase,
       level: form.level,
       component: form.component.trim() || null,
@@ -195,6 +207,9 @@ export function EnhancedProgramManagement({ client, profile }: Props) {
             ))}
           </select>
         </label>
+        <label><span>Програма</span><select value={form.audience} onChange={e=>setForm({...form,audience:e.target.value as "field"|"goalkeeper",goalkeeperStage:"A",ageFrom:6,ageTo:e.target.value === "goalkeeper" ? 8 : 6})}><option value="field">Польові футболісти</option><option value="goalkeeper">Воротарі</option></select></label>
+        {form.audience === "goalkeeper" && <label><span>Воротарська група</span><select value={form.goalkeeperStage} onChange={e=>{const stage=e.target.value;const ages=stage==="A"?[6,8]:stage==="B"?[9,12]:[13,16];setForm({...form,goalkeeperStage:stage,ageFrom:ages[0],ageTo:ages[1]});}}>{["A","B","C"].map(stage=><option key={stage}>{stage}</option>)}</select></label>}
+        <label><span>Контекст</span><select value={form.context} onChange={e=>setForm({...form,context:e.target.value as "play"|"standard"})}><option value="play">З гри</option><option value="standard">Стандартні положення</option></select></label>
         <label>
           <span>Назва</span>
           <input

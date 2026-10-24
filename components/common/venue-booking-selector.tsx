@@ -1,7 +1,8 @@
 "use client";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { OFFLINE_MESSAGE, useAutomaticRefresh } from "@/lib/browser/use-automatic-refresh";
 import type { Venue } from "@/lib/domain/types";
 import { formatDateTime } from "@/lib/domain/format";
 import { effectiveVenuePart, VENUE_PART_LABELS, venuePartsOverlap, venueSupportsHalves, type VenueBookingConflict, type VenuePart } from "@/lib/domain/venue-booking";
@@ -25,8 +26,10 @@ export function VenueBookingSelector({ client, venues, venueId, part, startAt, m
   const [refresh, setRefresh] = useState(0);
   const venue = venues.find((item) => item.id === venueId);
   const selectedPart = effectiveVenuePart(venue, part);
-  const key = `${venueId}:${startAt}:${minutes}:${excludeEventId ?? ""}:${checkAvailability}:${refresh}`;
+  const key = `${venueId}:${startAt}:${minutes}:${excludeEventId ?? ""}:${checkAvailability}`;
   const shouldCheck = checkAvailability && Boolean(venueId && startAt && minutes);
+  const reload = useCallback(() => setRefresh((value) => value + 1), []);
+  const online = useAutomaticRefresh(reload, shouldCheck);
   const current = state?.key === key ? state : null;
   const loading = shouldCheck && !current;
   const rows = current?.rows ?? [];
@@ -34,7 +37,7 @@ export function VenueBookingSelector({ client, venues, venueId, part, startAt, m
 
   useEffect(() => { onBlockedChange(Boolean(blocked)); }, [blocked, onBlockedChange]);
   useEffect(() => {
-    if (!shouldCheck) return;
+    if (!shouldCheck || !online) return;
     let active = true;
     const timer = window.setTimeout(() => {
       void Promise.resolve().then(() => client.rpc("venue_booking_conflicts", {
@@ -44,12 +47,7 @@ export function VenueBookingSelector({ client, venues, venueId, part, startAt, m
       }).catch(() => { if (active) setState({ key, rows: [], error: true }); });
     }, 250);
     return () => { active = false; window.clearTimeout(timer); };
-  }, [client, excludeEventId, key, minutes, shouldCheck, startAt, venueId]);
-  useEffect(() => {
-    const reload = () => setRefresh((value) => value + 1);
-    window.addEventListener("focus", reload);
-    return () => window.removeEventListener("focus", reload);
-  }, []);
+  }, [client, excludeEventId, key, minutes, shouldCheck, startAt, venueId, refresh, online]);
 
   const options: VenuePart[] = venue?.parent_venue_id ? [selectedPart] : venueSupportsHalves(venue) ? ["whole", "left", "right"] : ["whole"];
   // Linked legacy entries remain selectable for existing events, while new events use the physical venue.
@@ -61,8 +59,7 @@ export function VenueBookingSelector({ client, venues, venueId, part, startAt, m
       return <option key={option} value={option} disabled={unavailable}>{option === "whole" && (venue?.venue_type === "field" || venue?.venue_type === "small_pitch") ? "Усе поле" : VENUE_PART_LABELS[option]}{unavailable ? " — зайнято" : ""}</option>;
     })}</select></label>}
     {shouldCheck && <div className="venue-availability" role="status" aria-live="polite">
-      {loading ? <p>Перевіряємо зайнятість…</p> : current?.error ? <p>Не вдалося перевірити зайнятість. Спробуйте оновити. Під час збереження сервер повторно перевірить бронювання.</p> : rows.length ? <><p>{blocked ? "Обрана частина недоступна на цей час." : "Обрана частина доступна. Інша частина має бронювання:"}</p><ul>{rows.map((row, index) => <li key={`${row.start_at}:${row.venue_part}:${index}`}>{VENUE_PART_LABELS[row.venue_part]} · {formatDateTime(row.start_at)} — {formatDateTime(row.ends_at)}{row.group_code ? ` · ${row.group_code}` : ""}</li>)}</ul></> : <p>Майданчик доступний на обраний час.</p>}
-      <button type="button" className="secondary-action small" onClick={() => setRefresh((value) => value + 1)}>Оновити зайнятість</button>
+      {!online ? <p>{OFFLINE_MESSAGE}</p> : loading ? <p>Перевіряємо зайнятість…</p> : current?.error ? <p>Не вдалося перевірити зайнятість. Дані оновляться автоматично. Під час збереження сервер повторно перевірить бронювання.</p> : rows.length ? <><p>{blocked ? "Обрана частина недоступна на цей час." : "Обрана частина доступна. Інша частина має бронювання:"}</p><ul>{rows.map((row, index) => <li key={`${row.start_at}:${row.venue_part}:${index}`}>{VENUE_PART_LABELS[row.venue_part]} · {formatDateTime(row.start_at)} — {formatDateTime(row.ends_at)}{row.group_code ? ` · ${row.group_code}` : ""}</li>)}</ul></> : <p>Майданчик доступний на обраний час.</p>}
     </div>}
   </div>;
 }

@@ -33,7 +33,7 @@ export function groupAge(group: SeasonGroup | SeasonGroup[] | null | undefined) 
 
 export function groupLabel(group: SeasonGroup) {
   const code = groupCode(group);
-  return group.cohort_birth_year ? `${code} · ${group.cohort_birth_year} р.н.` : code;
+  return group.cohort_birth_year ? `${code} · ${group.cohort_birth_year}` : code;
 }
 
 export function previewSeason(groups: SeasonGroup[], startYear: number) {

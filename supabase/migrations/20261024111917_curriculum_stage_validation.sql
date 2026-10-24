@@ -1,0 +1,1 @@
+alter table public.methodology_tasks add constraint tasks_audience_stage check ((audience='field' and goalkeeper_stage is null) or (audience='goalkeeper' and goalkeeper_stage is not null and goalkeeper_stage in ('A','B','C')));

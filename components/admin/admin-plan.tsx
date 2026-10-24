@@ -1,5 +1,6 @@
 "use client";
 import { VenueBookingSelector } from "@/components/common/venue-booking-selector";
+import { venueConflictMessage } from "@/lib/supabase/venue-conflict-message";
 import { effectiveVenuePart, normalizeVenuePart, VENUE_SELECT, type VenuePart } from "@/lib/domain/venue-booking";
 
 import { groupCode } from "@/lib/domain/seasons";
@@ -132,7 +133,7 @@ export function AdminEventModal({ client, eventId, onClose, onSaved }: { client:
   async function save(formEvent: FormEvent) {
     formEvent.preventDefault();
     if (!event || busy) return;
-    if (status === "scheduled" && venueBlocked) { setMessage("Конфлікт: обрана частина майданчика зайнята. Виберіть іншу частину або час."); return; }
+    if (status === "scheduled" && venueBlocked) { setMessage(await venueConflictMessage(client, venueId, combineKyivDateTime(date, time), durationMinutes(duration) ?? 60, effectiveVenuePart(venues.find(venue => venue.id === venueId), venuePart), event.id, "Конфлікт: обрана частина майданчика зайнята. Виберіть іншу частину або час.")); return; }
     const minutes = durationMinutes(duration);
     if (minutes == null) { setMessage("Вкажіть цілу тривалість від 15 до 360 хвилин."); return; }
     setBusy(true);
@@ -144,7 +145,11 @@ export function AdminEventModal({ client, eventId, onClose, onSaved }: { client:
     const actorId = userResult.data.user?.id ?? null;
     if (!actorId) { setBusy(false); setMessage("Сесію адміністратора не підтверджено."); return; }
     const result = await client.from("events").update({ start_at: nextStart, duration_minutes: minutes, venue_id: venueId || null, venue_part: effectiveVenuePart(venues.find((venue) => venue.id === venueId), venuePart), coach_id: coachId, substitute_coach_id: substituteId || null, needs_substitute: stillNeedsSubstitute, status, original_start_at: moved ? event.original_start_at ?? event.start_at : event.original_start_at ?? null, is_rescheduled: moved || event.is_rescheduled || false, updated_by: actorId }).eq("id", event.id).select("id").single();
-    if (result.error) { setBusy(false); setMessage(safeError(result.error, "Подію не збережено.")); return; }
+    if (result.error) {
+      const fallback = safeError(result.error, "Подію не збережено.");
+      setMessage(result.error.code === "23P01" ? await venueConflictMessage(client, venueId, nextStart, minutes, effectiveVenuePart(venues.find(venue => venue.id === venueId), venuePart), event.id, fallback) : fallback);
+      setBusy(false); return;
+    }
     await client.from("operational_items").update({ due_at: nextStart }).eq("event_id", event.id).neq("status", "done");
     if (stillNeedsSubstitute) {
       await client.from("operational_items").upsert({ group_id: event.group_id, event_id: event.id, item_type: "coach_substitution", status: "todo", title: "Потрібна заміна тренера", due_at: nextStart, created_by: actorId, dedupe_key: `${event.id}:coach_substitution` }, { onConflict: "dedupe_key" });

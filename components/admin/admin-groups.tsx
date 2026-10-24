@@ -10,7 +10,7 @@ import { SeasonManagement } from "@/components/admin/season-management";
 import { groupCode, groupLabel } from "@/lib/domain/seasons";
 import { PlayerDetails } from "@/components/coach/coach-players";
 import { EVENT_LABELS, formatDate, formatTime, kyivDateKey, kyivMonthBounds } from "@/lib/domain/format";
-import type { EventType, GroupSummary, InventoryItem, Player, UniformStatus } from "@/lib/domain/types";
+import type { EventType, GroupSummary, InventoryItem, Player, Profile, UniformStatus } from "@/lib/domain/types";
 
 interface GroupMetric extends GroupSummary {
   coachName: string;
@@ -78,7 +78,9 @@ function groupCountLabel(count: number) {
   return `${count} ${noun} клубу`;
 }
 
-export function AdminGroups({ client, groups, onRefresh }: { client: SupabaseClient; groups: GroupSummary[]; onRefresh: () => void }) {
+export function AdminGroups({ client, profile, groups, onRefresh }: { client: SupabaseClient; profile: Profile; groups: GroupSummary[]; onRefresh: () => void }) {
+  const [archiveOpen, setArchiveOpen] = useState(false);
+  const [rosterVersion, setRosterVersion] = useState(0);
   const [metrics, setMetrics] = useState<GroupMetric[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -117,7 +119,43 @@ export function AdminGroups({ client, groups, onRefresh }: { client: SupabaseCli
   }, [client, groups]);
   useEffect(() => { void load(); }, [load]);
 
-  return <div className="workspace-stack"><WorkspaceHeader eyebrow={groupCountLabel(groups.length)} title="Групи" description="Натисніть на групу, щоб переглянути склад команди та дані гравців" /><SeasonManagement client={client} groups={groups} onSaved={onRefresh} />{error && <StatusMessage kind="warning">{error}</StatusMessage>}{loading ? <LoadingState /> : metrics.length ? <div className="group-admin-grid">{metrics.map((group) => <article key={group.id} className="group-admin-card"><button type="button" className="group-card-main" onClick={() => setDetailsGroup(group)} aria-label={`Відкрити групу ${groupCode(group)}`}><header><div><span className="group-code">{groupLabel(group)}</span><h2>{group.competition_format || (group.group_kind === "goalkeeper" ? "Спеціалізована підготовка воротарів" : "Формат не вказано")}</h2></div><ChevronRight aria-hidden="true" /></header><p className="coach-line"><Users size={17} />{group.coachName}</p><div className="group-metrics"><div><Users /><span><b>{group.playerCount}</b><small>гравців</small></span></div><div><CalendarDays /><span><b>{group.trainingCount}</b><small>тренувань</small></span></div><div><ClipboardCheck /><span><b>{group.attendancePercent === null ? "—" : `${group.attendancePercent}%`}</b><small>відвідування</small></span></div></div><span className="group-open-label">Відкрити групу<ChevronRight size={17} aria-hidden="true" /></span></button><div className="group-card-actions"><button type="button" className="secondary-action" onClick={() => setFormatGroup(group)}><Pencil size={17} />Формат</button><button type="button" className="secondary-action" onClick={() => setInventoryGroup(group)}><Boxes size={17} />Інвентар</button></div></article>)}</div> : <EmptyState title="Групи не створено" />}{detailsGroup && !selectedPlayer && <GroupDetailsModal client={client} group={detailsGroup} onClose={() => setDetailsGroup(null)} onPlayerOpen={(player, photoUrl) => setSelectedPlayer({ player, photoUrl })} />}{selectedPlayer && <PlayerDetails client={client} player={selectedPlayer.player} photoUrl={selectedPlayer.photoUrl} onClose={() => setSelectedPlayer(null)} />}{formatGroup && <GroupFormatModal client={client} group={formatGroup} onClose={() => setFormatGroup(null)} onSaved={() => { setFormatGroup(null); onRefresh(); void load(); }} />}{inventoryGroup && <GroupInventoryModal client={client} group={inventoryGroup} onClose={() => setInventoryGroup(null)} />}</div>;
+  return <div className="workspace-stack"><WorkspaceHeader eyebrow={groupCountLabel(groups.length)} title="Групи" description="Натисніть на групу, щоб переглянути склад команди та дані гравців" actions={<button type="button" className="secondary-action" onClick={() => setArchiveOpen(true)}>Архів гравців</button>} /><SeasonManagement client={client} groups={groups} onSaved={onRefresh} />{error && <StatusMessage kind="warning">{error}</StatusMessage>}{loading ? <LoadingState /> : metrics.length ? <div className="group-admin-grid">{metrics.map((group) => <article key={group.id} className="group-admin-card"><button type="button" className="group-card-main" onClick={() => setDetailsGroup(group)} aria-label={`Відкрити групу ${groupCode(group)}`}><header><div><span className="group-code">{groupLabel(group)}</span><h2>{group.competition_format || (group.group_kind === "goalkeeper" ? "Спеціалізована підготовка воротарів" : "Формат не вказано")}</h2></div><ChevronRight aria-hidden="true" /></header><p className="coach-line"><Users size={17} />{group.coachName}</p><div className="group-metrics"><div><Users /><span><b>{group.playerCount}</b><small>гравців</small></span></div><div><CalendarDays /><span><b>{group.trainingCount}</b><small>тренувань</small></span></div><div><ClipboardCheck /><span><b>{group.attendancePercent === null ? "—" : `${group.attendancePercent}%`}</b><small>відвідування</small></span></div></div><span className="group-open-label">Відкрити групу<ChevronRight size={17} aria-hidden="true" /></span></button><div className="group-card-actions"><button type="button" className="secondary-action" onClick={() => setFormatGroup(group)}><Pencil size={17} />Формат</button><button type="button" className="secondary-action" onClick={() => setInventoryGroup(group)}><Boxes size={17} />Інвентар</button></div></article>)}</div> : <EmptyState title="Групи не створено" />}{detailsGroup && !selectedPlayer && <GroupDetailsModal key={rosterVersion} client={client} group={detailsGroup} onClose={() => setDetailsGroup(null)} onPlayerOpen={(player, photoUrl) => setSelectedPlayer({ player, photoUrl })} />}{selectedPlayer && <PlayerDetails client={client} profile={profile} transferGroups={groups} onProfileSaved={() => { setSelectedPlayer(null); setRosterVersion(value => value + 1); void load(); }} player={selectedPlayer.player} photoUrl={selectedPlayer.photoUrl} onClose={() => setSelectedPlayer(null)} />}{archiveOpen && <ArchivedPlayers client={client} onClose={() => setArchiveOpen(false)} onPlayerOpen={(player, photoUrl) => { setArchiveOpen(false); setSelectedPlayer({player,photoUrl}); }} />}{formatGroup && <GroupFormatModal client={client} group={formatGroup} onClose={() => setFormatGroup(null)} onSaved={() => { setFormatGroup(null); onRefresh(); void load(); }} />}{inventoryGroup && <GroupInventoryModal client={client} group={inventoryGroup} onClose={() => setInventoryGroup(null)} />}</div>;
+}
+
+function ArchivedPlayers({client,onClose,onPlayerOpen}: {client:SupabaseClient;onClose:()=>void;onPlayerOpen:(player:AdminGroupPlayer, photoUrl?:string)=>void}) {
+  const [rows,setRows]=useState<AdminGroupPlayer[]>([]);
+  const [loading,setLoading]=useState(true);
+  const [error,setError]=useState<string|null>(null);
+  const [search,setSearch]=useState("");
+  useEffect(()=>{
+    let active=true;
+    void (async()=>{
+      try {
+        const all:AdminGroupPlayer[]=[];
+        for(let offset=0;;offset+=500){
+          const result=await client.from("players").select("*, groups(code, display_code, cohort_birth_year, season), player_photos(is_current, file_assets(bucket, object_path))").eq("is_active",false).order("full_name").order("id").range(offset,offset+499);
+          if(result.error)throw result.error;
+          const page=(result.data??[]) as unknown as AdminGroupPlayer[];
+          all.push(...page);
+          if(page.length<500)break;
+        }
+        if(active)setRows(all);
+      } catch {if(active)setError("Не вдалося завантажити архів гравців.");}
+      finally {if(active)setLoading(false);}
+    })();
+    return ()=>{active=false;};
+  },[client]);
+  const filtered=rows.filter(row=>row.full_name.toLocaleLowerCase("uk-UA").includes(search.trim().toLocaleLowerCase("uk-UA")));
+  async function open(player:AdminGroupPlayer){
+    const asset=player.player_photos?.find(photo=>photo.is_current)?.file_assets;
+    let photoUrl:string|undefined;
+    if(asset){
+      const result=await client.storage.from(asset.bucket).createSignedUrl(asset.object_path,600);
+      photoUrl=result.data?.signedUrl;
+    }
+    onPlayerOpen(player,photoUrl);
+  }
+  return <Modal title="Архів гравців" onClose={onClose} wide><p>Профілі гравців, вилучених з активного складу. Історичні дані збережені.</p><SearchField value={search} onChange={setSearch} placeholder="Пошук гравця" />{error&&<StatusMessage kind="error">{error}</StatusMessage>}{loading?<LoadingState />:filtered.length?<div className="compact-list">{filtered.map(player=><article key={player.id}><div><b>{player.full_name}</b><small>{groupCode(player.groups)}</small></div><button className="secondary-action" type="button" onClick={()=>void open(player)}>Відкрити профіль</button></article>)}</div>:<EmptyState title="Архівних гравців не знайдено" />}</Modal>;
 }
 
 function GroupDetailsModal({ client, group, onClose, onPlayerOpen }: { client: SupabaseClient; group: GroupMetric; onClose: () => void; onPlayerOpen: (player: AdminGroupPlayer, photoUrl?: string) => void }) {

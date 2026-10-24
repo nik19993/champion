@@ -3,6 +3,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AdminEventModal } from "@/components/admin/admin-plan";
+import { OFFLINE_MESSAGE, useAutomaticRefresh } from "@/lib/browser/use-automatic-refresh";
 import { EmptyState, LoadingState, StatusMessage, WorkspaceHeader } from "@/components/common/workspace-ui";
 import { combineKyivDateTime, EVENT_LABELS, formatTime, kyivDateKey } from "@/lib/domain/format";
 import { firstRelation } from "@/lib/domain/operational-report";
@@ -28,10 +29,10 @@ export function VenueOccupancy({client}:{client:SupabaseClient}) {
   const start=date?new Date(combineKyivDateTime(date,"09:00")).getTime():NaN;
   const end=date?new Date(combineKyivDateTime(date,"21:00")).getTime():NaN;
   const minutes=Number(minimum),validDuration=/^\d+$/.test(minimum)&&minutes>=15&&minutes<=360;
-  const load=useCallback(async()=>{
+  const load=useCallback(async(silent=false)=>{
     const ticket=++request.current;
     if(!Number.isFinite(start)||!Number.isFinite(end)){setLoading(false);setError("Оберіть дату.");return;}
-    setLoading(true);setError(null);
+    if(!silent)setLoading(true);setError(null);
     try {
       const venues=await client.from("venues").select(VENUE_SELECT).order("name");
       if(venues.error||!Array.isArray(venues.data))throw Error();
@@ -48,18 +49,20 @@ export function VenueOccupancy({client}:{client:SupabaseClient}) {
       if(new Set(bookings.map(row=>row.id)).size!==bookings.length)throw Error();
       for(const row of bookings)if(!Number.isFinite(Date.parse(row.start_at))||!Number.isFinite(Date.parse(row.ends_at))||Date.parse(row.ends_at)<=Date.parse(row.start_at))throw Error();
       if(ticket===request.current)setData({venues:venues.data as Venue[],bookings});
-    } catch {if(ticket===request.current)setError("Не вдалося повністю перевірити завантаженість. Оновіть дані перед пошуком вільного часу.");}
+    } catch {if(ticket===request.current)setError("Не вдалося повністю перевірити завантаженість. Дані оновляться автоматично; попередні дані можуть бути неактуальними.");}
     finally {if(ticket===request.current)setLoading(false);}
   },[client,end,start]);
   const invalidateRequests=useCallback(()=>{request.current++;},[]);
   useEffect(()=>{void load();return invalidateRequests;},[invalidateRequests,load]);
-  useEffect(()=>{const refresh=()=>void load();window.addEventListener("focus",refresh);return()=>window.removeEventListener("focus",refresh);},[load]);
+  const refresh=useCallback(()=>load(true),[load]);
+  const online=useAutomaticRefresh(refresh);
   const visible=(data?.venues??[]).filter(venue=>!venue.parent_venue_id&&(venue.is_active||data?.bookings.some(row=>(row.booking_venue_id??row.venue_id)===venue.id)));
   return <div className="workspace-stack">
     <WorkspaceHeader eyebrow="Завантаженість і вільний час" title="Майданчики" description="Усі поля та зали · 09:00–21:00 за київським часом" />
-    <section className="filter-bar"><label><span>Дата</span><input type="date" value={date} onChange={event=>setDate(event.target.value)} /></label><label><span>Потрібна тривалість, хв</span><input type="text" inputMode="numeric" value={minimum} onChange={event=>{if(/^\d*$/.test(event.target.value))setMinimum(event.target.value);}} /></label><button type="button" className="secondary-action" disabled={loading} onClick={()=>void load()}>Оновити завантаженість</button></section>
+    <section className="filter-bar"><label><span>Дата</span><input type="date" value={date} onChange={event=>setDate(event.target.value)} /></label><label><span>Потрібна тривалість, хв</span><input type="text" inputMode="numeric" value={minimum} onChange={event=>{if(/^\d*$/.test(event.target.value))setMinimum(event.target.value);}} /></label></section>
+    {!online&&<p className="muted" role="status">{OFFLINE_MESSAGE}</p>}
     {!validDuration&&<StatusMessage kind="warning">Для пошуку вільного часу вкажіть від 15 до 360 хвилин.</StatusMessage>}
-    {loading?<LoadingState />:error?<StatusMessage kind="error">{error}</StatusMessage>:!visible.length?<EmptyState title="Майданчиків ще немає" />:<div className="occupancy-venues">{visible.map(venue=>{
+    {loading?<LoadingState />:error&&online?<StatusMessage kind="error">{error}</StatusMessage>:!visible.length?<EmptyState title="Майданчиків ще немає" />:<div className="occupancy-venues">{visible.map(venue=>{
       const bookings=data!.bookings.filter(row=>(row.booking_venue_id??row.venue_id)===venue.id).sort((a,b)=>a.start_at.localeCompare(b.start_at));
       const parts:VenuePart[]=venueSupportsHalves(venue)?["whole","left","right"]:["whole"];
       return <section className="panel-section occupancy-venue" key={venue.id}>
