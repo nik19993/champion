@@ -1,0 +1,27 @@
+{
+  "date": "2026-10-25",
+  "source_commit": "324a928a64b242227e83d85ec0b6460e2c3aa4a2",
+  "active_tasks": 349,
+  "field_tasks": 284,
+  "goalkeeper_tasks": 65,
+  "age_counts": {
+    "6": 16,
+    "7": 20,
+    "8": 26,
+    "9": 30,
+    "10": 29,
+    "11": 30,
+    "12": 30,
+    "13": 26,
+    "14": 26,
+    "15": 29,
+    "16": 22
+  },
+  "task_records_updated": 18,
+  "task_records_moved": 13,
+  "files": {
+    "supabase/seed/approved_curriculum_20261024.json": "055872681a8fd72c979e4a4aa619fb69ad0607c3fa0a35fdddb790d3a2f44ad5",
+    "release/2026-10-25/redistribute_curriculum.sql": "bfec676f3dacbeec27266945f8de9ff79a17a6fa435909ab870d13c929a4d7e3",
+    "public/materials/Champion_Learning_Tasks_20261025.docx": "299525d2a3ec92e69b7b2a887f25e19133accd3af6b395b596284220f4eb7fcf"
+  }
+}
