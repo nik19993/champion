@@ -1,4 +1,5 @@
 "use client";
+import { AdminPlanSchedule } from "@/components/admin/admin-plan-schedules";
 import { VenueBookingSelector } from "@/components/common/venue-booking-selector";
 import { venueConflictMessage } from "@/lib/supabase/venue-conflict-message";
 import { effectiveVenuePart, normalizeVenuePart, VENUE_SELECT, type VenuePart } from "@/lib/domain/venue-booking";
@@ -10,11 +11,78 @@ import { firstRelation, operationalReportRow, OPERATIONAL_REPORT_SELECT } from "
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { CalendarClock, CalendarRange, CheckCircle2, CircleDashed, TriangleAlert } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { EmptyState, LoadingState, Modal, Pill, StatusMessage, WorkspaceHeader } from "@/components/common/workspace-ui";
+import { EmptyState, LoadingState, Modal, Pill, StatusMessage, Tabs, WorkspaceHeader } from "@/components/common/workspace-ui";
 import { combineKyivDateTime, EVENT_LABELS, formatDateTime, OPERATIONAL_STATUS_LABELS, OPERATIONAL_TYPE_LABELS, safeError, toKyivDateInput, toKyivTimeInput } from "@/lib/domain/format";
 import type { EventItem, OperationalItem, OperationalStatus, Profile, Venue } from "@/lib/domain/types";
 
 type RangeMode = "7" | "10" | "30" | "month" | "custom";
+type PlanTab = "attention" | "classes" | "locations";
+
+const planTabs: { value: PlanTab; label: string }[] = [
+  { value: "attention", label: "Потребують уваги" },
+  { value: "classes", label: "Розклад занять" },
+  { value: "locations", label: "Розклад локацій" },
+];
+
+type Related<T> = T | T[] | null;
+type Contact = Pick<Profile, "full_name" | "last_name" | "role" | "status">;
+type ContactAssignment = {
+  is_active: boolean;
+  valid_from: string | null;
+  valid_to: string | null;
+  coach: Related<Contact>;
+};
+type AttentionItem = Omit<OperationalItem, "groups" | "events" | "creator"> & {
+  groups: Related<{
+    code: string;
+    display_code: string | null;
+    cohort_birth_year: number | null;
+    season: string | null;
+    coach_group_assignments: ContactAssignment[];
+  }>;
+  events: Related<Pick<EventItem, "start_at" | "event_type"> & {
+    coach: Related<Contact>;
+    substitute: Related<Contact>;
+  }>;
+  assigned: Related<Contact>;
+  creator: Related<Contact>;
+};
+
+const CONTACT_FIELDS = "full_name, last_name, role, status";
+const ATTENTION_SELECT = `
+  id, group_id, event_id, item_type, status, title, comment, due_at, created_at,
+  assigned:profiles!operational_items_assigned_to_fkey(${CONTACT_FIELDS}),
+  creator:profiles!operational_items_created_by_fkey(${CONTACT_FIELDS}),
+  groups(code, display_code, cohort_birth_year, season,
+    coach_group_assignments!coach_group_assignments_group_id_fkey(
+      is_active, valid_from, valid_to, coach:profiles!coach_group_assignments_coach_id_fkey(${CONTACT_FIELDS})
+    )
+  ),
+  events(start_at, event_type, coach:profiles!events_coach_id_fkey(${CONTACT_FIELDS}),
+    substitute:profiles!events_substitute_coach_id_fkey(${CONTACT_FIELDS})
+  )
+`;
+
+function coachLabel(contact: Contact | null) {
+  return contact?.role === "coach" && contact.status === "active"
+    ? contact.last_name?.trim() || contact.full_name.trim()
+    : "";
+}
+
+function attentionCoachLabel(item: AttentionItem, today: string) {
+  const event = firstRelation(item.events);
+  const contact = [item.assigned, event?.substitute, event?.coach, item.creator]
+    .map((profile) => coachLabel(firstRelation(profile)))
+    .find(Boolean);
+  if (contact) return contact;
+
+  const assignments = firstRelation(item.groups)?.coach_group_assignments ?? [];
+  const groupCoaches = assignments
+    .filter((row) => row.is_active && (!row.valid_from || row.valid_from <= today) && (!row.valid_to || row.valid_to >= today))
+    .map((row) => coachLabel(firstRelation(row.coach)))
+    .filter(Boolean);
+  return [...new Set(groupCoaches)].join(", ") || "Тренера не вказано";
+}
 
 function rangeFor(mode: RangeMode, customStart: string, customEnd: string) {
   const start = mode === "custom" && customStart ? new Date(`${customStart}T00:00:00`) : new Date();
@@ -32,24 +100,38 @@ function rangeFor(mode: RangeMode, customStart: string, customEnd: string) {
 }
 
 export function AdminPlan({ client }: { client: SupabaseClient }) {
+  const [tab, setTab] = useState<PlanTab>("attention");
+
+  return <div className="workspace-stack">
+    <WorkspaceHeader title="План адміністратора" />
+    <Tabs items={planTabs} value={tab} onChange={setTab} label="План адміністратора" />
+    <div hidden={tab !== "attention"}>
+      <AdminAttention client={client} />
+    </div>
+    {tab !== "attention" && <AdminPlanSchedule key={tab} client={client} kind={tab} />}
+  </div>;
+}
+
+function AdminAttention({ client }: { client: SupabaseClient }) {
   const [mode, setMode] = useState<RangeMode>("7");
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
-  const [items, setItems] = useState<OperationalItem[]>([]);
+  const [items, setItems] = useState<AttentionItem[]>([]);
   const [openedEventId, setOpenedEventId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const range = useMemo(() => rangeFor(mode, customStart, customEnd), [customEnd, customStart, mode]);
+  const today = toKyivDateInput(new Date());
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
-    const result = await client.from("operational_items").select("id, group_id, event_id, item_type, status, title, comment, due_at, created_at, groups(code, display_code, cohort_birth_year, season), events(start_at, event_type)").neq("item_type", "conflict").order("status").order("created_at", { ascending: false }).limit(1000);
+    const result = await client.from("operational_items").select(ATTENTION_SELECT).neq("item_type", "conflict").order("status").order("created_at", { ascending: false }).limit(1000);
     setLoading(false);
     if (result.error) { setError("Не вдалося завантажити операційний план."); return; }
     const start = range.start.getTime();
     const end = range.end.getTime();
-    setItems(((result.data ?? []) as unknown as OperationalItem[]).filter((item) => {
+    setItems(((result.data ?? []) as unknown as AttentionItem[]).filter((item) => {
       const relevantAt = item.due_at ?? firstRelation(item.events)?.start_at ?? item.created_at;
       const timestamp = new Date(relevantAt).getTime();
       return timestamp >= start && timestamp <= end;
@@ -65,7 +147,6 @@ export function AdminPlan({ client }: { client: SupabaseClient }) {
   }
 
   return <div className="workspace-stack">
-    <WorkspaceHeader eyebrow="Операційне керування" title="План адміністратора" description="Тільки ситуації, які потребують уваги або рішення" />
     <section className="filter-bar">
       <label><span>Період</span><select value={mode} onChange={(event) => setMode(event.target.value as RangeMode)}><option value="7">7 днів</option><option value="10">10 днів</option><option value="30">30 днів</option><option value="month">Поточний місяць</option><option value="custom">Власний діапазон</option></select></label>
       {mode === "custom" && <><label><span>Від</span><input type="date" value={customStart} onChange={(event) => setCustomStart(event.target.value)} /></label><label><span>До</span><input type="date" value={customEnd} onChange={(event) => setCustomEnd(event.target.value)} /></label></>}
@@ -74,7 +155,7 @@ export function AdminPlan({ client }: { client: SupabaseClient }) {
     {error && <StatusMessage kind="error">{error}</StatusMessage>}
     {loading ? <LoadingState /> : items.length ? <div className="operational-list">{items.map((item) => <article key={item.id} className={item.item_type === "coach_substitution" ? "substitution" : ""}>
       <div className="operational-icon">{item.item_type === "coach_substitution" || item.item_type === "conflict" ? <TriangleAlert /> : item.status === "done" ? <CheckCircle2 /> : <CircleDashed />}</div>
-      <div className="operational-copy"><div><Pill tone={item.item_type === "coach_substitution" ? "danger" : "warning"}>{OPERATIONAL_TYPE_LABELS[item.item_type]}</Pill><Pill tone="plum">{groupCode(item.groups)}</Pill></div><h2>{item.title}</h2>{item.comment && <p>{item.comment}</p>}<small>{formatDateTime(firstRelation(item.events)?.start_at ?? item.created_at)}</small></div>
+      <div className="operational-copy"><div><Pill tone={item.item_type === "coach_substitution" ? "danger" : "warning"}>{OPERATIONAL_TYPE_LABELS[item.item_type]}</Pill><Pill tone="plum">{groupCode(item.groups)}</Pill><Pill tone="neutral">{attentionCoachLabel(item, today)}</Pill></div><h2>{item.title}</h2>{item.comment && <p>{item.comment}</p>}<small>{formatDateTime(firstRelation(item.events)?.start_at ?? item.created_at)}</small></div>
       <div className="operational-actions">{item.event_id && <button type="button" className="secondary-action" onClick={() => setOpenedEventId(item.event_id ?? null)}><CalendarClock size={17} />Відкрити подію</button>}<label className="status-select"><span>Стан</span><select value={item.status} onChange={(event) => void updateStatus(item.id, event.target.value as OperationalStatus)}>{Object.entries(OPERATIONAL_STATUS_LABELS).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label></div>
     </article>)}</div> : <EmptyState title="За вибраний період ситуацій немає" />}
     {openedEventId && <AdminEventModal client={client} eventId={openedEventId} onClose={() => setOpenedEventId(null)} onSaved={() => { setOpenedEventId(null); void load(); }} />}
