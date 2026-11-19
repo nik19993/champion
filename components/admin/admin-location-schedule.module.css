@@ -1,0 +1,18 @@
+.locations {
+  background: var(--surface);
+}
+
+.locations .table {
+  min-width: 0;
+}
+
+.locations th[scope="row"] {
+  white-space: nowrap;
+}
+
+@media (max-width: 560px) {
+  .locations .table th,
+  .locations .table td {
+    padding: 9px 7px;
+  }
+}

@@ -30,7 +30,7 @@ export interface GroupSummary {
   id: string;
   code: string;
   age: number | null;
-  team_suffix?: "A" | "B" | "C" | null;
+  team_suffix?: string | null;
   group_kind: GroupKind;
   competition_format?: string | null;
   regulation_source?: string | null;
@@ -225,6 +225,7 @@ export interface TrainingStructure {
   name: string;
   age_from: number;
   age_to: number;
+  max_duration_minutes: number | null;
   is_active: boolean;
   training_structure_steps?: TrainingStructureStep[];
 }
@@ -233,7 +234,8 @@ export interface TrainingStructureStep {
   id: string;
   structure_id: string;
   position: number;
-  duration_minutes: number;
+  duration_minutes: number | null;
+  is_optional: boolean;
   title: string;
   description?: string | null;
 }

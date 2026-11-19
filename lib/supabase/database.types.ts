@@ -10,7 +10,7 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.18"
+    PostgrestVersion: "14.17"
   }
   public: {
     Tables: {
@@ -342,6 +342,7 @@ export type Database = {
         Row: {
           assignment_role: Database["public"]["Enums"]["assignment_role"]
           coach_id: string
+          coach_slot: number
           created_at: string
           created_by: string | null
           group_id: string
@@ -354,6 +355,7 @@ export type Database = {
         Insert: {
           assignment_role?: Database["public"]["Enums"]["assignment_role"]
           coach_id: string
+          coach_slot?: number
           created_at?: string
           created_by?: string | null
           group_id: string
@@ -366,6 +368,7 @@ export type Database = {
         Update: {
           assignment_role?: Database["public"]["Enums"]["assignment_role"]
           coach_id?: string
+          coach_slot?: number
           created_at?: string
           created_by?: string | null
           group_id?: string
@@ -2250,6 +2253,71 @@ export type Database = {
           },
         ]
       }
+      player_group_memberships: {
+        Row: {
+          active_from: string
+          active_to: string | null
+          created_at: string
+          created_by: string | null
+          group_id: string
+          id: string
+          player_id: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          active_from?: string
+          active_to?: string | null
+          created_at?: string
+          created_by?: string | null
+          group_id: string
+          id?: string
+          player_id: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          active_from?: string
+          active_to?: string | null
+          created_at?: string
+          created_by?: string | null
+          group_id?: string
+          id?: string
+          player_id?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "player_group_memberships_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "player_group_memberships_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "groups"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "player_group_memberships_player_id_fkey"
+            columns: ["player_id"]
+            isOneToOne: false
+            referencedRelation: "players"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "player_group_memberships_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       player_photos: {
         Row: {
           created_at: string
@@ -2562,8 +2630,9 @@ export type Database = {
           created_at: string
           created_by: string | null
           description: string | null
-          duration_minutes: number
+          duration_minutes: number | null
           id: string
+          is_optional: boolean
           position: number
           structure_id: string
           title: string
@@ -2574,8 +2643,9 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           description?: string | null
-          duration_minutes: number
+          duration_minutes?: number | null
           id?: string
+          is_optional?: boolean
           position: number
           structure_id: string
           title: string
@@ -2586,8 +2656,9 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           description?: string | null
-          duration_minutes?: number
+          duration_minutes?: number | null
           id?: string
+          is_optional?: boolean
           position?: number
           structure_id?: string
           title?: string
@@ -2626,6 +2697,7 @@ export type Database = {
           created_by: string | null
           id: string
           is_active: boolean
+          max_duration_minutes: number | null
           name: string
           updated_at: string
           updated_by: string | null
@@ -2637,6 +2709,7 @@ export type Database = {
           created_by?: string | null
           id?: string
           is_active?: boolean
+          max_duration_minutes?: number | null
           name: string
           updated_at?: string
           updated_by?: string | null
@@ -2648,6 +2721,7 @@ export type Database = {
           created_by?: string | null
           id?: string
           is_active?: boolean
+          max_duration_minutes?: number | null
           name?: string
           updated_at?: string
           updated_by?: string | null
@@ -2777,6 +2851,7 @@ export type Database = {
           admin_note: string | null
           created_at: string
           id: string
+          issued_at: string | null
           number: number | null
           player_id: string
           requested_by: string | null
@@ -2789,6 +2864,7 @@ export type Database = {
           admin_note?: string | null
           created_at?: string
           id?: string
+          issued_at?: string | null
           number?: number | null
           player_id: string
           requested_by?: string | null
@@ -2801,6 +2877,7 @@ export type Database = {
           admin_note?: string | null
           created_at?: string
           id?: string
+          issued_at?: string | null
           number?: number | null
           player_id?: string
           requested_by?: string | null
@@ -2929,6 +3006,10 @@ export type Database = {
         Args: { p_coach_id: string; p_group_ids: string[] }
         Returns: undefined
       }
+      admin_set_coach_group: {
+        Args: { p_assigned: boolean; p_coach_id: string; p_group_id: string }
+        Returns: undefined
+      }
       advance_club_season: {
         Args: { p_expected_start_year: number; p_next_start_year: number }
         Returns: number
@@ -2970,9 +3051,50 @@ export type Database = {
         Returns: Json
       }
       confirm_import_job: { Args: { p_job_id: string }; Returns: number }
+      create_age_group: {
+        Args: { p_age: number; p_request_id: string; p_team_suffix: string }
+        Returns: {
+          age: number | null
+          code: string
+          cohort_birth_year: number | null
+          competition_format: string | null
+          created_at: string
+          display_age: number | null
+          display_code: string | null
+          group_kind: string
+          id: string
+          is_active: boolean
+          regulation_source: string | null
+          regulation_verified_on: string | null
+          season: string | null
+          team_suffix: string | null
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "groups"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      event_player_roster: {
+        Args: { p_event_id: string }
+        Returns: {
+          full_name: string
+          historical: boolean
+          id: string
+        }[]
+      }
       finalize_coach_deletion: {
         Args: { p_admin_id: string; p_coach_id: string; p_reason?: string }
         Returns: Json
+      }
+      group_player_ids: {
+        Args: { p_group_id: string; p_on_date?: string }
+        Returns: {
+          player_id: string
+          primary_group_code: string
+        }[]
       }
       initialize_club_season: {
         Args: { p_cohorts: Json; p_start_year: number }
@@ -2985,6 +3107,16 @@ export type Database = {
       move_training_step: {
         Args: { p_direction: number; p_step_id: string }
         Returns: undefined
+      }
+      player_group_labels: {
+        Args: { p_player_id: string }
+        Returns: {
+          active_from: string
+          active_to: string
+          code: string
+          group_id: string
+          is_primary: boolean
+        }[]
       }
       record_club_card: {
         Args: { p_comment?: string; p_event_id: string; p_player_id: string }
@@ -3068,6 +3200,14 @@ export type Database = {
           p_number: number
           p_player_id: string
           p_surname_print: string
+        }
+        Returns: string
+      }
+      set_player_goalkeeper_group: {
+        Args: {
+          p_expected_group_id?: string
+          p_group_id: string
+          p_player_id: string
         }
         Returns: string
       }

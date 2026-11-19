@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { OFFLINE_MESSAGE, useAutomaticRefresh } from "@/lib/browser/use-automatic-refresh";
 import type { Venue } from "@/lib/domain/types";
 import { formatDateTime } from "@/lib/domain/format";
-import { effectiveVenuePart, VENUE_PART_LABELS, venuePartsOverlap, venueSupportsHalves, type VenueBookingConflict, type VenuePart } from "@/lib/domain/venue-booking";
+import { effectiveVenuePart, isAwayVenue, VENUE_PART_LABELS, venuePartsOverlap, venueSupportsHalves, type VenueBookingConflict, type VenuePart } from "@/lib/domain/venue-booking";
 
 interface Props {
   client: SupabaseClient;
@@ -25,9 +25,10 @@ export function VenueBookingSelector({ client, venues, venueId, part, startAt, m
   const [state, setState] = useState<{ key: string; rows: VenueBookingConflict[]; error: boolean } | null>(null);
   const [refresh, setRefresh] = useState(0);
   const venue = venues.find((item) => item.id === venueId);
+  const away = isAwayVenue(venue);
   const selectedPart = effectiveVenuePart(venue, part);
   const key = `${venueId}:${startAt}:${minutes}:${excludeEventId ?? ""}:${checkAvailability}`;
-  const shouldCheck = checkAvailability && Boolean(venueId && startAt && minutes);
+  const shouldCheck = !away && checkAvailability && Boolean(venueId && startAt && minutes);
   const reload = useCallback(() => setRefresh((value) => value + 1), []);
   const online = useAutomaticRefresh(reload, shouldCheck);
   const current = state?.key === key ? state : null;
@@ -54,7 +55,7 @@ export function VenueBookingSelector({ client, venues, venueId, part, startAt, m
   const selectableVenues = venues.filter((item) => (item.is_active || item.id === venueId) && (!item.parent_venue_id || item.id === venueId));
   return <div className="span-2 venue-booking-fields">
     <label><span>Поле або майданчик</span><select aria-label="Поле або майданчик" value={venueId} onChange={(event) => onVenueChange(event.target.value)}><option value="">Не вказано</option>{selectableVenues.map((item) => <option key={item.id} value={item.id}>{item.name}{item.is_active ? "" : " · неактивний"}</option>)}</select></label>
-    {venueId && <label><span>Частина майданчика</span><select aria-label="Частина майданчика" value={selectedPart} onChange={(event) => onPartChange(event.target.value as VenuePart)}>{options.map((option) => {
+    {venueId && !away && <label><span>Частина майданчика</span><select aria-label="Частина майданчика" value={selectedPart} onChange={(event) => onPartChange(event.target.value as VenuePart)}>{options.map((option) => {
       const unavailable = checkAvailability && rows.some((row) => venuePartsOverlap(option, row.venue_part));
       return <option key={option} value={option} disabled={unavailable}>{option === "whole" && (venue?.venue_type === "field" || venue?.venue_type === "small_pitch") ? "Усе поле" : VENUE_PART_LABELS[option]}{unavailable ? " — зайнято" : ""}</option>;
     })}</select></label>}

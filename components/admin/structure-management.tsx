@@ -9,6 +9,7 @@ import {
   RotateCcw,
 } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useState } from "react";
+import { TrainingStepDescription } from "@/components/common/training-step-description";
 import { EmptyState, Pill, StatusMessage } from "@/components/common/workspace-ui";
 import { MAX_AGE_GROUP } from "@/lib/domain/age-groups";
 import type {
@@ -29,9 +30,11 @@ export function EnhancedStructureManagement({ client, profile }: Props) {
   const [name, setName] = useState("");
   const [ageFrom, setAgeFrom] = useState(6);
   const [ageTo, setAgeTo] = useState(8);
+  const [maxDuration, setMaxDuration] = useState("");
   const [stepId, setStepId] = useState<string | null>(null);
   const [stepTitle, setStepTitle] = useState("");
-  const [duration, setDuration] = useState(10);
+  const [duration, setDuration] = useState("");
+  const [isOptional, setIsOptional] = useState(false);
   const [description, setDescription] = useState("");
   const [message, setMessage] = useState<{
     kind: "success" | "error";
@@ -42,7 +45,7 @@ export function EnhancedStructureManagement({ client, profile }: Props) {
     const result = await client
       .from("training_structures")
       .select(
-        "id, name, age_from, age_to, is_active, training_structure_steps(id, structure_id, position, duration_minutes, title, description)",
+        "id, name, age_from, age_to, max_duration_minutes, is_active, training_structure_steps(id, structure_id, position, duration_minutes, is_optional, title, description)",
       )
       .order("age_from")
       .order("name");
@@ -67,6 +70,7 @@ export function EnhancedStructureManagement({ client, profile }: Props) {
     setName("");
     setAgeFrom(6);
     setAgeTo(8);
+    setMaxDuration("");
   }
 
   function editStructure(structure: TrainingStructure) {
@@ -74,6 +78,7 @@ export function EnhancedStructureManagement({ client, profile }: Props) {
     setName(structure.name);
     setAgeFrom(structure.age_from);
     setAgeTo(structure.age_to);
+    setMaxDuration(structure.max_duration_minutes == null ? "" : String(structure.max_duration_minutes));
   }
 
   async function saveStructure(event: FormEvent) {
@@ -86,6 +91,7 @@ export function EnhancedStructureManagement({ client, profile }: Props) {
       name: name.trim(),
       age_from: ageFrom,
       age_to: ageTo,
+      max_duration_minutes: maxDuration === "" ? null : Number(maxDuration),
       updated_by: profile.id,
     };
     const result = structureId
@@ -119,7 +125,8 @@ export function EnhancedStructureManagement({ client, profile }: Props) {
   function resetStep() {
     setStepId(null);
     setStepTitle("");
-    setDuration(10);
+    setDuration("");
+    setIsOptional(false);
     setDescription("");
   }
 
@@ -127,7 +134,8 @@ export function EnhancedStructureManagement({ client, profile }: Props) {
     setSelected(step.structure_id);
     setStepId(step.id);
     setStepTitle(step.title);
-    setDuration(step.duration_minutes);
+    setDuration(step.duration_minutes == null ? "" : String(step.duration_minutes));
+    setIsOptional(step.is_optional);
     setDescription(step.description ?? "");
   }
 
@@ -137,7 +145,8 @@ export function EnhancedStructureManagement({ client, profile }: Props) {
     const structure = structures.find((item) => item.id === selected);
     const payload = {
       structure_id: selected,
-      duration_minutes: duration,
+      duration_minutes: duration === "" ? null : Number(duration),
+      is_optional: isOptional,
       title: stepTitle.trim(),
       description: description.trim() || null,
       updated_by: profile.id,
@@ -205,6 +214,18 @@ export function EnhancedStructureManagement({ client, profile }: Props) {
               />
             </label>
           </div>
+          <label>
+            <span>Гранична тривалість заняття, хв</span>
+            <input
+              type="number"
+              min={1}
+              max={180}
+              value={maxDuration}
+              onChange={(event) => setMaxDuration(event.target.value)}
+              placeholder="Наприклад, 75 або 90"
+            />
+            <small>З урахуванням усіх частин заняття, відпочинку та обговорень.</small>
+          </label>
           <div className="row-actions">
             <button className="primary-action">
               <BookOpenCheck size={18} />
@@ -240,14 +261,20 @@ export function EnhancedStructureManagement({ client, profile }: Props) {
             />
           </label>
           <label>
-            <span>Тривалість, хв</span>
+            <span>Орієнтовна тривалість блоку, хв — за потреби</span>
             <input
               type="number"
               min={1}
               max={180}
               value={duration}
-              onChange={(event) => setDuration(Number(event.target.value))}
+              onChange={(event) => setDuration(event.target.value)}
+              placeholder="Визначає тренер"
             />
+            <small>Залиште порожнім, якщо час визначає тренер під час планування.</small>
+          </label>
+          <label className="switch-label">
+            <input type="checkbox" checked={isOptional} onChange={(event) => setIsOptional(event.target.checked)} />
+            <span>Необов’язкова вправа — за потреби в будь-якій частині заняття</span>
           </label>
           <label>
             <span>Опис</span>
@@ -280,6 +307,7 @@ export function EnhancedStructureManagement({ client, profile }: Props) {
                   <b>{structure.name}</b>
                   <small>
                     U{structure.age_from}–U{structure.age_to}
+                    {structure.max_duration_minutes != null ? ` · до ${structure.max_duration_minutes} хв` : ""}
                   </small>
                 </div>
                 <div className="row-actions">
@@ -312,9 +340,10 @@ export function EnhancedStructureManagement({ client, profile }: Props) {
                       <div>
                         <b>{step.title}</b>
                         <small>
-                          {step.duration_minutes} хв
-                          {step.description ? ` · ${step.description}` : ""}
+                          {step.duration_minutes == null ? "Час визначає тренер" : `${step.duration_minutes} хв`}
+                          {step.is_optional ? " · За потреби, у будь-якій частині" : ""}
                         </small>
+                        {step.description && <TrainingStepDescription description={step.description} />}
                       </div>
                       <div className="row-actions">
                         <button

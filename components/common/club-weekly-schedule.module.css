@@ -1,0 +1,147 @@
+.week {
+  display: grid;
+  gap: 20px;
+}
+
+.day {
+  min-width: 0;
+}
+
+.dayTitle {
+  margin: 0 0 8px;
+  font-size: 1.05rem;
+}
+
+.schedule {
+  background: var(--surface);
+}
+
+.table tbody + tbody {
+  border-top: 2px solid var(--line);
+}
+
+.schedule .table .venue {
+  min-width: 110px;
+  vertical-align: top;
+}
+
+.time {
+  font-weight: 780;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.filters {
+  align-items: center;
+  justify-content: space-between;
+}
+
+.filterFields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.filterFields select {
+  min-width: 130px;
+  max-width: 100%;
+}
+
+.filters .onlyMine {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 44px;
+}
+
+.onlyMine input {
+  width: 18px;
+  min-height: auto;
+  height: 18px;
+  padding: 0;
+  accent-color: #762c74;
+}
+
+.warnings {
+  display: grid;
+  gap: 8px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+@media (max-width: 760px) {
+  .schedule .table,
+  .table tbody {
+    display: block;
+    min-width: 0;
+  }
+
+  .table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+
+  .table tbody tr {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px 14px;
+    padding: 12px;
+  }
+
+  .table tbody tr + tr {
+    border-top: 1px solid var(--line);
+  }
+
+  .schedule .table tbody :is(th, td) {
+    padding: 0;
+    border: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .table td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    font-size: .75rem;
+    font-weight: 500;
+    color: var(--muted);
+  }
+
+  .schedule .table .venue,
+  .table .rowActions {
+    grid-column: 1 / -1;
+  }
+
+  .schedule .table .venue {
+    min-width: 0;
+    padding-bottom: 4px;
+    background: transparent;
+    font-size: 1rem;
+  }
+
+  .filterFields {
+    width: 100%;
+  }
+
+  .filterFields label {
+    flex: 1 1 130px;
+    min-width: 0;
+  }
+
+  .filterFields select {
+    min-width: 0;
+    width: 100%;
+  }
+}

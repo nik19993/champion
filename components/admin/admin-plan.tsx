@@ -1,7 +1,10 @@
 "use client";
+import { AdminCalendar } from "@/components/admin/admin-calendar";
+import { AdminLocationSchedule } from "@/components/admin/admin-location-schedule";
+import { ClubWeeklySchedule } from "@/components/common/club-weekly-schedule";
 import { VenueBookingSelector } from "@/components/common/venue-booking-selector";
 import { venueConflictMessage } from "@/lib/supabase/venue-conflict-message";
-import { effectiveVenuePart, normalizeVenuePart, VENUE_SELECT, type VenuePart } from "@/lib/domain/venue-booking";
+import { effectiveVenuePart, isAwayVenue, normalizeVenuePart, VENUE_SELECT, type VenuePart } from "@/lib/domain/venue-booking";
 
 import { groupCode } from "@/lib/domain/seasons";
 import { durationInput, durationMinutes } from "@/lib/domain/event-duration";
@@ -10,11 +13,72 @@ import { firstRelation, operationalReportRow, OPERATIONAL_REPORT_SELECT } from "
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { CalendarClock, CalendarRange, CheckCircle2, CircleDashed, TriangleAlert } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { EmptyState, LoadingState, Modal, Pill, StatusMessage, WorkspaceHeader } from "@/components/common/workspace-ui";
+import { EmptyState, LoadingState, Modal, Pill, StatusMessage, Tabs, WorkspaceHeader } from "@/components/common/workspace-ui";
 import { combineKyivDateTime, EVENT_LABELS, formatDateTime, OPERATIONAL_STATUS_LABELS, OPERATIONAL_TYPE_LABELS, safeError, toKyivDateInput, toKyivTimeInput } from "@/lib/domain/format";
-import type { EventItem, OperationalItem, OperationalStatus, Profile, Venue } from "@/lib/domain/types";
+import type { EventItem, GroupSummary, OperationalItem, OperationalStatus, Profile, Venue } from "@/lib/domain/types";
 
 type RangeMode = "7" | "10" | "30" | "month" | "custom";
+type PlanTab = "attention" | "calendar" | "schedule" | "locations";
+const PLAN_TABS: Array<{ value: PlanTab; label: string }> = [
+  { value: "attention", label: "Потребують уваги" },
+  { value: "calendar", label: "Календар" },
+  { value: "schedule", label: "Розклад занять" },
+  { value: "locations", label: "Розклад локацій" },
+];
+
+type Related<T> = T | T[] | null;
+type CoachContact = Pick<Profile, "full_name" | "last_name" | "role" | "status">;
+type AttentionItem = Omit<OperationalItem, "groups" | "events" | "creator"> & {
+  groups: Related<Pick<GroupSummary, "code" | "display_code" | "cohort_birth_year" | "season"> & {
+    coach_group_assignments: Array<{
+      is_active: boolean;
+      valid_from: string | null;
+      valid_to: string | null;
+      coach: Related<CoachContact>;
+    }>;
+  }>;
+  events: Related<Pick<EventItem, "start_at" | "event_type"> & {
+    coach: Related<CoachContact>;
+    substitute: Related<CoachContact>;
+  }>;
+  assigned: Related<CoachContact>;
+  creator: Related<CoachContact>;
+};
+
+const COACH_CONTACT_FIELDS = "full_name, last_name, role, status";
+const ATTENTION_SELECT = `
+  id, group_id, event_id, item_type, status, title, comment, due_at, created_at,
+  assigned:profiles!operational_items_assigned_to_fkey(${COACH_CONTACT_FIELDS}),
+  creator:profiles!operational_items_created_by_fkey(${COACH_CONTACT_FIELDS}),
+  groups(code, display_code, cohort_birth_year, season,
+    coach_group_assignments!coach_group_assignments_group_id_fkey(
+      is_active, valid_from, valid_to, coach:profiles!coach_group_assignments_coach_id_fkey(${COACH_CONTACT_FIELDS})
+    )
+  ),
+  events(start_at, event_type,
+    coach:profiles!events_coach_id_fkey(${COACH_CONTACT_FIELDS}),
+    substitute:profiles!events_substitute_coach_id_fkey(${COACH_CONTACT_FIELDS})
+  )
+`;
+
+function contactName(contact: Related<CoachContact> | undefined) {
+  const profile = firstRelation(contact);
+  return profile?.role === "coach" && profile.status === "active"
+    ? profile.last_name?.trim() || profile.full_name.trim()
+    : "";
+}
+
+function attentionCoachLabel(item: AttentionItem, today: string) {
+  const event = firstRelation(item.events);
+  const individual = [item.assigned, event?.substitute, event?.coach, item.creator].map(contactName).find(Boolean);
+  if (individual) return individual;
+
+  const assignments = firstRelation(item.groups)?.coach_group_assignments ?? [];
+  const coaches = assignments.filter((row) =>
+    row.is_active && (!row.valid_from || row.valid_from <= today) && (!row.valid_to || today <= row.valid_to)
+  ).map((row) => contactName(row.coach)).filter(Boolean);
+  return [...new Set(coaches)].sort((left, right) => left.localeCompare(right, "uk")).join(", ") || "Тренера не вказано";
+}
 
 function rangeFor(mode: RangeMode, customStart: string, customEnd: string) {
   const start = mode === "custom" && customStart ? new Date(`${customStart}T00:00:00`) : new Date();
@@ -31,25 +95,48 @@ function rangeFor(mode: RangeMode, customStart: string, customEnd: string) {
   return { start, end };
 }
 
-export function AdminPlan({ client }: { client: SupabaseClient }) {
+export function AdminPlan({ client, groups }: { client: SupabaseClient; groups: GroupSummary[] }) {
+  const [tab, setTab] = useState<PlanTab>("attention");
+  const [eventId, setEventId] = useState<string | null>(null);
+  const [revision, setRevision] = useState(0);
+  return (
+    <div className="workspace-stack">
+      <WorkspaceHeader eyebrow="Операційне керування" title="План адміністратора" description="Ситуації, які потребують рішення, та розклад подій клубу." />
+      <Tabs items={PLAN_TABS} value={tab} onChange={setTab} label="Розділи плану адміністратора" />
+      {tab === "attention" && <AdminAttentionPlan client={client} />}
+      {tab === "calendar" && (
+        <AdminCalendar client={client} groups={groups} revision={revision} onOpenEvent={setEventId} />
+      )}
+      {tab === "schedule" && <ClubWeeklySchedule mode="admin" client={client} groups={groups} />}
+      {tab === "locations" && <AdminLocationSchedule client={client} />}
+      {eventId && <AdminEventModal client={client} eventId={eventId} onClose={() => setEventId(null)} onSaved={() => {
+        setEventId(null);
+        setRevision((current) => current + 1);
+      }} />}
+    </div>
+  );
+}
+
+function AdminAttentionPlan({ client }: { client: SupabaseClient }) {
   const [mode, setMode] = useState<RangeMode>("7");
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
-  const [items, setItems] = useState<OperationalItem[]>([]);
+  const [items, setItems] = useState<AttentionItem[]>([]);
   const [openedEventId, setOpenedEventId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const range = useMemo(() => rangeFor(mode, customStart, customEnd), [customEnd, customStart, mode]);
+  const today = toKyivDateInput(new Date());
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
-    const result = await client.from("operational_items").select("id, group_id, event_id, item_type, status, title, comment, due_at, created_at, groups(code, display_code, cohort_birth_year, season), events(start_at, event_type)").neq("item_type", "conflict").order("status").order("created_at", { ascending: false }).limit(1000);
+    const result = await client.from("operational_items").select(ATTENTION_SELECT).neq("item_type", "conflict").order("status").order("created_at", { ascending: false }).limit(1000);
     setLoading(false);
     if (result.error) { setError("Не вдалося завантажити операційний план."); return; }
     const start = range.start.getTime();
     const end = range.end.getTime();
-    setItems(((result.data ?? []) as unknown as OperationalItem[]).filter((item) => {
+    setItems(((result.data ?? []) as unknown as AttentionItem[]).filter((item) => {
       const relevantAt = item.due_at ?? firstRelation(item.events)?.start_at ?? item.created_at;
       const timestamp = new Date(relevantAt).getTime();
       return timestamp >= start && timestamp <= end;
@@ -65,7 +152,6 @@ export function AdminPlan({ client }: { client: SupabaseClient }) {
   }
 
   return <div className="workspace-stack">
-    <WorkspaceHeader eyebrow="Операційне керування" title="План адміністратора" description="Тільки ситуації, які потребують уваги або рішення" />
     <section className="filter-bar">
       <label><span>Період</span><select value={mode} onChange={(event) => setMode(event.target.value as RangeMode)}><option value="7">7 днів</option><option value="10">10 днів</option><option value="30">30 днів</option><option value="month">Поточний місяць</option><option value="custom">Власний діапазон</option></select></label>
       {mode === "custom" && <><label><span>Від</span><input type="date" value={customStart} onChange={(event) => setCustomStart(event.target.value)} /></label><label><span>До</span><input type="date" value={customEnd} onChange={(event) => setCustomEnd(event.target.value)} /></label></>}
@@ -74,7 +160,16 @@ export function AdminPlan({ client }: { client: SupabaseClient }) {
     {error && <StatusMessage kind="error">{error}</StatusMessage>}
     {loading ? <LoadingState /> : items.length ? <div className="operational-list">{items.map((item) => <article key={item.id} className={item.item_type === "coach_substitution" ? "substitution" : ""}>
       <div className="operational-icon">{item.item_type === "coach_substitution" || item.item_type === "conflict" ? <TriangleAlert /> : item.status === "done" ? <CheckCircle2 /> : <CircleDashed />}</div>
-      <div className="operational-copy"><div><Pill tone={item.item_type === "coach_substitution" ? "danger" : "warning"}>{OPERATIONAL_TYPE_LABELS[item.item_type]}</Pill><Pill tone="plum">{groupCode(item.groups)}</Pill></div><h2>{item.title}</h2>{item.comment && <p>{item.comment}</p>}<small>{formatDateTime(firstRelation(item.events)?.start_at ?? item.created_at)}</small></div>
+      <div className="operational-copy">
+        <div style={{ flexWrap: "wrap" }}>
+          <Pill tone={item.item_type === "coach_substitution" ? "danger" : "warning"}>{OPERATIONAL_TYPE_LABELS[item.item_type]}</Pill>
+          <Pill tone="plum">{groupCode(item.groups)}</Pill>
+          <Pill>{attentionCoachLabel(item, today)}</Pill>
+        </div>
+        <h2>{item.title}</h2>
+        {item.comment && <p>{item.comment}</p>}
+        <small>{formatDateTime(firstRelation(item.events)?.start_at ?? item.created_at)}</small>
+      </div>
       <div className="operational-actions">{item.event_id && <button type="button" className="secondary-action" onClick={() => setOpenedEventId(item.event_id ?? null)}><CalendarClock size={17} />Відкрити подію</button>}<label className="status-select"><span>Стан</span><select value={item.status} onChange={(event) => void updateStatus(item.id, event.target.value as OperationalStatus)}>{Object.entries(OPERATIONAL_STATUS_LABELS).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label></div>
     </article>)}</div> : <EmptyState title="За вибраний період ситуацій немає" />}
     {openedEventId && <AdminEventModal client={client} eventId={openedEventId} onClose={() => setOpenedEventId(null)} onSaved={() => { setOpenedEventId(null); void load(); }} />}
@@ -133,7 +228,10 @@ export function AdminEventModal({ client, eventId, onClose, onSaved }: { client:
   async function save(formEvent: FormEvent) {
     formEvent.preventDefault();
     if (!event || busy) return;
-    if (status === "scheduled" && venueBlocked) { setMessage(await venueConflictMessage(client, venueId, combineKyivDateTime(date, time), durationMinutes(duration) ?? 60, effectiveVenuePart(venues.find(venue => venue.id === venueId), venuePart), event.id, "Конфлікт: обрана частина майданчика зайнята. Виберіть іншу частину або час.")); return; }
+    const venue = venues.find((item) => item.id === venueId);
+    const away = isAwayVenue(venue);
+    const part = effectiveVenuePart(venue, venuePart);
+    if (status === "scheduled" && venueBlocked && !away) { setMessage(await venueConflictMessage(client, venueId, combineKyivDateTime(date, time), durationMinutes(duration) ?? 60, part, event.id, "Конфлікт: обрана частина майданчика зайнята. Виберіть іншу частину або час.")); return; }
     const minutes = durationMinutes(duration);
     if (minutes == null) { setMessage("Вкажіть цілу тривалість від 15 до 360 хвилин."); return; }
     setBusy(true);
@@ -144,10 +242,10 @@ export function AdminEventModal({ client, eventId, onClose, onSaved }: { client:
     const userResult = await client.auth.getUser();
     const actorId = userResult.data.user?.id ?? null;
     if (!actorId) { setBusy(false); setMessage("Сесію адміністратора не підтверджено."); return; }
-    const result = await client.from("events").update({ start_at: nextStart, duration_minutes: minutes, venue_id: venueId || null, venue_part: effectiveVenuePart(venues.find((venue) => venue.id === venueId), venuePart), coach_id: coachId, substitute_coach_id: substituteId || null, needs_substitute: stillNeedsSubstitute, status, original_start_at: moved ? event.original_start_at ?? event.start_at : event.original_start_at ?? null, is_rescheduled: moved || event.is_rescheduled || false, updated_by: actorId }).eq("id", event.id).select("id").single();
+    const result = await client.from("events").update({ start_at: nextStart, duration_minutes: minutes, venue_id: venueId || null, venue_part: part, coach_id: coachId, substitute_coach_id: substituteId || null, needs_substitute: stillNeedsSubstitute, status, original_start_at: moved ? event.original_start_at ?? event.start_at : event.original_start_at ?? null, is_rescheduled: moved || event.is_rescheduled || false, updated_by: actorId }).eq("id", event.id).select("id").single();
     if (result.error) {
       const fallback = safeError(result.error, "Подію не збережено.");
-      setMessage(result.error.code === "23P01" ? await venueConflictMessage(client, venueId, nextStart, minutes, effectiveVenuePart(venues.find(venue => venue.id === venueId), venuePart), event.id, fallback) : fallback);
+      setMessage(!away && result.error.code === "23P01" ? await venueConflictMessage(client, venueId, nextStart, minutes, part, event.id, fallback) : fallback);
       setBusy(false); return;
     }
     await client.from("operational_items").update({ due_at: nextStart }).eq("event_id", event.id).neq("status", "done");
@@ -161,7 +259,7 @@ export function AdminEventModal({ client, eventId, onClose, onSaved }: { client:
   }
 
   const footer = <><button type="button" className="secondary-action" onClick={onClose}>Скасувати</button><button form="admin-event-form" className="primary-action" disabled={busy || loading || !coachId}>{busy ? "Збереження…" : "Зберегти зміни"}</button></>;
-  return <Modal title={event ? `${EVENT_LABELS[event.event_type]} · ${groupCode(event.groups)}` : "Подія"} onClose={onClose} wide footer={footer}>{loading ? <LoadingState /> : event ? <form id="admin-event-form" className="form-grid" onSubmit={save}><label><span>Дата</span><input type="date" value={date} onChange={(value) => setDate(value.target.value)} required /></label><label><span>Час (Київ)</span><input type="time" value={time} onChange={(value) => setTime(value.target.value)} required /></label><label><span>Тривалість, хв</span><input type="text" inputMode="numeric" pattern="[0-9]+" value={duration} onChange={(value) => { if (/^\d*$/.test(value.target.value)) setDuration(durationInput(value.target.value)); }} aria-label="Тривалість у хвилинах" required /></label><label><span>Стан</span><select value={status} onChange={(value) => setStatus(value.target.value as EventItem["status"])}><option value="scheduled">Заплановано</option><option value="completed">Завершено</option><option value="cancelled">Скасовано</option></select></label><VenueBookingSelector client={client} venues={venues} venueId={venueId} part={venuePart} startAt={date && time ? combineKyivDateTime(date, time) : null} minutes={durationMinutes(duration)} excludeEventId={event.id} checkAvailability={status === "scheduled"} onVenueChange={(id) => { setVenueId(id); setVenuePart("whole"); }} onPartChange={setVenuePart} onBlockedChange={setVenueBlocked} /><label className="span-2"><span>Основний тренер</span><select value={coachId} onChange={(value) => { setCoachId(value.target.value); setPreviousCoachUnavailable(false); setNeedsSubstitute(false); setSubstituteId(""); }} required><option value="" disabled>{previousCoachUnavailable ? "Попереднього тренера видалено — оберіть нового" : "Оберіть тренера"}</option>{coaches.map((coach) => <option value={coach.id} key={coach.id}>{coach.full_name}</option>)}</select></label><label className="span-2"><span>Тренер на заміну</span><select value={substituteId} onChange={(value) => setSubstituteId(value.target.value)}><option value="">Не призначено</option>{coaches.filter((coach) => coach.id !== coachId).map((coach) => <option value={coach.id} key={coach.id}>{coach.full_name}</option>)}</select></label><label className="check-field span-2"><input type="checkbox" checked={needsSubstitute} onChange={(value) => setNeedsSubstitute(value.target.checked)} /><span>Потрібно знайти заміну</span></label>{event.methodology_tasks?.title && <div className="span-2 text-block"><h3>Навчальне завдання</h3><p>{event.methodology_tasks.title}</p></div>}{event.organizational_need && <div className="span-2 text-block"><h3>Організаційні потреби</h3><p>{event.organizational_need}</p></div>}{event.coach_comment && <div className="span-2 text-block"><h3>Коментар тренера</h3><p>{event.coach_comment}</p></div>}{message && <div className="span-2"><StatusMessage kind="error">{message}</StatusMessage></div>}</form> : <StatusMessage kind="error">{message ?? "Подію не завантажено."}</StatusMessage>}</Modal>;
+  return <Modal title={event ? `${EVENT_LABELS[event.event_type]} · ${groupCode(event.groups)}` : "Подія"} onClose={onClose} wide footer={footer}>{loading ? <LoadingState /> : event ? <form id="admin-event-form" className="form-grid" onSubmit={save}><label><span>Дата</span><input type="date" value={date} onChange={(value) => setDate(value.target.value)} required /></label><label><span>Час (Київ)</span><input type="time" value={time} onChange={(value) => setTime(value.target.value)} required /></label><label><span>Тривалість, хв</span><input type="text" inputMode="numeric" pattern="[0-9]+" value={duration} onChange={(value) => { if (/^\d*$/.test(value.target.value)) setDuration(durationInput(value.target.value)); }} aria-label="Тривалість у хвилинах" required /></label><label><span>Стан</span><select value={status} onChange={(value) => setStatus(value.target.value as EventItem["status"])}><option value="scheduled">Заплановано</option><option value="completed">Завершено</option><option value="cancelled">Скасовано</option></select></label><VenueBookingSelector client={client} venues={venues} venueId={venueId} part={venuePart} startAt={date && time ? combineKyivDateTime(date, time) : null} minutes={durationMinutes(duration)} excludeEventId={event.id} checkAvailability={status === "scheduled"} onVenueChange={(id) => { setVenueId(id); setVenuePart("whole"); }} onPartChange={setVenuePart} onBlockedChange={setVenueBlocked} /><label className="span-2"><span>Основний тренер</span><select value={coachId} onChange={(value) => { setCoachId(value.target.value); setPreviousCoachUnavailable(false); setNeedsSubstitute(false); setSubstituteId(""); }} required><option value="" disabled>{previousCoachUnavailable ? "Попереднього тренера видалено — оберіть нового" : "Оберіть тренера"}</option>{coaches.map((coach) => <option value={coach.id} key={coach.id}>{coach.full_name}</option>)}</select></label><label className="span-2"><span>Тренер на заміну</span><select value={substituteId} onChange={(value) => setSubstituteId(value.target.value)}><option value="">Не призначено</option>{coaches.filter((coach) => coach.id !== coachId).map((coach) => <option value={coach.id} key={coach.id}>{coach.full_name}</option>)}</select></label><label className="check-field span-2"><input type="checkbox" checked={needsSubstitute} onChange={(value) => setNeedsSubstitute(value.target.checked)} /><span>Потрібно знайти заміну</span></label>{event.is_rescheduled && event.original_start_at && Date.parse(event.original_start_at) !== Date.parse(event.start_at) && <div className="span-2 text-block"><h3>Попередній час</h3><p>{formatDateTime(event.original_start_at)} · за Києвом</p></div>}{event.methodology_tasks?.title && <div className="span-2 text-block"><h3>Навчальне завдання</h3><p>{event.methodology_tasks.title}</p></div>}{event.organizational_need && <div className="span-2 text-block"><h3>Організаційні потреби</h3><p>{event.organizational_need}</p></div>}{event.coach_comment && <div className="span-2 text-block"><h3>Коментар тренера</h3><p>{event.coach_comment}</p></div>}{message && <div className="span-2"><StatusMessage kind="error">{message}</StatusMessage></div>}</form> : <StatusMessage kind="error">{message ?? "Подію не завантажено."}</StatusMessage>}</Modal>;
 }
 
 export function AdminReport({ client }: { client: SupabaseClient }) {

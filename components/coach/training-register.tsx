@@ -55,7 +55,7 @@ export function TrainingRegisterModal({ client, profile, event, onClose, onChang
     const request = ++revision.current;
     try {
       const [playerResult, sessionResult, cardResult, clubCardResult, completionQuery, queue] = await Promise.all([
-        client.from("players").select("id, full_name").eq("group_id", event.group_id).eq("is_active", true).order("full_name"),
+        client.rpc("event_player_roster", { p_event_id: event.id }),
         client.from("attendance_sessions").select("id, completed_at, server_version, attendance_records(player_id, status, note, players(id, full_name))").eq("event_id", event.id).maybeSingle(),
         client.from("player_behavior_cards").select("id, player_id, group_id, event_id, reason, comment, occurred_on, coach_name_snapshot, is_voided").eq("event_id", event.id).eq("is_voided", false),
         client.from("player_club_cards").select("id, player_id, group_id, event_id, is_voided").eq("event_id", event.id).eq("is_voided", false),

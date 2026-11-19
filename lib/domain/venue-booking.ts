@@ -13,8 +13,25 @@ export const VENUE_PART_LABELS: Record<VenuePart, string> = {
 };
 export const VENUE_SELECT = "id, name, venue_type, is_active, supports_half_booking, parent_venue_id, venue_part";
 
+const VENUE_DISPLAY_ORDER = new Map([
+  "Майданчик 1",
+  "Майданчик 2",
+  "Спортивний зал Політехнік",
+  "Зал ЗОШ 26",
+  "Основне поле",
+  "Стадіон с.Буричівка",
+].map((name, index) => [name, index] as const));
+
+export function venueDisplayRank(name: string) {
+  return VENUE_DISPLAY_ORDER.get(name) ?? VENUE_DISPLAY_ORDER.size;
+}
+
+export function isAwayVenue(venue: Venue | null | undefined) {
+  return venue?.venue_type === "away";
+}
+
 export function venueSupportsHalves(venue: Venue | null | undefined) {
-  return Boolean(venue && (venue.venue_type === "field" || venue.venue_type === "small_pitch" || venue.supports_half_booking));
+  return Boolean(venue && !isAwayVenue(venue) && (venue.venue_type === "field" || venue.venue_type === "small_pitch" || venue.supports_half_booking));
 }
 
 export function normalizeVenuePart(value: unknown): VenuePart {

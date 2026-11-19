@@ -5,20 +5,16 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AdminEventModal } from "@/components/admin/admin-plan";
 import { OFFLINE_MESSAGE, useAutomaticRefresh } from "@/lib/browser/use-automatic-refresh";
 import { EmptyState, LoadingState, StatusMessage, WorkspaceHeader } from "@/components/common/workspace-ui";
-import { combineKyivDateTime, EVENT_LABELS, formatTime, kyivDateKey } from "@/lib/domain/format";
+import { combineKyivDateTime, formatTime, kyivDateKey } from "@/lib/domain/format";
 import { firstRelation } from "@/lib/domain/operational-report";
-import { groupCode } from "@/lib/domain/seasons";
-import { VENUE_PART_LABELS, VENUE_SELECT, venueSupportsHalves, type VenuePart } from "@/lib/domain/venue-booking";
+import { isAwayVenue, VENUE_PART_LABELS, VENUE_SELECT, venueDisplayRank, venueSupportsHalves, type VenuePart } from "@/lib/domain/venue-booking";
 import { venueFreeIntervals, venueOccupiedIntervals, type OccupancyEvent } from "@/lib/domain/venue-occupancy";
-import type { EventType, Venue } from "@/lib/domain/types";
+import type { Venue } from "@/lib/domain/types";
 
 interface Booking extends OccupancyEvent {
-  event_type: EventType; title: string | null;
-  groups: { code:string; display_code?:string|null } | null;
   coach: { full_name:string } | null; substitute: { full_name:string } | null;
 }
-const EVENT_SELECT="id,venue_id,booking_venue_id,venue_part,start_at,ends_at,status,event_type,title,groups(code,display_code),coach:profiles!events_coach_id_fkey(full_name),substitute:profiles!events_substitute_coach_id_fkey(full_name)";
-
+const EVENT_SELECT="id,venue_id,booking_venue_id,venue_part,start_at,ends_at,status,coach:profiles!events_coach_id_fkey(full_name),substitute:profiles!events_substitute_coach_id_fkey(full_name)";
 export function VenueOccupancy({client}:{client:SupabaseClient}) {
   const [date,setDate]=useState(()=>kyivDateKey(new Date()));
   const [minimum,setMinimum]=useState("60");
@@ -56,7 +52,10 @@ export function VenueOccupancy({client}:{client:SupabaseClient}) {
   useEffect(()=>{void load();return invalidateRequests;},[invalidateRequests,load]);
   const refresh=useCallback(()=>load(true),[load]);
   const online=useAutomaticRefresh(refresh);
-  const visible=(data?.venues??[]).filter(venue=>!venue.parent_venue_id&&(venue.is_active||data?.bookings.some(row=>(row.booking_venue_id??row.venue_id)===venue.id)));
+  const visible = (data?.venues ?? [])
+    .filter((venue) => !isAwayVenue(venue) && !venue.parent_venue_id
+      && (venue.is_active || data?.bookings.some((row) => (row.booking_venue_id ?? row.venue_id) === venue.id)))
+    .sort((a, b) => venueDisplayRank(a.name) - venueDisplayRank(b.name));
   return <div className="workspace-stack">
     <WorkspaceHeader eyebrow="Завантаженість і вільний час" title="Майданчики" description="Усі поля та зали · 09:00–21:00 за київським часом" />
     <section className="filter-bar"><label><span>Дата</span><input type="date" value={date} onChange={event=>setDate(event.target.value)} /></label><label><span>Потрібна тривалість, хв</span><input type="text" inputMode="numeric" value={minimum} onChange={event=>{if(/^\d*$/.test(event.target.value))setMinimum(event.target.value);}} /></label></section>
@@ -77,7 +76,22 @@ export function VenueOccupancy({client}:{client:SupabaseClient}) {
             <p className="occupancy-free"><strong>Вільно{validDuration?` від ${minutes} хв`:""}: </strong>{!validDuration?"Вкажіть тривалість":free.length?free.map(slot=>`${formatTime(new Date(slot.start))}–${formatTime(new Date(slot.end))} (${Math.round((slot.end-slot.start)/60000)} хв)`).join(" · "):"Відповідних проміжків немає"}</p>
           </div>;
         })}
-        {bookings.length?<ul className="occupancy-bookings">{bookings.map(row=><li key={row.id}><div><strong>{formatTime(row.start_at)}–{formatTime(row.ends_at)} · {VENUE_PART_LABELS[row.venue_part]}</strong><span>{groupCode(firstRelation(row.groups))} · {firstRelation(row.substitute)?.full_name??firstRelation(row.coach)?.full_name??"Тренера не вказано"}</span><small>{EVENT_LABELS[row.event_type]}{row.title?` · ${row.title}`:""}</small></div><button type="button" className="secondary-action small" onClick={()=>setOpened(row.id)}>Відкрити подію</button></li>)}</ul>:<p>На цей день бронювань немає.</p>}
+        {bookings.length ? <ul className="occupancy-bookings" aria-label="Бронювання майданчика">
+          {bookings.map((row) => {
+            const coach = firstRelation(row.substitute)?.full_name ?? firstRelation(row.coach)?.full_name ?? "";
+            const surname = coach.trim().split(/\s+/, 1)[0] || "Тренера не вказано";
+            const time = `${formatTime(row.start_at)}–${formatTime(row.ends_at)}`;
+            const part = venueSupportsHalves(venue) ? VENUE_PART_LABELS[row.venue_part] : null;
+            const label = [coach || surname, time, part].filter(Boolean).join(" · ");
+            return <li key={row.id}>
+              <button type="button" className="secondary-action occupancy-booking" title={label}
+                aria-label={`Відкрити подію · ${label}`} onClick={() => setOpened(row.id)}>
+                <strong>{surname}</strong>
+                <span>{time}{part ? ` · ${part}` : ""}</span>
+              </button>
+            </li>;
+          })}
+        </ul> : <p>На цей день бронювань немає.</p>}
       </section>;
     })}</div>}
     <p className="muted">Зайнята половина робить усе поле недоступним на цей час. Скасовані та завершені події не блокують бронювання. Під час збереження сервер повторно перевіряє перетини.</p>

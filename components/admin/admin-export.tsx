@@ -3,6 +3,7 @@
 import { OPERATIONAL_REPORT_SELECT, operationalReportRow } from "@/lib/domain/operational-report";
 
 import { groupCode, groupLabel } from "@/lib/domain/seasons";
+import { groupedRoster, type GroupedRoster } from "@/lib/domain/group-memberships";
 import { firstRelation } from "@/lib/domain/operational-report";
 import { createPlayerProfilePdf } from "@/lib/domain/player-profile-pdf";
 import { assessmentLabel, playerProfileHistory, profileExportRange, type ProfileExportFilter, type ProfilePhysicalResult, type ProfileActivityResult } from "@/lib/domain/player-profile-report";
@@ -12,10 +13,11 @@ import { Download, FileJson } from "lucide-react";
 import { useEffect, useState } from "react";
 import { EmptyState, GroupSelect, Pill, StatusMessage, WorkspaceHeader } from "@/components/common/workspace-ui";
 import { encryptBackup } from "@/lib/domain/backup";
+import { groupPlayerIds, loadActiveRosterMemberships, loadActiveRosterPlayers, loadGroupPlayers } from "@/lib/supabase/group-roster";
 import { collectApplicationBackup, APPLICATION_BACKUP_TABLES } from "@/lib/domain/application-backup";
-import { downloadBlob, downloadText, formatDate, formatMonth, toCsv, toMonthInput } from "@/lib/domain/format";
+import { downloadBlob, downloadText, formatDate, formatMonth, kyivDateKey, toCsv, toMonthInput } from "@/lib/domain/format";
 import { createMonthlyStarAwardPdf } from "@/lib/domain/monthly-star-award-pdf";
-import { createTableReportPdf } from "@/lib/domain/report-pdf";
+import { createGroupedRosterReportPdf, createTableReportPdf } from "@/lib/domain/report-pdf";
 import type { GroupSummary, Player, Profile } from "@/lib/domain/types";
 
 interface Props { client: SupabaseClient; profile: Profile; groups: GroupSummary[]; }
@@ -34,14 +36,55 @@ interface CurrentPhotoRow {
 }
 
 const ALL_GROUPS_VALUE = "__all_groups__";
+const ROSTER_PLAYER_SELECT = "id, group_id, full_name, birth_date, birth_year, position, dominant_foot, coach_note, coach_note_author_id, coach_note_author_name, coach_note_updated_at, is_active, groups(code, display_code, cohort_birth_year, season)";
+
+interface LoadedRoster {
+  groupId: string;
+  sourceGroups: GroupSummary[];
+  players: Player[] | null;
+  report: GroupedRoster<Player> | null;
+}
 
 function playerGroupCode(player: Player) {
   return groupCode(player.groups);
 }
 
+function rosterOverlapNote({ totalPlayers, totalMemberships }: GroupedRoster<Player>) {
+  return totalMemberships > totalPlayers
+    ? `Сума по групах: ${totalMemberships}. Гравця, який входить до кількох груп, у загальній кількості враховано один раз.`
+    : undefined;
+}
+
+function RosterExportSummary({ roster, allGroups, onRetry }: { roster: LoadedRoster | null; allGroups: boolean; onRetry: () => void }) {
+  if (!roster) return <p role="status">Завантажуємо список гравців…</p>;
+  if (!roster.players || (allGroups && !roster.report)) return (
+    <div className="export-roster-summary">
+      <p role="alert">{roster.players ? "Не вдалося завантажити повний склад усіх груп." : "Не вдалося завантажити список гравців."}</p>
+      <button type="button" className="secondary-action small" onClick={onRetry}>Повторити</button>
+    </div>
+  );
+  if (!allGroups || !roster.report) return null;
+  const report = roster.report;
+  const note = rosterOverlapNote(report);
+  return (
+    <div className="export-roster-summary">
+      <p className="export-roster-total"><strong>Усього гравців: {report.totalPlayers}</strong><span>Груп у звіті: {report.groups.length}</span></p>
+      <details>
+        <summary>Кількість гравців у кожній групі</summary>
+        <table aria-label="Кількість гравців у кожній групі">
+          <thead><tr><th scope="col">Група</th><th scope="col">Гравців</th></tr></thead>
+          <tbody>{report.groups.map((group) => <tr key={group.id}><th scope="row">{group.label}</th><td>{group.players.length}</td></tr>)}</tbody>
+        </table>
+        {note && <p className="export-roster-note">{note}</p>}
+      </details>
+    </div>
+  );
+}
+
 export function AdminExport({ client, profile, groups }: Props) {
   const [groupId, setGroupId] = useState(ALL_GROUPS_VALUE);
-  const [players, setPlayers] = useState<Player[]>([]);
+  const [loadedRoster, setLoadedRoster] = useState<LoadedRoster | null>(null);
+  const [rosterRequest, setRosterRequest] = useState(0);
   const [playerId, setPlayerId] = useState("");
   const [starMonth, setStarMonth] = useState(() => toMonthInput());
   const [profilePeriod, setProfilePeriod] = useState<ProfileExportFilter["mode"]>("all");
@@ -54,31 +97,45 @@ export function AdminExport({ client, profile, groups }: Props) {
   const group = groups.find((item) => item.id === groupId);
   const selectionLabel = allGroups ? "Усі групи" : group ? groupCode(group) : "Група";
   const selectionFileLabel = allGroups ? "усі_групи" : group ? groupCode(group) : "група";
+  const roster = loadedRoster?.groupId === groupId && loadedRoster.sourceGroups === groups ? loadedRoster : null;
+  const players = roster?.players ?? [];
 
   useEffect(() => {
+    if (!groups.length) return;
     let active = true;
-    if (!groups.length) {
-      setPlayers([]);
-      setPlayerId("");
-      return () => { active = false; };
-    }
     void (async () => {
-      let query = client
-        .from("players")
-        .select("id, group_id, full_name, birth_date, birth_year, position, dominant_foot, coach_note, coach_note_author_id, coach_note_author_name, coach_note_updated_at, is_active, groups(code, display_code, cohort_birth_year, season)")
-        .eq("is_active", true);
-      if (!allGroups) query = query.eq("group_id", groupId);
-      const result = await query.order("full_name");
+      const day = kyivDateKey(new Date());
+      const [playersResult, membershipsResult] = await Promise.allSettled([
+        allGroups ? loadActiveRosterPlayers(client, ROSTER_PLAYER_SELECT) : loadGroupPlayers(client, groupId, ROSTER_PLAYER_SELECT).then((result) => {
+          if (result.error) throw result.error;
+          return (result.data ?? []) as unknown as Player[];
+        }),
+        allGroups ? loadActiveRosterMemberships(client, groups.map((item) => item.id), day) : Promise.resolve([]),
+      ]);
       if (!active) return;
-      const rows = ((result.data ?? []) as unknown as Player[]).sort((left, right) => (
+      const rows = playersResult.status === "fulfilled" ? playersResult.value.sort((left, right) => (
         playerGroupCode(left).localeCompare(playerGroupCode(right), "uk-UA")
         || left.full_name.localeCompare(right.full_name, "uk-UA")
-      ));
-      setPlayers(rows);
-      setPlayerId((current) => rows.some((item) => item.id === current) ? current : rows[0]?.id ?? "");
+      )) : null;
+      const report = allGroups && rows && membershipsResult.status === "fulfilled"
+        ? groupedRoster(groups.map((item) => ({ id: item.id, label: groupCode(item) })), rows, membershipsResult.value, day)
+        : null;
+      setLoadedRoster({ groupId, sourceGroups: groups, players: rows, report });
+      setPlayerId((current) => rows?.some((item) => item.id === current) ? current : rows?.[0]?.id ?? "");
     })();
     return () => { active = false; };
-  }, [allGroups, client, groupId, groups.length]);
+  }, [allGroups, client, groupId, groups, rosterRequest]);
+
+  function retryRoster() {
+    setLoadedRoster(null);
+    setRosterRequest((request) => request + 1);
+  }
+
+  function selectGroup(nextGroupId: string) {
+    setLoadedRoster(null);
+    setMessage(null);
+    setGroupId(nextGroupId);
+  }
 
   async function audit(kind: ExportKind, filters: Record<string, unknown>) {
     await client.from("export_jobs").insert({
@@ -95,9 +152,32 @@ export function AdminExport({ client, profile, groups }: Props) {
   }
 
   async function exportGroup(format: "csv" | "pdf") {
+    const report = roster?.report;
+    if (!roster?.players || busy === "group" || (format === "pdf" && allGroups && !report)) return;
     setBusy("group");
     setMessage(null);
     try {
+      if (format === "pdf" && allGroups && report) {
+        const pdf = await createGroupedRosterReportPdf({
+          title: "Список гравців усіх груп",
+          subtitle: `Активні гравці · Станом на ${formatDate(report.day)}`,
+          totalPlayers: report.totalPlayers,
+          summaryNote: rosterOverlapNote(report),
+          headers: ["№", "ПІБ", "Дата\nнародження", "Рік\nнародження", "Амплуа", "Провідна\nнога"],
+          columnWeights: [0.48, 2.25, 1.42, 1.42, 1.21, 1.12],
+          groups: report.groups.map((item) => ({
+            label: item.label,
+            rows: item.players.map((player, index) => [
+              index + 1, player.full_name, player.birth_date?.split("-").reverse().join(".") ?? "",
+              player.birth_date?.slice(0, 4) || player.birth_year || "", player.position ?? "", player.dominant_foot ?? "",
+            ]),
+          })),
+        });
+        downloadBlob(`ЧЕМПІОН_${selectionFileLabel}_гравці.pdf`, pdf);
+        setMessage({ kind: "success", text: "PDF зі зведенням і списками груп завантажено." });
+        await audit("group", { format, rows: report.totalMemberships, unique_players: report.totalPlayers, groups: report.groups.length });
+        return;
+      }
       const rows = players.map((player) => ({
         "Група": playerGroupCode(player),
         "ПІБ": player.full_name,
@@ -110,7 +190,7 @@ export function AdminExport({ client, profile, groups }: Props) {
         downloadText(`ЧЕМПІОН_${selectionFileLabel}_гравці.csv`, toCsv(rows), "text/csv;charset=utf-8");
       } else {
         const pdf = await createTableReportPdf({
-          title: allGroups ? "Список гравців усіх груп" : `Список команди ${selectionLabel}`,
+          title: `Список команди ${selectionLabel}`,
           subtitle: selectionLabel,
           headers: ["Група", "ПІБ", "Дата народження", "Рік народження", "Амплуа", "Провідна нога"],
           rows: rows.map(Object.values),
@@ -122,7 +202,7 @@ export function AdminExport({ client, profile, groups }: Props) {
       }
       await audit("group", { format, rows: rows.length });
     } catch (error) {
-      setMessage({ kind: "error", text: error instanceof Error ? error.message : "PDF не сформовано." });
+      setMessage({ kind: "error", text: error instanceof Error ? error.message : "Не вдалося сформувати список гравців." });
     } finally {
       setBusy(null);
     }
@@ -196,8 +276,9 @@ export function AdminExport({ client, profile, groups }: Props) {
       let query = kind === "tests"
         ? client.from("physical_test_results").select("measured_on, metric_name, field_name, value, unit, players!inner(full_name, birth_date, birth_year, group_id, groups!inner(code, display_code, cohort_birth_year, season))")
         : client.from("game_activity_results").select("period, metric_name, value, players!inner(full_name, birth_date, birth_year, group_id, groups!inner(code, display_code, cohort_birth_year, season))");
-      if (!allGroups) query = query.eq("players.group_id", groupId);
-      const result = await query;
+      const ids = allGroups ? null : await groupPlayerIds(client, groupId);
+      if (ids?.length) query = query.in("player_id", ids);
+      const result = ids && !ids.length ? { data: [], error: null } : await query;
       if (result.error) throw new Error("Не вдалося сформувати експорт.");
       const raw = (result.data ?? []) as unknown as Array<{
         measured_on?: string;
@@ -242,9 +323,10 @@ export function AdminExport({ client, profile, groups }: Props) {
     try {
       const now = new Date();
       const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
-      let playerQuery = client.from("players").select("id, full_name, group_id, groups(code, display_code, cohort_birth_year, season)").eq("is_active", true);
-      if (!allGroups) playerQuery = playerQuery.eq("group_id", groupId);
-      const playerResult = await playerQuery.order("full_name");
+      const selection = "id, full_name, group_id, groups(code, display_code, cohort_birth_year, season)";
+      const playerResult = allGroups
+        ? await client.from("players").select(selection).eq("is_active", true).order("full_name")
+        : await loadGroupPlayers(client, groupId, selection);
       if (playerResult.error) throw new Error("Не вдалося завантажити гравців для звіту.");
       const debtPlayers = (playerResult.data ?? []) as unknown as Array<{ id: string; full_name: string; groups: { code: string } }>;
       const paymentResult = debtPlayers.length
@@ -427,8 +509,14 @@ export function AdminExport({ client, profile, groups }: Props) {
     }
   }
 
-  const cards: Array<{ kind: ExportKind; title: string; description: string; actions: React.ReactNode }> = [
-    { kind: "group", title: allGroups ? "Список усіх груп" : "Список команди", description: "Група, ПІБ, рік народження, амплуа та провідна нога.", actions: <><button onClick={() => void exportGroup("pdf")} disabled={busy === "group"}><Download />Завантажити PDF</button><button onClick={() => void exportGroup("csv")} disabled={busy === "group"}><Download />CSV</button></> },
+  const cards: Array<{ kind: ExportKind; title: string; description: string; details?: React.ReactNode; actions: React.ReactNode }> = [
+    {
+      kind: "group",
+      title: allGroups ? "Список усіх груп" : "Список команди",
+      description: "Група, ПІБ, рік народження, амплуа та провідна нога.",
+      details: <RosterExportSummary roster={roster} allGroups={allGroups} onRetry={retryRoster} />,
+      actions: <><button onClick={() => void exportGroup("pdf")} disabled={busy === "group" || !roster?.players || (allGroups && !roster.report)}><Download />Завантажити PDF</button><button onClick={() => void exportGroup("csv")} disabled={busy === "group" || !roster?.players}><Download />CSV</button></>,
+    },
     { kind: "player", title: "Профіль гравця", description: "Фото, характеристика тренера та динаміка результатів за датами. Контакти батьків збережено.", actions: <><div className="profile-export-period"><label><span>Період профілю</span><select aria-label="Період профілю" value={profilePeriod} onChange={(event) => setProfilePeriod(event.target.value as ProfileExportFilter["mode"])}><option value="all">Уся історія</option><option value="year">Окремий рік</option><option value="range">Діапазон дат</option></select></label>{profilePeriod === "year" && <label><span>Рік результатів</span><input aria-label="Рік результатів" type="number" min={1900} max={2199} value={profileYear} onChange={(event) => setProfileYear(event.target.value)} /></label>}{profilePeriod === "range" && <><label><span>Від дати</span><input aria-label="Від дати" type="date" value={profileFrom} onChange={(event) => setProfileFrom(event.target.value)} /></label><label><span>До дати</span><input aria-label="До дати" type="date" value={profileTo} onChange={(event) => setProfileTo(event.target.value)} /></label></>}</div><button onClick={() => void exportPlayer()} disabled={!playerId || busy === "player"}><Download />Завантажити PDF</button></> },
     { kind: "tests", title: "Тестування фізичної підготовленості", description: "Первинні результати вибраних груп без автоматичного рейтингу.", actions: <><button onClick={() => void exportDataset("tests", "pdf")} disabled={busy === "tests"}><Download />Завантажити PDF</button><button onClick={() => void exportDataset("tests", "csv")} disabled={busy === "tests"}><Download />CSV</button></> },
     { kind: "activity", title: "Складові ігрової діяльності", description: "Структуровані результати вибраних груп без загальної оцінки 50/50.", actions: <><button onClick={() => void exportDataset("activity", "pdf")} disabled={busy === "activity"}><Download />Завантажити PDF</button><button onClick={() => void exportDataset("activity", "csv")} disabled={busy === "activity"}><Download />CSV</button></> },
@@ -440,9 +528,9 @@ export function AdminExport({ client, profile, groups }: Props) {
   ];
 
   return <div className="workspace-stack">
-    <WorkspaceHeader eyebrow="Друк і файли" title="Експорт" description="Файли містять дату формування, вибрані групи та назву клубу" actions={groups.length ? <GroupSelect groups={groups} value={groupId} onChange={setGroupId} allOption={{ value: ALL_GROUPS_VALUE, label: "Усі групи" }} /> : undefined} />
+    <WorkspaceHeader eyebrow="Друк і файли" title="Експорт" description="Файли містять дату формування, вибрані групи та назву клубу" actions={groups.length ? <GroupSelect groups={groups} value={groupId} onChange={selectGroup} allOption={{ value: ALL_GROUPS_VALUE, label: "Усі групи" }} /> : undefined} />
     {message && <StatusMessage kind={message.kind}>{message.text}</StatusMessage>}
     <section className="export-player-select"><label><span>Гравець для профілю</span><select value={playerId} onChange={(event) => setPlayerId(event.target.value)}><option value="">Оберіть гравця</option>{players.map((player) => <option value={player.id} key={player.id}>{player.full_name}{allGroups ? ` · ${playerGroupCode(player)}` : ""}</option>)}</select></label><Pill tone="plum">{selectionLabel}</Pill></section>
-    {groups.length ? <div className="export-grid">{cards.map((card) => <article key={card.kind}><div><h2>{card.title}</h2><p>{card.description}</p></div><div className="export-actions">{card.actions}</div>{busy === card.kind && <small>Формування…</small>}</article>)}</div> : <EmptyState title="Групи не налаштовано" />}
+    {groups.length ? <div className="export-grid">{cards.map((card) => <article key={card.kind}><div><h2>{card.title}</h2><p>{card.description}</p></div>{card.details}<div className="export-actions">{card.actions}</div>{busy === card.kind && <small>Формування…</small>}</article>)}</div> : <EmptyState title="Групи не налаштовано" />}
   </div>;
 }

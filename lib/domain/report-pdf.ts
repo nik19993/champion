@@ -19,6 +19,12 @@ interface PreparedRow {
   height: number;
 }
 
+interface GroupedRosterReportPdfOptions extends Pick<TableReportPdfOptions, "title" | "subtitle" | "headers" | "columnWeights"> {
+  totalPlayers: number;
+  summaryNote?: string;
+  groups: { label: string; rows: ReportCell[][] }[];
+}
+
 const PAGE_MARGIN = 70;
 const TABLE_TOP = 245;
 const TABLE_BOTTOM = 1645;
@@ -26,7 +32,9 @@ const TABLE_HEADER_HEIGHT = 78;
 const BODY_FONT_SIZE = 25;
 const BODY_LINE_HEIGHT = 34;
 const CELL_PADDING_X = 14;
-const CELL_PADDING_Y = 13;
+const TABLE_BODY = { fontSize: BODY_FONT_SIZE, lineHeight: BODY_LINE_HEIGHT, paddingY: 13, minHeight: 58 };
+const ROSTER_BODY = { fontSize: 24, lineHeight: 32, paddingY: 10, minHeight: 52 };
+const SUMMARY_BODY = { fontSize: 22, lineHeight: 26, paddingY: 6, minHeight: 38 };
 
 function jpegDimensions(jpeg: Uint8Array) {
   if (jpeg[0] !== 0xff || jpeg[1] !== 0xd8) throw new Error("Некоректна сторінка PDF-звіту.");
@@ -200,12 +208,12 @@ function roundedRect(context: CanvasRenderingContext2D, x: number, y: number, wi
   context.closePath();
 }
 
-function prepareRows(context: CanvasRenderingContext2D, rows: ReportCell[][], widths: number[]) {
-  context.font = `${BODY_FONT_SIZE}px Arial, sans-serif`;
+function prepareRows(context: CanvasRenderingContext2D, rows: ReportCell[][], widths: number[], style = TABLE_BODY) {
+  context.font = `${style.fontSize}px Arial, sans-serif`;
   return rows.map<PreparedRow>((row) => {
     const lines = widths.map((width, index) => wrapText(context, row[index], width - CELL_PADDING_X * 2));
     const lineCount = Math.max(1, ...lines.map((cellLines) => cellLines.length));
-    return { lines, height: Math.max(58, CELL_PADDING_Y * 2 + lineCount * BODY_LINE_HEIGHT) };
+    return { lines, height: Math.max(style.minHeight, style.paddingY * 2 + lineCount * style.lineHeight) };
   });
 }
 
@@ -225,7 +233,7 @@ function paginateRows(rows: PreparedRow[]) {
   return pages;
 }
 
-function drawPageHeader(context: CanvasRenderingContext2D, options: TableReportPdfOptions) {
+function drawPageHeader(context: CanvasRenderingContext2D, options: Pick<TableReportPdfOptions, "title" | "subtitle">) {
   context.fillStyle = "#fffdf8";
   context.fillRect(0, 0, REPORT_CANVAS_WIDTH, REPORT_CANVAS_HEIGHT);
   context.fillStyle = "#4a1556";
@@ -251,30 +259,30 @@ function drawPageHeader(context: CanvasRenderingContext2D, options: TableReportP
   context.fillText(`ЧЕМПІОН · сформовано ${generatedAt}`, PAGE_MARGIN, 177);
 }
 
-function drawTableHeader(context: CanvasRenderingContext2D, headers: string[], widths: number[]) {
+function drawTableHeader(context: CanvasRenderingContext2D, headers: string[], widths: number[], top = TABLE_TOP, height = TABLE_HEADER_HEIGHT, fontSize = 23) {
   let x = PAGE_MARGIN;
   context.textAlign = "left";
   context.textBaseline = "top";
-  context.font = "700 23px Arial, sans-serif";
+  context.font = `700 ${fontSize}px Arial, sans-serif`;
   for (let index = 0; index < headers.length; index += 1) {
     const width = widths[index];
     context.fillStyle = "#4a1556";
-    context.fillRect(x, TABLE_TOP, width, TABLE_HEADER_HEIGHT);
+    context.fillRect(x, top, width, height);
     context.strokeStyle = "#ffffff";
     context.lineWidth = 2;
-    context.strokeRect(x, TABLE_TOP, width, TABLE_HEADER_HEIGHT);
+    context.strokeRect(x, top, width, height);
     context.fillStyle = "#ffffff";
     const lines = wrapText(context, headers[index], width - CELL_PADDING_X * 2, 2);
-    lines.forEach((line, lineIndex) => context.fillText(line, x + CELL_PADDING_X, TABLE_TOP + 12 + lineIndex * 28));
+    lines.forEach((line, lineIndex) => context.fillText(line, x + CELL_PADDING_X, top + 12 + lineIndex * 28, width - CELL_PADDING_X * 2));
     x += width;
   }
 }
 
-function drawPreparedRows(context: CanvasRenderingContext2D, rows: PreparedRow[], widths: number[]) {
-  let y = TABLE_TOP + TABLE_HEADER_HEIGHT;
+function drawPreparedRows(context: CanvasRenderingContext2D, rows: PreparedRow[], widths: number[], top = TABLE_TOP + TABLE_HEADER_HEIGHT, style = TABLE_BODY) {
+  let y = top;
   context.textAlign = "left";
   context.textBaseline = "top";
-  context.font = `${BODY_FONT_SIZE}px Arial, sans-serif`;
+  context.font = `${style.fontSize}px Arial, sans-serif`;
   rows.forEach((row, rowIndex) => {
     let x = PAGE_MARGIN;
     row.lines.forEach((cellLines, cellIndex) => {
@@ -285,7 +293,7 @@ function drawPreparedRows(context: CanvasRenderingContext2D, rows: PreparedRow[]
       context.lineWidth = 1.5;
       context.strokeRect(x, y, width, row.height);
       context.fillStyle = "#241b27";
-      cellLines.forEach((line, lineIndex) => context.fillText(line, x + CELL_PADDING_X, y + CELL_PADDING_Y + lineIndex * BODY_LINE_HEIGHT));
+      cellLines.forEach((line, lineIndex) => context.fillText(line, x + CELL_PADDING_X, y + style.paddingY + lineIndex * style.lineHeight, width - CELL_PADDING_X * 2));
       x += width;
     });
     y += row.height;
@@ -324,16 +332,16 @@ function drawFooter(context: CanvasRenderingContext2D, page: number, total: numb
   context.fillText(`Сторінка ${page} з ${total}`, REPORT_CANVAS_WIDTH - PAGE_MARGIN, 1703);
 }
 
-export async function createTableReportPdf(options: TableReportPdfOptions) {
-  if (!options.headers.length) throw new Error("Для PDF-звіту не визначено колонки.");
-  const measureCanvas = document.createElement("canvas");
-  const measureContext = measureCanvas.getContext("2d");
-  if (!measureContext) throw new Error("Браузер не підтримує формування PDF-звіту.");
-  const widths = normalizedColumnWidths(options.headers, options.columnWeights);
-  const preparedRows = prepareRows(measureContext, options.rows, widths);
-  const pages = paginateRows(preparedRows);
-  const jpegPages: Uint8Array[] = [];
+type ReportPage = (context: CanvasRenderingContext2D) => void;
 
+function reportMeasureContext() {
+  const context = document.createElement("canvas").getContext("2d");
+  if (!context) throw new Error("Браузер не підтримує формування PDF-звіту.");
+  return context;
+}
+
+async function renderReportPages(options: Pick<TableReportPdfOptions, "title" | "subtitle">, pages: ReportPage[]) {
+  const jpegPages: Uint8Array[] = [];
   for (let pageIndex = 0; pageIndex < pages.length; pageIndex += 1) {
     const canvas = document.createElement("canvas");
     canvas.width = REPORT_CANVAS_WIDTH;
@@ -343,15 +351,156 @@ export async function createTableReportPdf(options: TableReportPdfOptions) {
     context.imageSmoothingEnabled = true;
     context.imageSmoothingQuality = "high";
     drawPageHeader(context, options);
-    if (options.rows.length) {
-      drawTableHeader(context, options.headers, widths);
-      drawPreparedRows(context, pages[pageIndex], widths);
-    } else {
-      drawEmptyState(context, options.emptyMessage ?? "Дані не внесено");
-    }
+    pages[pageIndex](context);
     drawFooter(context, pageIndex + 1, pages.length);
     jpegPages.push(await canvasToJpeg(canvas));
   }
 
   return buildA4ReportPdf(jpegPages);
+}
+
+export async function createTableReportPdf(options: TableReportPdfOptions) {
+  if (!options.headers.length) throw new Error("Для PDF-звіту не визначено колонки.");
+  const widths = normalizedColumnWidths(options.headers, options.columnWeights);
+  const rows = prepareRows(reportMeasureContext(), options.rows, widths);
+  return renderReportPages(options, paginateRows(rows).map((pageRows) => (context) => {
+    if (pageRows.length) {
+      drawTableHeader(context, options.headers, widths);
+      drawPreparedRows(context, pageRows, widths);
+    } else {
+      drawEmptyState(context, options.emptyMessage ?? "Дані не внесено");
+    }
+  }));
+}
+
+function fittingRows(rows: PreparedRow[], start: number, available: number) {
+  let end = start;
+  let height = 0;
+  while (end < rows.length && height + rows[end].height <= available) {
+    height += rows[end].height;
+    end += 1;
+  }
+  if (start < rows.length && end === start) throw new Error("Не вдалося розмістити рядок у PDF-звіті.");
+  return { end, height };
+}
+
+function rosterText(context: CanvasRenderingContext2D, text: string, x: number, y: number, font: string, color = "#211526", align: CanvasTextAlign = "left", maxWidth?: number) {
+  context.font = `${font} Arial, sans-serif`;
+  context.fillStyle = color;
+  context.textBaseline = "top";
+  context.textAlign = align;
+  if (maxWidth === undefined) context.fillText(text, x, y);
+  else context.fillText(text, x, y, maxWidth);
+}
+
+function rosterCountLabel(count: number) {
+  const last = count % 10;
+  const lastTwo = count % 100;
+  const noun = lastTwo >= 11 && lastTwo <= 14 ? "гравців" : last === 1 ? "гравець" : last >= 2 && last <= 4 ? "гравці" : "гравців";
+  return `${count} ${noun}`;
+}
+
+export async function createGroupedRosterReportPdf(options: GroupedRosterReportPdfOptions) {
+  if (!options.headers.length) throw new Error("Для PDF-звіту не визначено колонки.");
+  const measure = reportMeasureContext();
+  const reportWidth = REPORT_CANVAS_WIDTH - PAGE_MARGIN * 2;
+  const right = REPORT_CANVAS_WIDTH - PAGE_MARGIN;
+  const summaryHeaders = ["Група", "Гравців"];
+  const summaryWidths = normalizedColumnWidths(summaryHeaders, [5, 1]);
+  const summaryRows = prepareRows(measure, options.groups.map((group) => [group.label, group.rows.length]), summaryWidths, SUMMARY_BODY);
+  const rosterWidths = normalizedColumnWidths(options.headers, options.columnWeights);
+  measure.font = "22px Arial, sans-serif";
+  const noteLines = options.summaryNote ? wrapText(measure, options.summaryNote, reportWidth) : [];
+  const noteHeight = noteLines.length ? 16 + noteLines.length * 28 : 0;
+
+  const pages: ReportPage[][] = [[]];
+  let y = TABLE_TOP;
+  function nextPage() {
+    pages.push([]);
+    y = TABLE_TOP;
+  }
+  function add(height: number, paint: (context: CanvasRenderingContext2D, top: number) => void) {
+    const top = y;
+    pages[pages.length - 1].push((context) => paint(context, top));
+    y += height;
+  }
+
+  add(102, (context, top) => {
+    context.fillStyle = "#f5edf6";
+    context.fillRect(PAGE_MARGIN, top, reportWidth, 80);
+    context.fillStyle = "#f7c928";
+    context.fillRect(PAGE_MARGIN, top, 7, 80);
+    rosterText(context, `Усього гравців: ${options.totalPlayers}`, PAGE_MARGIN + 24, top + 20, "800 34px", "#4a1556");
+    rosterText(context, `Груп у звіті: ${options.groups.length}`, right - 24, top + 28, "700 25px", "#4a1556", "right");
+  });
+
+  if (!summaryRows.length) {
+    add(54, (context, top) => rosterText(context, "Групи не налаштовано", PAGE_MARGIN, top, "700 28px"));
+  } else {
+    let start = 0;
+    while (start < summaryRows.length) {
+      const title = start ? "Кількість гравців у кожній групі · продовження" : "Кількість гравців у кожній групі";
+      add(46, (context, top) => rosterText(context, title, PAGE_MARGIN, top, "700 28px"));
+      add(48, (context, top) => drawTableHeader(context, summaryHeaders, summaryWidths, top, 48));
+      const { end, height } = fittingRows(summaryRows, start, TABLE_BOTTOM - noteHeight - y);
+      const rows = summaryRows.slice(start, end);
+      add(height, (context, top) => drawPreparedRows(context, rows, summaryWidths, top, SUMMARY_BODY));
+      start = end;
+      if (start < summaryRows.length) nextPage();
+    }
+  }
+  if (noteHeight) {
+    add(noteHeight, (context, top) => {
+      noteLines.forEach((line, index) => rosterText(context, line, PAGE_MARGIN, top + 13 + index * 28, "22px", "#655d68", "left", reportWidth));
+    });
+  }
+
+  let firstGroup = true;
+  for (const group of options.groups) {
+    const rows = prepareRows(measure, group.rows, rosterWidths, ROSTER_BODY);
+    const countLabel = rosterCountLabel(rows.length);
+    let start = 0;
+    do {
+      measure.font = "700 25px Arial, sans-serif";
+      const titleWidth = reportWidth - measure.measureText(countLabel).width - 54;
+      measure.font = "700 28px Arial, sans-serif";
+      const titleLines = wrapText(measure, start ? `${group.label} · продовження` : group.label, titleWidth, 2);
+      const bandHeight = titleLines.length * 33 + 18;
+      const headingHeight = firstGroup ? 48 : 0;
+      const rowHeight = rows.length ? TABLE_HEADER_HEIGHT + rows[start].height : 52;
+      const gap = y > TABLE_TOP ? 22 : 0;
+      if (y + gap + headingHeight + bandHeight + rowHeight > TABLE_BOTTOM) nextPage();
+      else y += gap;
+
+      if (firstGroup) {
+        add(headingHeight, (context, top) => rosterText(context, "Списки за групами", PAGE_MARGIN, top, "700 28px"));
+        firstGroup = false;
+      }
+      add(bandHeight, (context, top) => {
+        context.fillStyle = "#f5edf6";
+        context.fillRect(PAGE_MARGIN, top, reportWidth, bandHeight);
+        titleLines.forEach((line, index) => rosterText(context, line, PAGE_MARGIN + 16, top + 10 + index * 33, "700 28px", "#4a1556", "left", titleWidth));
+        rosterText(context, countLabel, right - 16, top + 13, "700 25px", "#4a1556", "right");
+      });
+      if (!rows.length) {
+        add(52, (context, top) => {
+          context.fillStyle = "#fff";
+          context.fillRect(PAGE_MARGIN, top, reportWidth, 52);
+          context.strokeStyle = "#d9d1db";
+          context.lineWidth = 1.5;
+          context.strokeRect(PAGE_MARGIN, top, reportWidth, 52);
+          rosterText(context, "Активних гравців немає.", PAGE_MARGIN + 16, top + 13, "23px", "#655d68");
+        });
+        break;
+      }
+      add(TABLE_HEADER_HEIGHT, (context, top) => drawTableHeader(context, options.headers, rosterWidths, top, TABLE_HEADER_HEIGHT, 21));
+      const { end, height } = fittingRows(rows, start, TABLE_BOTTOM - y);
+      const pageRows = rows.slice(start, end);
+      add(height, (context, top) => drawPreparedRows(context, pageRows, rosterWidths, top, ROSTER_BODY));
+      start = end;
+      if (start < rows.length) nextPage();
+    } while (start < rows.length);
+  }
+
+  return renderReportPages(options, pages.map((items) => (context) => items.forEach((paint) => paint(context))));
 }

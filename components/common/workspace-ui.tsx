@@ -4,6 +4,7 @@ import { groupLabel } from "@/lib/domain/seasons";
 
 import { AlertTriangle, CheckCircle2, ChevronDown, LoaderCircle, Search, X } from "lucide-react";
 import { type ReactNode, useEffect, useId, useRef } from "react";
+import { lockPageScroll } from "@/lib/browser/modal-scroll";
 import type { GroupSummary } from "@/lib/domain/types";
 
 export function WorkspaceHeader({ eyebrow, title, description, actions }: { eyebrow?: string; title: string; description?: string; actions?: ReactNode }) {
@@ -37,14 +38,33 @@ export function StatusMessage({ kind, children }: { kind: "success" | "error" | 
 
 export function Modal({ title, children, onClose, wide = false, footer }: { title: string; children: ReactNode; onClose: () => void; wide?: boolean; footer?: ReactNode }) {
   const titleId = useId();
+  const backdropRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
-    const handle = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
-    document.addEventListener("keydown", handle);
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => { document.removeEventListener("keydown", handle); document.body.style.overflow = previous; };
+    const backdrop = backdropRef.current;
+    if (!backdrop) return;
+    const area = backdrop.closest<HTMLElement>("[data-workspace-scroll]")
+      ?? backdrop.closest(".app-frame")?.querySelector<HTMLElement>("[data-workspace-scroll]");
+    const unlockPage = lockPageScroll(backdrop.ownerDocument.body);
+    const unlockArea = area ? lockPageScroll(area) : undefined;
+    return () => { unlockArea?.(); unlockPage(); };
+  }, []);
+
+  useEffect(() => {
+    const backdrop = backdropRef.current;
+    if (!backdrop) return;
+    const doc = backdrop.ownerDocument;
+    const handle = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      const layers = doc.querySelectorAll(".modal-backdrop");
+      if (layers[layers.length - 1] !== backdrop) return;
+      event.preventDefault();
+      onClose();
+    };
+    doc.addEventListener("keydown", handle);
+    return () => doc.removeEventListener("keydown", handle);
   }, [onClose]);
-  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className={`modal-card${wide ? " wide" : ""}`} role="dialog" aria-modal="true" aria-labelledby={titleId}><header><h2 id={titleId}>{title}</h2><button className="icon-button light" type="button" onClick={onClose} aria-label="Закрити"><X size={20} /></button></header><div className="modal-body">{children}</div>{footer && <footer>{footer}</footer>}</section></div>;
+  return <div ref={backdropRef} className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className={`modal-card${wide ? " wide" : ""}`} role="dialog" aria-modal="true" aria-labelledby={titleId}><header><h2 id={titleId}>{title}</h2><button className="icon-button light" type="button" onClick={onClose} aria-label="Закрити"><X size={20} /></button></header><div className="modal-body">{children}</div>{footer && <footer>{footer}</footer>}</section></div>;
 }
 
 export function Accordion({ title, children, open, onToggle, priority }: { title: string; children: ReactNode; open: boolean; onToggle: () => void; priority?: string }) {

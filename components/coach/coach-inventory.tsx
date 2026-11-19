@@ -137,7 +137,7 @@ export function CoachInventory({ client, profile, groups }: Props) {
   }
 
   return <div className="workspace-stack">
-    <WorkspaceHeader eyebrow="Окрема вкладка" title="Інвентар" description="Швидкий збір після заняття та окрема повна інвентаризація" actions={groups.length ? <GroupSelect groups={groups} value={groupId} onChange={setGroupId} /> : undefined} />
+    <WorkspaceHeader title="Інвентар" description="Швидкий збір після заняття та окрема повна інвентаризація" actions={groups.length ? <GroupSelect groups={groups} value={groupId} onChange={setGroupId} /> : undefined} />
     {!groups.length ? <EmptyState title="Команди ще не призначені">Адміністратор має призначити вам щонайменше одну команду.</EmptyState> : loading ? <LoadingState label="Завантажуємо інвентар…" /> : <>
       <Tabs<InventoryTab> label="Режим роботи з інвентарем" value={tab} onChange={setTab} items={[{ value: "collect", label: "Зібрати після тренування", badge: items.length }, { value: "audit", label: "Інвентаризація" }]} />
       {message && <div className="save-message-row"><StatusMessage kind={message.kind}>{message.text}</StatusMessage>{undoItem && message.kind === "success" && <UndoLastChange busy={saving === undoItem.id} onUndo={undoLastItem} />}</div>}

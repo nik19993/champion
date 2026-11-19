@@ -86,8 +86,8 @@ export function EnhancedProgramManagement({ client, profile }: Props) {
   async function save(event: FormEvent) {
     event.preventDefault();
     setMessage(null);
-    if (form.audience === "field" && (form.ageFrom !== form.ageTo || form.ageFrom === 17)) {
-      setMessage({kind:"error",text:"Оберіть одну категорію U6–U16. Завдання U17 формулює тренер."}); return;
+    if (form.audience === "field" && form.ageFrom !== form.ageTo) {
+      setMessage({kind:"error",text:`Оберіть одну вікову категорію U6–U${MAX_AGE_GROUP}.`}); return;
     }
     if (form.ageFrom > form.ageTo) {
       setMessage({ kind: "error", text: "Початковий вік не може бути більшим за кінцевий." });

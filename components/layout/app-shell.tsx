@@ -4,7 +4,7 @@ import Image from "next/image";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { BarChart3, BookOpen, CalendarDays, Download, LogOut, MapPinned, PackageOpen, Settings2, Shirt, Users } from "lucide-react";
 import { VenueOccupancy } from "@/components/admin/venue-occupancy";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AdminExport } from "@/components/admin/admin-export";
 import { AdminGroups } from "@/components/admin/admin-groups";
 import { AdminManagement } from "@/components/admin/admin-management";
@@ -17,6 +17,7 @@ import { CoachPlayers } from "@/components/coach/coach-players";
 import { SessionTimeoutGuard } from "@/components/auth/session-timeout-guard";
 import { ConnectionStatus } from "@/components/common/connection-status";
 import { LoadingState, StatusMessage } from "@/components/common/workspace-ui";
+import { mergeCreatedGroup } from "@/lib/domain/group-creation";
 import type { GroupSummary, Profile } from "@/lib/domain/types";
 
 interface Props { client: SupabaseClient; profile: Profile; onMfaRequired?: () => void; }
@@ -44,6 +45,7 @@ const adminNavigation: Array<{ value: AdminView; label: string; icon: typeof Cal
 export function AppShell({ client, profile, onMfaRequired }: Props) {
   const [groups, setGroups] = useState<GroupSummary[]>([]);
   const [activeView, setActiveView] = useState<View>("plan");
+  const workspaceScroll = useRef<HTMLElement>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const navigation = profile.role === "admin" ? adminNavigation : coachNavigation;
@@ -88,6 +90,7 @@ export function AppShell({ client, profile, onMfaRequired }: Props) {
 
   function selectView(value: View) {
     window.sessionStorage.setItem(`champion:active-view:${profile.id}`, value);
+    if (workspaceScroll.current) workspaceScroll.current.scrollTop = 0;
     setActiveView(value);
   }
 
@@ -103,11 +106,11 @@ export function AppShell({ client, profile, onMfaRequired }: Props) {
     if (activeView === "groups") return <AdminGroups client={client} profile={profile} groups={groups} onRefresh={() => void loadGroups()} />;
     if (activeView === "venues") return <VenueOccupancy client={client} />;
     if (activeView === "uniform") return <AdminUniform client={client} profile={profile} groups={groups} />;
-    if (activeView === "management") return <AdminManagement client={client} profile={profile} groups={groups} onMfaRequired={onMfaRequired} />;
+    if (activeView === "management") return <AdminManagement client={client} profile={profile} groups={groups} onGroupCreated={(created) => setGroups((current) => mergeCreatedGroup(current, created))} onMfaRequired={onMfaRequired} />;
     if (activeView === "report") return <AdminReport client={client} />;
     if (activeView === "export") return <AdminExport client={client} profile={profile} groups={groups} />;
-    return <AdminPlan client={client} />;
+    return <AdminPlan client={client} groups={groups} />;
   }
 
-  return <div className="app-frame"><SessionTimeoutGuard client={client} profileId={profile.id} /><header className="app-header"><div className="header-inner"><div className="app-brand"><span className="brand-mark"><Image src="/champion-club-emblem.jpg" alt="" width={48} height={48} priority /></span><strong>ЧЕМПІОН</strong></div><div className="account-area"><span><b>{profile.full_name}</b><small>{profile.role === "admin" ? "Адміністратор" : "Тренер"}</small></span><button className="icon-button" type="button" onClick={() => void client.auth.signOut()} aria-label="Вийти"><LogOut size={19} /></button></div></div></header><main className="app-main"><nav className="app-nav" aria-label="Основна навігація">{navigation.map(({ value, label, icon: Icon }) => <button key={value} className={activeView === value ? "active" : ""} type="button" onClick={() => selectView(value)}><Icon size={18} /><span>{label}</span></button>)}</nav><ConnectionStatus client={client} profileId={profile.id} />{renderView()}</main></div>;
+  return <div className="app-frame"><SessionTimeoutGuard client={client} profileId={profile.id} /><header className="app-header"><div className="header-inner"><div className="app-brand"><span className="brand-mark"><Image src="/champion-club-emblem.jpg" alt="" width={48} height={48} priority /></span><strong>ЧЕМПІОН</strong></div><div className="account-area"><span><b>{profile.full_name}</b><small>{profile.role === "admin" ? "Адміністратор" : "Тренер"}</small></span><button className="icon-button" type="button" onClick={() => void client.auth.signOut()} aria-label="Вийти"><LogOut size={19} /></button></div></div></header><main ref={workspaceScroll} className="workspace-scroll-area" data-workspace-scroll="" tabIndex={0} aria-label="Робочий простір"><div className="app-main"><nav className="app-nav" aria-label="Основна навігація">{navigation.map(({ value, label, icon: Icon }) => <button key={value} className={activeView === value ? "active" : ""} type="button" onClick={() => selectView(value)}><Icon size={18} /><span>{label}</span></button>)}</nav><ConnectionStatus client={client} profileId={profile.id} />{renderView()}</div></main></div>;
 }
