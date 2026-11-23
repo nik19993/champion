@@ -73,7 +73,6 @@ function CalendarEventRow({ event, onOpen }: { event: AdminCalendarEvent; onOpen
         <b>{EVENT_LABELS[event.event_type]}</b>
         <Pill>{groupCode(event.groups)}</Pill>
         {event.status === "cancelled" ? <Pill tone="danger">Скасовано</Pill> : <>
-          {event.is_rescheduled && <Pill tone="warning">Перенесено</Pill>}
           {event.status === "completed" && <Pill tone="success">Завершено</Pill>}
           {event.status === "scheduled" && event.needs_substitute && !event.substitute_coach_id && <Pill tone="warning">Потрібна заміна</Pill>}
         </>}
