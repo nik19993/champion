@@ -1,6 +1,7 @@
 "use client";
 
 import { OPERATIONAL_REPORT_SELECT, operationalReportRow } from "@/lib/domain/operational-report";
+import { operationalItemIsVisible } from "@/lib/domain/event-visibility";
 
 import { groupCode, groupLabel } from "@/lib/domain/seasons";
 import { groupedRoster, type GroupedRoster } from "@/lib/domain/group-memberships";
@@ -478,11 +479,11 @@ export function AdminExport({ client, profile, groups }: Props) {
     try {
       const start = new Date();
       start.setDate(start.getDate() - 30);
-      let query = client.from("operational_items").select(OPERATIONAL_REPORT_SELECT).neq("item_type", "conflict").gte("created_at", start.toISOString());
+      let query = client.from("operational_items").select(OPERATIONAL_REPORT_SELECT).neq("item_type", "conflict").neq("item_type", "reschedule").gte("created_at", start.toISOString());
       if (!allGroups) query = query.eq("group_id", groupId);
       const result = await query.order("created_at", { ascending: false });
       if (result.error) throw result.error;
-      const rows = (result.data ?? []).map((item) => { const row = operationalReportRow(item as unknown as import("@/lib/domain/types").OperationalItem); return { "Дата": row.date, "Вікова група": row.group, "Тренер": row.coach, "Що потрібно зробити / коментар": row.action, "Подія / ситуація": row.context, "Стан": row.status }; });
+      const rows = ((result.data ?? []) as unknown as import("@/lib/domain/types").OperationalItem[]).filter(operationalItemIsVisible).map((item) => { const row = operationalReportRow(item); return { "Дата": row.date, "Вікова група": row.group, "Тренер": row.coach, "Що потрібно зробити / коментар": row.action, "Подія / ситуація": row.context, "Стан": row.status }; });
       downloadText(`ЧЕМПІОН_${selectionFileLabel}_операційний_звіт.csv`, toCsv(rows), "text/csv;charset=utf-8");
       await audit("operations", { period_days: 30, format: "csv" });
     } catch {

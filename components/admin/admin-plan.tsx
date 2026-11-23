@@ -9,10 +9,12 @@ import { effectiveVenuePart, isAwayVenue, normalizeVenuePart, VENUE_SELECT, type
 import { groupCode } from "@/lib/domain/seasons";
 import { durationInput, durationMinutes } from "@/lib/domain/event-duration";
 import { firstRelation, operationalReportRow, OPERATIONAL_REPORT_SELECT } from "@/lib/domain/operational-report";
+import { operationalItemIsVisible } from "@/lib/domain/event-visibility";
+import { useAutomaticRefresh } from "@/lib/browser/use-automatic-refresh";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { CalendarClock, CalendarRange, CheckCircle2, CircleDashed, TriangleAlert } from "lucide-react";
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EmptyState, LoadingState, Modal, Pill, StatusMessage, Tabs, WorkspaceHeader } from "@/components/common/workspace-ui";
 import { combineKyivDateTime, EVENT_LABELS, formatDateTime, OPERATIONAL_STATUS_LABELS, OPERATIONAL_TYPE_LABELS, safeError, toKyivDateInput, toKyivTimeInput } from "@/lib/domain/format";
 import type { EventItem, GroupSummary, OperationalItem, OperationalStatus, Profile, Venue } from "@/lib/domain/types";
@@ -37,7 +39,7 @@ type AttentionItem = Omit<OperationalItem, "groups" | "events" | "creator"> & {
       coach: Related<CoachContact>;
     }>;
   }>;
-  events: Related<Pick<EventItem, "start_at" | "event_type"> & {
+  events: Related<Pick<EventItem, "start_at" | "event_type" | "status" | "coach_comment"> & {
     coach: Related<CoachContact>;
     substitute: Related<CoachContact>;
   }>;
@@ -55,7 +57,7 @@ const ATTENTION_SELECT = `
       is_active, valid_from, valid_to, coach:profiles!coach_group_assignments_coach_id_fkey(${COACH_CONTACT_FIELDS})
     )
   ),
-  events(start_at, event_type,
+  events(start_at, event_type, status, coach_comment,
     coach:profiles!events_coach_id_fkey(${COACH_CONTACT_FIELDS}),
     substitute:profiles!events_substitute_coach_id_fkey(${COACH_CONTACT_FIELDS})
   )
@@ -125,25 +127,40 @@ function AdminAttentionPlan({ client }: { client: SupabaseClient }) {
   const [openedEventId, setOpenedEventId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const attentionRequest = useRef(0);
   const range = useMemo(() => rangeFor(mode, customStart, customEnd), [customEnd, customStart, mode]);
   const today = toKyivDateInput(new Date());
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (silent = false) => {
+    const ticket = ++attentionRequest.current;
+    if (!silent) setLoading(true);
     setError(null);
-    const result = await client.from("operational_items").select(ATTENTION_SELECT).neq("item_type", "conflict").order("status").order("created_at", { ascending: false }).limit(1000);
-    setLoading(false);
-    if (result.error) { setError("Не вдалося завантажити операційний план."); return; }
-    const start = range.start.getTime();
-    const end = range.end.getTime();
-    setItems(((result.data ?? []) as unknown as AttentionItem[]).filter((item) => {
-      const relevantAt = item.due_at ?? firstRelation(item.events)?.start_at ?? item.created_at;
-      const timestamp = new Date(relevantAt).getTime();
-      return timestamp >= start && timestamp <= end;
-    }));
+    try {
+      const result = await client.from("operational_items").select(ATTENTION_SELECT).neq("item_type", "conflict").neq("item_type", "reschedule").order("status").order("created_at", { ascending: false }).limit(1000);
+      if (ticket !== attentionRequest.current) return;
+      if (result.error) throw result.error;
+      const start = range.start.getTime();
+      const end = range.end.getTime();
+      setItems(((result.data ?? []) as unknown as AttentionItem[]).filter((item) => {
+        if (!operationalItemIsVisible(item)) return false;
+        const relevantAt = item.due_at ?? firstRelation(item.events)?.start_at ?? item.created_at;
+        const timestamp = new Date(relevantAt).getTime();
+        return timestamp >= start && timestamp <= end;
+      }));
+    } catch {
+      if (ticket === attentionRequest.current) setError("Не вдалося завантажити операційний план.");
+    } finally {
+      if (ticket === attentionRequest.current) setLoading(false);
+    }
   }, [client, range.end, range.start]);
 
-  useEffect(() => { void load(); }, [load]);
+  const refreshAttention = useCallback(() => load(true), [load]);
+  useAutomaticRefresh(refreshAttention);
+  useEffect(() => {
+    void load();
+    const requests = attentionRequest;
+    return () => { requests.current++; };
+  }, [load]);
 
   async function updateStatus(id: string, status: OperationalStatus) {
     const result = await client.from("operational_items").update({ status }).eq("id", id);
@@ -266,18 +283,33 @@ export function AdminReport({ client }: { client: SupabaseClient }) {
   const [items, setItems] = useState<OperationalItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    let active = true;
-    const start = new Date();
-    start.setDate(start.getDate() - 30);
-    void Promise.resolve(client.from("operational_items").select(OPERATIONAL_REPORT_SELECT).neq("item_type", "conflict").gte("created_at", start.toISOString()).order("created_at", { ascending: false })).then(({ data, error: loadError }) => {
-      if (!active) return;
-      if (loadError) setError("Не вдалося завантажити загальний звіт. Повторіть відкриття розділу.");
-      else setItems((data ?? []) as unknown as OperationalItem[]);
-      setLoading(false);
-    }).catch(() => { if (active) { setError("Не вдалося завантажити загальний звіт. Перевірте з’єднання."); setLoading(false); } });
-    return () => { active = false; };
+  const reportRequest = useRef(0);
+  const load = useCallback(async (silent = false) => {
+    const ticket = ++reportRequest.current;
+    if (!silent) setLoading(true);
+    setError(null);
+    try {
+      const start = new Date();
+      start.setDate(start.getDate() - 30);
+      const result = await client.from("operational_items").select(OPERATIONAL_REPORT_SELECT)
+        .neq("item_type", "conflict").neq("item_type", "reschedule")
+        .gte("created_at", start.toISOString()).order("created_at", { ascending: false });
+      if (ticket !== reportRequest.current) return;
+      if (result.error) throw result.error;
+      setItems(((result.data ?? []) as unknown as OperationalItem[]).filter(operationalItemIsVisible));
+    } catch {
+      if (ticket === reportRequest.current) setError("Не вдалося завантажити загальний звіт. Перевірте з’єднання.");
+    } finally {
+      if (ticket === reportRequest.current) setLoading(false);
+    }
   }, [client]);
+  const refreshReport = useCallback(() => load(true), [load]);
+  useAutomaticRefresh(refreshReport);
+  useEffect(() => {
+    void load();
+    const requests = reportRequest;
+    return () => { requests.current++; };
+  }, [load]);
   const counts = { todo: items.filter((item) => item.status === "todo").length, in_progress: items.filter((item) => item.status === "in_progress").length, done: items.filter((item) => item.status === "done").length };
   const completion = items.length ? Math.round((counts.done / items.length) * 100) : 0;
   const substitutions = items.filter((item) => item.item_type === "coach_substitution").length;

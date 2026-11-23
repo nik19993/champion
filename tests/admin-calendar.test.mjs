@@ -43,7 +43,9 @@ test("the calendar keeps each event once and filters both coach roles and all pa
     ["2026-11-09", ["substitution", "later"]],
     ["2026-11-10", ["kyiv-next-day"]],
   ]);
-  assert(filterCalendarEvents(rows, { ...filters, includeCancelled: true }).some(({ id }) => id === "cancelled"));
+  assert(!filterCalendarEvents(rows, { ...filters, includeCancelled: true }).some(({ id }) => id === "cancelled"));
+  assert(filterCalendarEvents([event("cancelled-comment", { status: "cancelled", coach_comment: "Узгодьте інший час." })],
+    { ...filters, includeCancelled: true }).some(({ id }) => id === "cancelled-comment"));
 });
 
 function fixtureClient(fetch) {

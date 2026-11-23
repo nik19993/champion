@@ -1,4 +1,5 @@
 import { kyivDateKey } from "./format.ts";
+import { eventIsVisible } from "./event-visibility.ts";
 import type { EventItem } from "./types.ts";
 
 export type CalendarPeriod = "7" | "10" | "month";
@@ -7,6 +8,7 @@ export interface CalendarRange { start: string; end: string }
 export interface AdminCalendarEvent extends Pick<EventItem, "id" | "group_id" | "event_type" | "start_at" | "venue_id" | "venue_part" | "coach_id" | "substitute_coach_id" | "needs_substitute" | "is_rescheduled" | "status" | "groups" | "venues"> {
   ends_at: string;
   booking_venue_id: string | null;
+  coach_comment?: string | null;
   coach: { full_name: string } | null;
   substitute: { full_name: string } | null;
 }
@@ -83,7 +85,7 @@ export function calendarMonthCells(range: CalendarRange) {
 
 export function filterCalendarEvents(events: AdminCalendarEvent[], filters: AdminCalendarFilters) {
   return events.filter((event) => (
-    (filters.includeCancelled || event.status !== "cancelled")
+    eventIsVisible(event) && (filters.includeCancelled || event.status !== "cancelled")
     && (!filters.groupId || event.group_id === filters.groupId)
     && (!filters.coachId || event.coach_id === filters.coachId || event.substitute_coach_id === filters.coachId)
     && (!filters.type || event.event_type === filters.type)

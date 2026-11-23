@@ -1,4 +1,6 @@
 "use client";
+
+import { eventIsVisible } from "@/lib/domain/event-visibility";
 import { eventVenueLabel } from "@/lib/domain/venue-booking";
 
 import { EnrollGoalkeeper } from "@/components/admin/goalkeeper-membership";
@@ -43,6 +45,7 @@ interface AdminGroupEvent {
   title?: string | null;
   notes?: string | null;
   organizational_need?: string | null;
+  coach_comment?: string | null;
   coach?: Relation<{ full_name: string }>;
   venue_part?: "whole" | "left" | "right";
   venues?: Relation<{ name: string; parent_venue_id?: string | null }>;
@@ -265,14 +268,14 @@ function GroupMonthlyPlan({ client, group }: { client: SupabaseClient; group: Gr
     setLoading(true);
     setError(null);
     void client.from("events")
-      .select("id, event_type, start_at, duration_minutes, venue_part, status, title, notes, organizational_need, coach:profiles!events_coach_id_fkey(full_name), venues(name, parent_venue_id), methodology_tasks(title)")
+      .select("id, event_type, start_at, duration_minutes, venue_part, status, title, notes, organizational_need, coach_comment, coach:profiles!events_coach_id_fkey(full_name), venues(name, parent_venue_id), methodology_tasks(title)")
       .eq("group_id", group.id)
       .gte("start_at", bounds.start)
       .lt("start_at", bounds.end)
       .order("start_at")
       .then(({ data, error: loadError }) => {
         if (!active) return;
-        setEvents(loadError ? [] : (data ?? []) as unknown as AdminGroupEvent[]);
+        setEvents(loadError ? [] : ((data ?? []) as unknown as AdminGroupEvent[]).filter(eventIsVisible));
         setError(loadError ? "Не вдалося завантажити план групи за цей місяць." : null);
         setLoading(false);
       });
