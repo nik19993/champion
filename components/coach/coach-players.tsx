@@ -207,7 +207,7 @@ export function PlayerDetails({ client, profile, player, transferGroups = [], co
   const [transferOpen, setTransferOpen] = useState(false);
   const [targetGroupId, setTargetGroupId] = useState("");
   const [transferBusy, setTransferBusy] = useState(false);
-  const destinations = transferGroups.filter(group => group.group_kind === "age" && group.id !== player.group_id);
+  const destinations = transferGroups.filter(group => group.group_kind !== "goalkeeper" && group.id !== player.group_id);
   const [guardians, setGuardians] = useState<Guardian[]>([]);
   const [tests, setTests] = useState<Array<{ id: string; measured_on: string; metric_name: string; field_name: string; value: string; unit?: string | null }>>([]);
   const [activity, setActivity] = useState<Array<{ id: string; period: string; metric_name: string; value: string }>>([]);

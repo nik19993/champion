@@ -11,8 +11,8 @@ import { assessmentLabel, playerProfileHistory, profileExportRange, type Profile
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { Download, FileJson } from "lucide-react";
-import { useEffect, useState } from "react";
-import { EmptyState, GroupSelect, Pill, StatusMessage, WorkspaceHeader } from "@/components/common/workspace-ui";
+import { useEffect, useMemo, useState } from "react";
+import { EmptyState, Pill, StatusMessage, WorkspaceHeader } from "@/components/common/workspace-ui";
 import { encryptBackup } from "@/lib/domain/backup";
 import { groupPlayerIds, loadActiveRosterMemberships, loadActiveRosterPlayers, loadGroupPlayers } from "@/lib/supabase/group-roster";
 import { collectApplicationBackup, APPLICATION_BACKUP_TABLES } from "@/lib/domain/application-backup";
@@ -20,6 +20,9 @@ import { downloadBlob, downloadText, formatDate, formatMonth, kyivDateKey, toCsv
 import { createMonthlyStarAwardPdf } from "@/lib/domain/monthly-star-award-pdf";
 import { createGroupedRosterReportPdf, createTableReportPdf } from "@/lib/domain/report-pdf";
 import type { GroupSummary, Player, Profile } from "@/lib/domain/types";
+
+import { GroupScopeSelect } from "@/components/common/group-scope-select";
+import { groupScopeOptions, groupsInScope } from "@/lib/domain/location-groups";
 
 interface Props { client: SupabaseClient; profile: Profile; groups: GroupSummary[]; }
 type ExportKind = "group" | "player" | "tests" | "activity" | "monthly-star" | "debts" | "uniform" | "operations" | "backup";
@@ -36,7 +39,6 @@ interface CurrentPhotoRow {
   file_assets: { bucket: string; object_path: string; scan_status: string };
 }
 
-const ALL_GROUPS_VALUE = "__all_groups__";
 const ROSTER_PLAYER_SELECT = "id, group_id, full_name, birth_date, birth_year, position, dominant_foot, coach_note, coach_note_author_id, coach_note_author_name, coach_note_updated_at, is_active, groups(code, display_code, cohort_birth_year, season)";
 
 interface LoadedRoster {
@@ -83,7 +85,9 @@ function RosterExportSummary({ roster, allGroups, onRetry }: { roster: LoadedRos
 }
 
 export function AdminExport({ client, profile, groups }: Props) {
-  const [groupId, setGroupId] = useState(ALL_GROUPS_VALUE);
+  const [scope, setScope] = useState("all");
+  const scopedGroups = useMemo(() => groupsInScope(groups, scope), [groups, scope]);
+  const groupId = scope.startsWith("group:") ? scope.slice(6) : "";
   const [loadedRoster, setLoadedRoster] = useState<LoadedRoster | null>(null);
   const [rosterRequest, setRosterRequest] = useState(0);
   const [playerId, setPlayerId] = useState("");
@@ -94,11 +98,11 @@ export function AdminExport({ client, profile, groups }: Props) {
   const [profileTo, setProfileTo] = useState("");
   const [message, setMessage] = useState<{ kind: "success" | "error" | "warning"; text: string } | null>(null);
   const [busy, setBusy] = useState<ExportKind | null>(null);
-  const allGroups = groupId === ALL_GROUPS_VALUE;
+  const allGroups = !scope.startsWith("group:");
   const group = groups.find((item) => item.id === groupId);
-  const selectionLabel = allGroups ? "Усі групи" : group ? groupCode(group) : "Група";
-  const selectionFileLabel = allGroups ? "усі_групи" : group ? groupCode(group) : "група";
-  const roster = loadedRoster?.groupId === groupId && loadedRoster.sourceGroups === groups ? loadedRoster : null;
+  const selectionLabel = groupScopeOptions(groups).find((option) => option.value === scope)?.label ?? "Групи";
+  const selectionFileLabel = selectionLabel.replaceAll("/", "_");
+  const roster = loadedRoster?.groupId === scope && loadedRoster.sourceGroups === groups ? loadedRoster : null;
   const players = roster?.players ?? [];
 
   useEffect(() => {
@@ -107,11 +111,11 @@ export function AdminExport({ client, profile, groups }: Props) {
     void (async () => {
       const day = kyivDateKey(new Date());
       const [playersResult, membershipsResult] = await Promise.allSettled([
-        allGroups ? loadActiveRosterPlayers(client, ROSTER_PLAYER_SELECT) : loadGroupPlayers(client, groupId, ROSTER_PLAYER_SELECT).then((result) => {
+        scope === "all" ? loadActiveRosterPlayers(client, ROSTER_PLAYER_SELECT) : Promise.all(scopedGroups.map((item) => loadGroupPlayers(client, item.id, ROSTER_PLAYER_SELECT).then((result) => {
           if (result.error) throw result.error;
           return (result.data ?? []) as unknown as Player[];
-        }),
-        allGroups ? loadActiveRosterMemberships(client, groups.map((item) => item.id), day) : Promise.resolve([]),
+        }))).then((pages) => [...new Map(pages.flat().map((player) => [player.id, player])).values()]),
+        allGroups ? loadActiveRosterMemberships(client, scopedGroups.map((item) => item.id), day) : Promise.resolve([]),
       ]);
       if (!active) return;
       const rows = playersResult.status === "fulfilled" ? playersResult.value.sort((left, right) => (
@@ -119,13 +123,13 @@ export function AdminExport({ client, profile, groups }: Props) {
         || left.full_name.localeCompare(right.full_name, "uk-UA")
       )) : null;
       const report = allGroups && rows && membershipsResult.status === "fulfilled"
-        ? groupedRoster(groups.map((item) => ({ id: item.id, label: groupCode(item) })), rows, membershipsResult.value, day)
+        ? groupedRoster(scopedGroups.map((item) => ({ id: item.id, label: groupCode(item) })), rows, membershipsResult.value, day)
         : null;
-      setLoadedRoster({ groupId, sourceGroups: groups, players: rows, report });
+      setLoadedRoster({ groupId: scope, sourceGroups: groups, players: rows, report });
       setPlayerId((current) => rows?.some((item) => item.id === current) ? current : rows?.[0]?.id ?? "");
     })();
     return () => { active = false; };
-  }, [allGroups, client, groupId, groups, rosterRequest]);
+  }, [allGroups, client, groupId, groups, scopedGroups, scope, rosterRequest]);
 
   function retryRoster() {
     setLoadedRoster(null);
@@ -135,7 +139,13 @@ export function AdminExport({ client, profile, groups }: Props) {
   function selectGroup(nextGroupId: string) {
     setLoadedRoster(null);
     setMessage(null);
-    setGroupId(nextGroupId);
+    setScope(nextGroupId);
+  }
+
+  async function scopePlayerIds() {
+    if (scope === "all") return null;
+    const ids = await Promise.all(scopedGroups.map((item) => groupPlayerIds(client, item.id)));
+    return [...new Set(ids.flat())];
   }
 
   async function audit(kind: ExportKind, filters: Record<string, unknown>) {
@@ -144,7 +154,9 @@ export function AdminExport({ client, profile, groups }: Props) {
       filters: {
         ...filters,
         group_id: allGroups ? null : groupId,
-        all_groups: allGroups,
+        all_groups: scope === "all",
+        scope,
+        group_ids: scopedGroups.map((item) => item.id),
       },
       status: "completed",
       created_by: profile.id,
@@ -277,7 +289,7 @@ export function AdminExport({ client, profile, groups }: Props) {
       let query = kind === "tests"
         ? client.from("physical_test_results").select("measured_on, metric_name, field_name, value, unit, players!inner(full_name, birth_date, birth_year, group_id, groups!inner(code, display_code, cohort_birth_year, season))")
         : client.from("game_activity_results").select("period, metric_name, value, players!inner(full_name, birth_date, birth_year, group_id, groups!inner(code, display_code, cohort_birth_year, season))");
-      const ids = allGroups ? null : await groupPlayerIds(client, groupId);
+      const ids = await scopePlayerIds();
       if (ids?.length) query = query.in("player_id", ids);
       const result = ids && !ids.length ? { data: [], error: null } : await query;
       if (result.error) throw new Error("Не вдалося сформувати експорт.");
@@ -325,9 +337,10 @@ export function AdminExport({ client, profile, groups }: Props) {
       const now = new Date();
       const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
       const selection = "id, full_name, group_id, groups(code, display_code, cohort_birth_year, season)";
-      const playerResult = allGroups
-        ? await client.from("players").select(selection).eq("is_active", true).order("full_name")
-        : await loadGroupPlayers(client, groupId, selection);
+      const ids = await scopePlayerIds();
+      let playerQuery = client.from("players").select(selection).eq("is_active", true).order("full_name");
+      if (ids) playerQuery = playerQuery.in("id", ids);
+      const playerResult = ids && !ids.length ? { data: [], error: null } : await playerQuery;
       if (playerResult.error) throw new Error("Не вдалося завантажити гравців для звіту.");
       const debtPlayers = (playerResult.data ?? []) as unknown as Array<{ id: string; full_name: string; groups: { code: string } }>;
       const paymentResult = debtPlayers.length
@@ -387,8 +400,8 @@ export function AdminExport({ client, profile, groups }: Props) {
         .select("player_id, players!inner(id, full_name), groups!inner(code, display_code, cohort_birth_year, season), monthly_star_themes!inner(title)")
         .eq("month", `${starMonth}-01`)
         .is("revoked_at", null);
-      if (!allGroups) awardQuery = awardQuery.eq("group_id", groupId);
-      const awardResult = await awardQuery;
+      if (scope !== "all") awardQuery = awardQuery.in("group_id", scopedGroups.map((item) => item.id));
+      const awardResult = scope !== "all" && !scopedGroups.length ? { data: [], error: null } : await awardQuery;
       if (awardResult.error) throw new Error("Не вдалося завантажити перелік нагороджених гравців.");
 
       const awards = ((awardResult.data ?? []) as unknown as MonthlyStarExportRow[]).sort((left, right) => (
@@ -459,10 +472,13 @@ export function AdminExport({ client, profile, groups }: Props) {
   }
 
   async function exportUniform() {
-    setBusy("uniform");
+    setBusy("uniform"); setMessage(null);
+    try {
     let query = client.from("uniform_requests").select("status, number, surname_print, admin_note, players!inner(full_name, group_id, groups!inner(id, code, display_code, cohort_birth_year, season)), uniform_request_items(size, quantity, uniform_catalog_items(name))");
-    if (!allGroups) query = query.eq("players.group_id", groupId);
-    const result = await query;
+    const ids = await scopePlayerIds();
+    if (ids) query = query.in("player_id", ids);
+    const result = ids && !ids.length ? { data: [], error: null } : await query;
+    if (result.error) { setMessage({ kind: "error", text: "Не вдалося сформувати звіт про форму." }); setBusy(null); return; }
     const rows = (result.data ?? []).flatMap((request) => {
       const player = request.players as unknown as { full_name: string; groups: { code: string } };
       const items = request.uniform_request_items as unknown as Array<{ size: string; quantity: number; uniform_catalog_items: { name: string } }>;
@@ -470,7 +486,8 @@ export function AdminExport({ client, profile, groups }: Props) {
     });
     downloadText(`ЧЕМПІОН_${selectionFileLabel}_форма.csv`, toCsv(rows), "text/csv;charset=utf-8");
     await audit("uniform", { format: "csv" });
-    setBusy(null);
+    } catch { setMessage({ kind: "error", text: "Не вдалося сформувати звіт про форму." }); }
+    finally { setBusy(null); }
   }
 
   async function exportOperations() {
@@ -480,8 +497,8 @@ export function AdminExport({ client, profile, groups }: Props) {
       const start = new Date();
       start.setDate(start.getDate() - 30);
       let query = client.from("operational_items").select(OPERATIONAL_REPORT_SELECT).neq("item_type", "conflict").neq("item_type", "reschedule").gte("created_at", start.toISOString());
-      if (!allGroups) query = query.eq("group_id", groupId);
-      const result = await query.order("created_at", { ascending: false });
+      if (scope !== "all") query = query.in("group_id", scopedGroups.map((item) => item.id));
+      const result = scope !== "all" && !scopedGroups.length ? { data: [], error: null } : await query.order("created_at", { ascending: false });
       if (result.error) throw result.error;
       const rows = ((result.data ?? []) as unknown as import("@/lib/domain/types").OperationalItem[]).filter(operationalItemIsVisible).map((item) => { const row = operationalReportRow(item); return { "Дата": row.date, "Вікова група": row.group, "Тренер": row.coach, "Що потрібно зробити / коментар": row.action, "Подія / ситуація": row.context, "Стан": row.status }; });
       downloadText(`ЧЕМПІОН_${selectionFileLabel}_операційний_звіт.csv`, toCsv(rows), "text/csv;charset=utf-8");
@@ -529,7 +546,7 @@ export function AdminExport({ client, profile, groups }: Props) {
   ];
 
   return <div className="workspace-stack">
-    <WorkspaceHeader eyebrow="Друк і файли" title="Експорт" description="Файли містять дату формування, вибрані групи та назву клубу" actions={groups.length ? <GroupSelect groups={groups} value={groupId} onChange={selectGroup} allOption={{ value: ALL_GROUPS_VALUE, label: "Усі групи" }} /> : undefined} />
+    <WorkspaceHeader eyebrow="Друк і файли" title="Експорт" description="Файли містять дату формування, вибрані групи та назву клубу" actions={groups.length ? <GroupScopeSelect groups={groups} value={scope} onChange={selectGroup} /> : undefined} />
     {message && <StatusMessage kind={message.kind}>{message.text}</StatusMessage>}
     <section className="export-player-select"><label><span>Гравець для профілю</span><select value={playerId} onChange={(event) => setPlayerId(event.target.value)}><option value="">Оберіть гравця</option>{players.map((player) => <option value={player.id} key={player.id}>{player.full_name}{allGroups ? ` · ${playerGroupCode(player)}` : ""}</option>)}</select></label><Pill tone="plum">{selectionLabel}</Pill></section>
     {groups.length ? <div className="export-grid">{cards.map((card) => <article key={card.kind}><div><h2>{card.title}</h2><p>{card.description}</p></div>{card.details}<div className="export-actions">{card.actions}</div>{busy === card.kind && <small>Формування…</small>}</article>)}</div> : <EmptyState title="Групи не налаштовано" />}

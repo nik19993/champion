@@ -18,6 +18,7 @@ import { SessionTimeoutGuard } from "@/components/auth/session-timeout-guard";
 import { ConnectionStatus } from "@/components/common/connection-status";
 import { LoadingState, StatusMessage } from "@/components/common/workspace-ui";
 import { mergeCreatedGroup } from "@/lib/domain/group-creation";
+import { GROUP_SUMMARY_SELECT } from "@/lib/domain/location-groups";
 import { useAutomaticRefresh } from "@/lib/browser/use-automatic-refresh";
 import type { GroupSummary, Profile } from "@/lib/domain/types";
 
@@ -77,7 +78,7 @@ export function AppShell({ client, profile, onMfaRequired }: Props) {
           return;
         }
       }
-      const result = await client.from("groups").select("id, code, age, team_suffix, group_kind, competition_format, regulation_source, regulation_verified_on, season, cohort_birth_year, display_age, display_code").eq("is_active", true).order("group_kind").order("age", { nullsFirst: false }).order("team_suffix");
+      const result = await client.from("groups").select(GROUP_SUMMARY_SELECT).eq("is_active", true).order("group_kind").order("age", { nullsFirst: false }).order("team_suffix");
       if (ticket !== groupRequest.current) return;
       if (result.error) {
         setLoadError("Не вдалося завантажити групи. Оновіть захищену сесію або повторіть спробу.");
@@ -87,7 +88,7 @@ export function AppShell({ client, profile, onMfaRequired }: Props) {
         setLoadError("У staging налаштовано групи, але поточна сесія не надала до них доступ. Повторіть завантаження.");
         return;
       }
-      const next = (result.data ?? []) as GroupSummary[];
+      const next = (result.data ?? []) as unknown as GroupSummary[];
       setGroups((current) => JSON.stringify(current) === JSON.stringify(next) ? current : next);
     } catch {
       if (ticket === groupRequest.current) setLoadError("Не вдалося оновити групи. Перевірте з’єднання й повторіть спробу.");
@@ -122,7 +123,7 @@ export function AppShell({ client, profile, onMfaRequired }: Props) {
     if (activeView === "venues") return <VenueOccupancy client={client} />;
     if (activeView === "uniform") return <AdminUniform client={client} profile={profile} groups={groups} />;
     if (activeView === "management") return <AdminManagement client={client} profile={profile} groups={groups} onGroupCreated={(created) => setGroups((current) => mergeCreatedGroup(current, created))} onMfaRequired={onMfaRequired} />;
-    if (activeView === "report") return <AdminReport client={client} />;
+    if (activeView === "report") return <AdminReport client={client} groups={groups} />;
     if (activeView === "export") return <AdminExport client={client} profile={profile} groups={groups} />;
     return <AdminPlan client={client} groups={groups} />;
   }

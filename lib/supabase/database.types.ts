@@ -309,6 +309,105 @@ export type Database = {
           },
         ]
       }
+      club_locations: {
+        Row: {
+          created_at: string
+          id: string
+          is_active: boolean
+          name: string
+          school_number: number
+          updated_at: string
+          venue_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          name: string
+          school_number: number
+          updated_at?: string
+          venue_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          school_number?: number
+          updated_at?: string
+          venue_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "club_locations_venue_id_fkey"
+            columns: ["venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      club_schedule_slots: {
+        Row: {
+          coach_id: string | null
+          created_at: string
+          end_time: string
+          group_id: string
+          id: string
+          start_time: string
+          updated_at: string
+          venue_id: string | null
+          venue_part: string
+          weekday: number
+        }
+        Insert: {
+          coach_id?: string | null
+          created_at?: string
+          end_time: string
+          group_id: string
+          id?: string
+          start_time: string
+          updated_at?: string
+          venue_id?: string | null
+          venue_part?: string
+          weekday: number
+        }
+        Update: {
+          coach_id?: string | null
+          created_at?: string
+          end_time?: string
+          group_id?: string
+          id?: string
+          start_time?: string
+          updated_at?: string
+          venue_id?: string | null
+          venue_part?: string
+          weekday?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "club_schedule_slots_coach_id_fkey"
+            columns: ["coach_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "club_schedule_slots_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "groups"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "club_schedule_slots_venue_id_fkey"
+            columns: ["venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       club_season_settings: {
         Row: {
           id: boolean
@@ -941,6 +1040,7 @@ export type Database = {
           group_kind: string
           id: string
           is_active: boolean
+          location_id: string | null
           regulation_source: string | null
           regulation_verified_on: string | null
           season: string | null
@@ -958,6 +1058,7 @@ export type Database = {
           group_kind?: string
           id?: string
           is_active?: boolean
+          location_id?: string | null
           regulation_source?: string | null
           regulation_verified_on?: string | null
           season?: string | null
@@ -975,13 +1076,22 @@ export type Database = {
           group_kind?: string
           id?: string
           is_active?: boolean
+          location_id?: string | null
           regulation_source?: string | null
           regulation_verified_on?: string | null
           season?: string | null
           team_suffix?: string | null
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "groups_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "club_locations"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       guardians: {
         Row: {
@@ -1315,6 +1425,33 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      location_schedule_entries: {
+        Row: {
+          coach_names: string[]
+          group_name: string | null
+          id: string
+          school_number: number
+          sort_order: number
+          weekly_slots: Json
+        }
+        Insert: {
+          coach_names: string[]
+          group_name?: string | null
+          id: string
+          school_number: number
+          sort_order?: number
+          weekly_slots: Json
+        }
+        Update: {
+          coach_names?: string[]
+          group_name?: string | null
+          id?: string
+          school_number?: number
+          sort_order?: number
+          weekly_slots?: Json
+        }
+        Relationships: []
       }
       methodology_materials: {
         Row: {
@@ -3064,6 +3201,40 @@ export type Database = {
           group_kind: string
           id: string
           is_active: boolean
+          location_id: string | null
+          regulation_source: string | null
+          regulation_verified_on: string | null
+          season: string | null
+          team_suffix: string | null
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "groups"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      create_location_group: {
+        Args: {
+          p_category: string
+          p_location_name?: string
+          p_request_id: string
+          p_school_number: number
+          p_venue_id?: string
+        }
+        Returns: {
+          age: number | null
+          code: string
+          cohort_birth_year: number | null
+          competition_format: string | null
+          created_at: string
+          display_age: number | null
+          display_code: string | null
+          group_kind: string
+          id: string
+          is_active: boolean
+          location_id: string | null
           regulation_source: string | null
           regulation_verified_on: string | null
           season: string | null
@@ -3100,6 +3271,7 @@ export type Database = {
         Args: { p_cohorts: Json; p_start_year: number }
         Returns: number
       }
+      list_club_weekly_schedule: { Args: never; Returns: Json }
       move_methodology_task: {
         Args: { p_direction: number; p_task_id: string }
         Returns: undefined

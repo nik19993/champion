@@ -16,12 +16,13 @@ interface Props {
   minutes: number | null;
   excludeEventId?: string | null;
   checkAvailability?: boolean;
+  locked?: boolean;
   onVenueChange: (id: string) => void;
   onPartChange: (part: VenuePart) => void;
   onBlockedChange: (blocked: boolean) => void;
 }
 
-export function VenueBookingSelector({ client, venues, venueId, part, startAt, minutes, excludeEventId, checkAvailability = true, onVenueChange, onPartChange, onBlockedChange }: Props) {
+export function VenueBookingSelector({ client, venues, venueId, part, startAt, minutes, excludeEventId, checkAvailability = true, locked = false, onVenueChange, onPartChange, onBlockedChange }: Props) {
   const [state, setState] = useState<{ key: string; rows: VenueBookingConflict[]; error: boolean } | null>(null);
   const [refresh, setRefresh] = useState(0);
   const venue = venues.find((item) => item.id === venueId);
@@ -54,8 +55,8 @@ export function VenueBookingSelector({ client, venues, venueId, part, startAt, m
   // Linked legacy entries remain selectable for existing events, while new events use the physical venue.
   const selectableVenues = venues.filter((item) => (item.is_active || item.id === venueId) && (!item.parent_venue_id || item.id === venueId));
   return <div className="span-2 venue-booking-fields">
-    <label><span>Поле або майданчик</span><select aria-label="Поле або майданчик" value={venueId} onChange={(event) => onVenueChange(event.target.value)}><option value="">Не вказано</option>{selectableVenues.map((item) => <option key={item.id} value={item.id}>{item.name}{item.is_active ? "" : " · неактивний"}</option>)}</select></label>
-    {venueId && !away && <label><span>Частина майданчика</span><select aria-label="Частина майданчика" value={selectedPart} onChange={(event) => onPartChange(event.target.value as VenuePart)}>{options.map((option) => {
+    {locked ? <label><span>Місце тренування</span><input readOnly value={venue?.name ?? "Локація групи"} /><small className="field-hint">Закріплено за локацією.</small></label> : <label><span>Поле або майданчик</span><select aria-label="Поле або майданчик" value={venueId} onChange={(event) => onVenueChange(event.target.value)}><option value="">Не вказано</option>{selectableVenues.map((item) => <option key={item.id} value={item.id}>{item.name}{item.is_active ? "" : " · неактивний"}</option>)}</select></label>}
+    {venueId && !away && !locked && <label><span>Частина майданчика</span><select aria-label="Частина майданчика" value={selectedPart} onChange={(event) => onPartChange(event.target.value as VenuePart)}>{options.map((option) => {
       const unavailable = checkAvailability && rows.some((row) => venuePartsOverlap(option, row.venue_part));
       return <option key={option} value={option} disabled={unavailable}>{option === "whole" && (venue?.venue_type === "field" || venue?.venue_type === "small_pitch") ? "Усе поле" : VENUE_PART_LABELS[option]}{unavailable ? " — зайнято" : ""}</option>;
     })}</select></label>}

@@ -6,12 +6,12 @@ test('a task is one continuous label including its element and parenthetical gui
  assert.equal(taskLabel(task),'Відкривання. Навчити відкриватися. (Партнер бачить рух.)');
  assert.equal(taskLabel({...task,description:null}),'Відкривання. Навчити відкриватися.');
 });
-test('age tasks never transfer to another season category or U17',()=>{
+test('age tasks follow the current season category through U17',()=>{
  const group={code:'U11A',age:11,group_kind:'age'};
  assert.equal(taskForGroup(task,group),true);
  assert.equal(taskForGroup(task,{...group,display_age:12}),false);
  assert.equal(taskForGroup({...task,age_to:16},group),false);
- assert.equal(taskForGroup({...task,age_from:17,age_to:17},{...group,age:17}),false);
+ assert.equal(taskForGroup({...task,age_from:17,age_to:17},{...group,age:17}),true);
  assert.equal(taskForGroup({...task,is_active:false},group),false);
 });
 test('GK A/B/C only receive their own program, never field tasks',()=>{

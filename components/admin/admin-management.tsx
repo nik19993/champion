@@ -13,17 +13,18 @@ import { EvaluationManagement } from "@/components/admin/evaluation-management";
 import { InventoryManagement } from "@/components/admin/inventory-management";
 import { MethodologyManagement } from "@/components/admin/admin-management-methodology";
 import { MonthlyStarManagement } from "@/components/admin/monthly-star-management";
+import { RecoveryCodeManagement } from "@/components/auth/recovery-code-management";
 import { GroupCreation } from "@/components/admin/group-creation";
 import { AGE_GROUP_VALUES } from "@/lib/domain/age-groups";
 import type { GroupSummary, Profile, Venue } from "@/lib/domain/types";
 
 interface Props { client: SupabaseClient; profile: Profile; groups: GroupSummary[]; onGroupCreated: (group: GroupSummary) => void; onMfaRequired?: () => void; }
-type Section = "announcements" | "users" | "monthly-star" | "inventory" | "venues" | "evaluation" | "program" | "structure" | "terms" | "materials" | "imports";
+type Section = "security" | "announcements" | "users" | "monthly-star" | "inventory" | "venues" | "evaluation" | "program" | "structure" | "terms" | "materials" | "imports";
 
 export function AdminManagement({ client, profile, groups, onGroupCreated, onMfaRequired }: Props) {
   const [open, setOpen] = useState<Section | null>(null);
   const toggle = (value: Section) => setOpen((current) => current === value ? null : value);
-  return <div className="workspace-stack"><WorkspaceHeader eyebrow="Системні налаштування" title="Керування" description="Розділи згортаються, щоб потрібна дія завжди залишалась поруч" /><div className="accordion-list"><Accordion priority="1" title="Оголошення тренерам" open={open === "announcements"} onToggle={() => toggle("announcements")}><AnnouncementManagement client={client} profile={profile} groups={groups} /></Accordion><Accordion priority="2" title="Користувачі й паролі" open={open === "users"} onToggle={() => toggle("users")}><UserManagement client={client} groups={groups} onGroupCreated={onGroupCreated} onMfaRequired={onMfaRequired} /></Accordion><Accordion priority="3" title="Зірка місяця" open={open === "monthly-star"} onToggle={() => toggle("monthly-star")}><MonthlyStarManagement client={client} profile={profile} groups={groups} /></Accordion><Accordion title="Інвентар" open={open === "inventory"} onToggle={() => toggle("inventory")}><InventoryManagement client={client} profile={profile} groups={groups} /></Accordion><Accordion title="Поля й майданчики" open={open === "venues"} onToggle={() => toggle("venues")}><VenueManagement client={client} profile={profile} /></Accordion><Accordion title="Тестування й оцінювання" open={open === "evaluation"} onToggle={() => toggle("evaluation")}><EvaluationManagement client={client} profile={profile} /></Accordion><MethodologyManagement client={client} profile={profile} groups={groups} open={open} onOpen={toggle} /></div></div>;
+  return <div className="workspace-stack"><WorkspaceHeader eyebrow="Системні налаштування" title="Керування" description="Розділи згортаються, щоб потрібна дія завжди залишалась поруч" /><div className="accordion-list"><Accordion priority="1" title="Оголошення тренерам" open={open === "announcements"} onToggle={() => toggle("announcements")}><AnnouncementManagement client={client} profile={profile} groups={groups} /></Accordion><Accordion priority="2" title="Користувачі й паролі" open={open === "users"} onToggle={() => toggle("users")}><UserManagement client={client} groups={groups} onGroupCreated={onGroupCreated} onMfaRequired={onMfaRequired} /></Accordion><Accordion title="Захист і відновлення доступу" open={open === "security"} onToggle={() => toggle("security")}><RecoveryCodeManagement client={client} /></Accordion><Accordion priority="3" title="Зірка місяця" open={open === "monthly-star"} onToggle={() => toggle("monthly-star")}><MonthlyStarManagement client={client} profile={profile} groups={groups} /></Accordion><Accordion title="Інвентар" open={open === "inventory"} onToggle={() => toggle("inventory")}><InventoryManagement client={client} profile={profile} groups={groups} /></Accordion><Accordion title="Поля й майданчики" open={open === "venues"} onToggle={() => toggle("venues")}><VenueManagement client={client} profile={profile} /></Accordion><Accordion title="Тестування й оцінювання" open={open === "evaluation"} onToggle={() => toggle("evaluation")}><EvaluationManagement client={client} profile={profile} /></Accordion><MethodologyManagement client={client} profile={profile} groups={groups} open={open === "security" ? null : open} onOpen={toggle} /></div></div>;
 }
 
 interface AnnouncementTarget {
@@ -255,6 +256,7 @@ function GroupAssignmentPicker({ groups, selected, coachCounts, disabled, canAdd
   const sections = [
     { title: "Вікові команди", items: groups.filter((group) => group.group_kind === "age") },
     { title: "Воротарські групи", items: groups.filter((group) => group.group_kind === "goalkeeper") },
+    { title: "Групи локацій", items: groups.filter((group) => group.group_kind === "location") },
   ];
   return <div>{sections.map((section) => section.items.length > 0 && (
     <div key={section.title} className="assignment-section">

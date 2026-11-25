@@ -7,7 +7,7 @@ export type OperationalType = "conflict" | "organizational_need" | "coach_substi
 export type UniformStatus = "not_ordered" | "requested" | "preparing" | "issued";
 export type MethodologyPhase = "attack" | "defence";
 export type MethodologyLevel = "individual" | "group" | "team";
-export type GroupKind = "age" | "goalkeeper";
+export type GroupKind = "age" | "goalkeeper" | "location";
 export type BehaviorCardReason = "late" | "discipline_violation" | "coach_noncompliance" | "safety" | "unsporting_behavior" | "disrespect" | "other";
 export type MonthlyStarAwardType = "coach_choice" | "team_choice";
 
@@ -39,6 +39,8 @@ export interface GroupSummary {
   cohort_birth_year?: number | null;
   display_code?: string | null;
   display_age?: number | null;
+  location_id?: string | null;
+  location?: import("./location-groups").ClubLocation | null;
 }
 
 export interface Venue {
@@ -99,7 +101,7 @@ export interface EventItem {
   original_start_at?: string | null;
   is_rescheduled?: boolean;
   status: "scheduled" | "cancelled" | "completed";
-  groups?: { code: string; display_code?: string | null; cohort_birth_year?: number | null; season?: string | null; age?: number | null; group_kind?: GroupKind } | null;
+  groups?: { code: string; display_code?: string | null; cohort_birth_year?: number | null; season?: string | null; age?: number | null; group_kind?: GroupKind; location?: import("./location-groups").ClubLocation | null } | null;
   venues?: { name: string; parent_venue_id?: string | null } | null;
   methodology_tasks?: { title: string; component?: string | null; description?: string | null } | null;
   attendance_sessions?: { id: string; completed_at?: string | null; server_version?: number } | Array<{ id: string; completed_at?: string | null; server_version?: number }> | null;

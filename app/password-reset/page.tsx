@@ -5,8 +5,9 @@ import Link from "next/link";
 import type { Session } from "@supabase/supabase-js";
 import { FormEvent, useEffect, useState } from "react";
 import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase/client";
+import { MfaGate } from "@/components/auth/mfa-gate";
 
-type RecoveryState = "checking" | "ready" | "invalid" | "complete";
+type RecoveryState = "checking" | "mfa" | "ready" | "invalid" | "complete";
 
 export default function PasswordResetPage() {
   const [password, setPassword] = useState("");
@@ -23,10 +24,21 @@ export default function PasswordResetPage() {
 
     const client = getSupabaseBrowserClient();
     let active = true;
+    let version = 0;
 
     function applySession(session: Session | null) {
       if (!active) return;
-      setRecoveryState(session ? "ready" : "invalid");
+      const ticket = ++version;
+      if (!session) { setRecoveryState("invalid"); return; }
+      setRecoveryState("checking");
+      // Keep Auth API calls outside the auth-state callback to avoid its lock.
+      window.setTimeout(() => {
+        void client.auth.mfa.getAuthenticatorAssuranceLevel().then((result) => {
+          if (!active || ticket !== version) return;
+          if (result.error || !result.data) { setRecoveryState("invalid"); return; }
+          setRecoveryState(result.data.nextLevel === "aal2" && result.data.currentLevel !== "aal2" ? "mfa" : "ready");
+        }).catch(() => { if (active && ticket === version) setRecoveryState("invalid"); });
+      }, 0);
     }
 
     const { data: listener } = client.auth.onAuthStateChange((event, session) => {
@@ -56,6 +68,10 @@ export default function PasswordResetPage() {
 
     if (password.length < 12) {
       setError("Пароль має містити щонайменше 12 символів.");
+      return;
+    }
+    if (!/[a-z]/.test(password) || !/[A-Z]/.test(password) || !/\d/.test(password) || !/[^A-Za-z0-9]/.test(password)) {
+      setError("Додайте до пароля великі й малі латинські літери, цифру та спеціальний символ.");
       return;
     }
     if (password !== confirmation) {
@@ -104,6 +120,8 @@ export default function PasswordResetPage() {
       </main>
     );
   }
+
+  if (recoveryState === "mfa") return <MfaGate client={getSupabaseBrowserClient()} onVerified={() => setRecoveryState("ready")} />;
 
   if (recoveryState === "complete") {
     return (

@@ -3,6 +3,8 @@
 import Image from "next/image";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { FormEvent, useCallback, useEffect, useState } from "react";
+import { normalizedRecoveryCode, recoveryCodeError } from "@/lib/auth/recovery-codes";
+import { verifyRecoveryCode } from "@/lib/auth/verify-recovery-code";
 
 type Mode = "checking" | "offer-enrollment" | "enrollment" | "challenge";
 
@@ -19,14 +21,17 @@ export function MfaGate({ client, onVerified }: Props) {
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [usingRecovery, setUsingRecovery] = useState(false);
 
   const inspect = useCallback(async () => {
     const assurance = await client.auth.mfa.getAuthenticatorAssuranceLevel();
+    if (assurance.error) { setError("Не вдалося перевірити захищену сесію. Повторіть спробу."); return; }
     if (assurance.data?.currentLevel === "aal2") {
       onVerified();
       return;
     }
     const factors = await client.auth.mfa.listFactors();
+    if (factors.error) { setError("Не вдалося завантажити засоби підтвердження. Повторіть спробу."); return; }
     const verified = factors.data?.totp.find((factor) => factor.status === "verified");
     if (verified) {
       setFactorId(verified.id);
@@ -58,6 +63,16 @@ export function MfaGate({ client, onVerified }: Props) {
 
   async function verify(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (usingRecovery) {
+      if (normalizedRecoveryCode(code).length < 12) { setError("Введіть повний резервний код зі збереженого набору."); return; }
+      setBusy(true); setError(null);
+      try {
+        await verifyRecoveryCode(client, code);
+        setCode(""); onVerified();
+      } catch (caught) { setError(recoveryCodeError(caught)); }
+      finally { setBusy(false); }
+      return;
+    }
     if (!factorId || code.trim().length !== 6) {
       setError("Введіть шестизначний код із застосунку автентифікації.");
       return;
@@ -107,12 +122,14 @@ export function MfaGate({ client, onVerified }: Props) {
         )}
         {(mode === "challenge" || mode === "enrollment") && (
           <form className="auth-form" onSubmit={verify}>
-            <label>Одноразовий код<input className="otp-input" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))} required /></label>
+            {usingRecovery ? <label>Резервний код<input autoCapitalize="characters" autoComplete="off" spellCheck={false} maxLength={64} value={code} onChange={(event) => setCode(event.target.value)} required /></label> : <label>Одноразовий код<input className="otp-input" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))} required /></label>}
             {error && <p className="form-message error" role="alert">{error}</p>}
             <button className="primary-button" type="submit" disabled={busy}>{busy ? "Перевірка…" : "Підтвердити"}</button>
           </form>
         )}
-        {error && mode === "offer-enrollment" && <p className="form-message error" role="alert">{error}</p>}
+        {mode === "challenge" && <button className="text-button" type="button" disabled={busy} onClick={() => { setUsingRecovery((value) => !value); setCode(""); setError(null); }}>{usingRecovery ? "Використати код із телефона" : "Використати резервний код"}</button>}
+        {error && (mode === "offer-enrollment" || mode === "checking") && <p className="form-message error" role="alert">{error}</p>}
+        {error && mode === "checking" && <button className="primary-button" type="button" onClick={() => { setError(null); void inspect(); }}>Повторити перевірку</button>}
         <button className="text-button" type="button" onClick={() => void client.auth.signOut()}>Вийти</button>
       </section>
     </main>

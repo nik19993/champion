@@ -1,5 +1,6 @@
 import type { EventItem, GroupSummary, MethodologyTask } from "./types";
 import { groupAge } from "./seasons.ts";
+import { locationAgeRange } from "./location-groups.ts";
 export const TASK_SELECT = "id, phase, level, component, title, description, age_from, age_to, sort_order, is_active, audience, goalkeeper_stage, context";
 export function taskLabel(task: Pick<MethodologyTask,"component"|"title"|"description">) {
   const title=task.title.trim();
@@ -19,6 +20,8 @@ export function taskForGroup(
     return task.audience === "goalkeeper" && task.goalkeeper_stage === stage;
   }
   const age = groupAge(group);
+  const range = locationAgeRange(group);
+  if (range) return (task.audience ?? "field") === "field" && task.age_from === task.age_to && task.age_from >= range.min && task.age_from <= range.max;
   if (age === null || (task.audience ?? "field") !== "field" || task.age_from !== task.age_to) return false;
   return task.age_from === age || (use === "planning" && age === 6 && task.age_from === 7);
 }

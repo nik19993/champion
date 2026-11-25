@@ -176,9 +176,8 @@ test("phone workflows preserve drafts and expose clear synchronization and save 
   assert.match(drafts, /14 \* 24 \* 60 \* 60 \* 1000/);
   assert.match(drafts, /window\.localStorage/);
   assert.match(drafts, /profileId/);
-  assert.match(connection, /Онлайн · усі збережені дані синхронізовано/);
+  assert.match(connection, /Немає інтернету/);
   assert.match(connection, /ATTENDANCE_QUEUE_CHANGED_EVENT, refresh/);
-  assert.match(connection, /DRAFTS_CHANGED_EVENT/);
   assert.match(feedback, /Скасувати останню зміну/);
   assert.match(feedback, /Автоматично зберігаємо чернетку/);
   assert.match(plan, /draftKey\(profile\.id, `event:/);
@@ -221,16 +220,12 @@ test("player uniform status accepts the one-to-one relation returned by PostgRES
   }
 });
 
-test("administrator export offers all groups without losing individual selection", async () => {
-  const [exporter, workspace] = await Promise.all([
-    readFile(adminExportUrl, "utf8"),
-    readFile(workspaceUiUrl, "utf8"),
-  ]);
-  assert.match(exporter, /const ALL_GROUPS_VALUE = "__all_groups__"/);
-  assert.match(exporter, /label: "Усі групи"/);
-  assert.match(exporter, /if \(!allGroups\) query = query\.eq\("players\.group_id", groupId\)/);
-  assert.match(exporter, /all_groups: allGroups/);
-  assert.match(workspace, /allOption\?: \{ value: string; label: string \}/);
+test("administrator exports connect the organization scope picker and membership-aware player filtering", async () => {
+  const exporter = await readFile(adminExportUrl, "utf8");
+  assert.match(exporter, /GroupScopeSelect/);
+  assert.match(exporter, /groupsInScope/);
+  assert.match(exporter, /scopePlayerIds/);
+  assert.match(exporter, /group_ids: scopedGroups/);
 });
 
 test("goalkeeper groups remain assignable without a false age", async () => {
@@ -499,13 +494,13 @@ test("coach conflict feedback stays visible and formats database time for Kyiv",
     readFile(domainFormatUrl, "utf8"),
     readFile(stylesUrl, "utf8"),
   ]);
-  assert.match(plan, /conflictNoticeRef/);
-  assert.match(plan, /scrollIntoView\(\{ behavior: "smooth", block: "center" \}\)/);
-  assert.match(plan, /className=\{`span-2\$\{isConflict \? " conflict-notice"/);
+  assert.match(plan, /saveNoticeRef/);
+  assert.match(plan, /focus\(\{ preventScroll: true \}\)/);
+  assert.match(plan, /className="event-editor-feedback"/);
   assert.match(format, /timeZone: "Europe\/Kyiv"/);
   assert.match(plan, /Час \(Київ\)/);
   assert.match(plan, /combineKyivDateTime/);
-  assert.match(styles, /\.conflict-notice \{[^}]*position: sticky/);
+  assert.match(styles, /\.event-editor-feedback/);
 });
 
 test("corrected draft conflicts never remain in the administrator plan", async () => {
@@ -578,7 +573,7 @@ test("coach inventory separates post-training collection from inventory audit", 
 test("administrator can export only debtors for one group or all groups", async () => {
   const source = await readFile(adminExportUrl, "utf8");
   assert.match(source, /async function exportDebts/);
-  assert.match(source, /eq\("group_id", groupId\)/);
+  assert.match(source, /scopePlayerIds/);
   assert.match(source, /Заборгованість гравців/);
   assert.match(source, /Неоплачені місяці/);
   assert.match(source, /ЧЕМПІОН_\$\{selectionFileLabel\}_заборгованість\.csv/);

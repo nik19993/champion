@@ -1353,3 +1353,5 @@ input, select, textarea { min-width: 0; max-width: 100%; }
   .admin-calendar-preview, .admin-calendar-more { display: none; }
   .admin-calendar-mobile-count { display: inline-block; padding: 1px 4px; border-radius: 6px; background: #e9f5eb; font-size: 11px; }
 }
+
+.recovery-code-list { font-size: 1rem; line-height: 1.8; padding: 1rem; border: 1px solid var(--line, #d8d8d8); border-radius: 0.75rem; overflow-x: auto; }
