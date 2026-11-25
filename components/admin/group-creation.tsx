@@ -2,7 +2,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { Plus } from "lucide-react";
-import { type FormEvent, useEffect, useRef, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { Modal, StatusMessage } from "@/components/common/workspace-ui";
 import { AGE_GROUP_VALUES } from "@/lib/domain/age-groups";
 import { ageGroupCode, GROUP_SUFFIX_VALUES, groupCreationError, nextGroupSuffix } from "@/lib/domain/group-creation";
@@ -11,7 +11,7 @@ import { GROUP_SUMMARY_SELECT, LOCATION_CATEGORIES, locationGroupCode, type Club
 import { VENUE_SELECT, isAwayVenue } from "@/lib/domain/venue-booking";
 import type { Venue } from "@/lib/domain/types";
 
-export function GroupCreation({ client, groups, onCreated, onMfaRequired, initialKind = "main" }: { client: SupabaseClient; groups: GroupSummary[]; onCreated: (group: GroupSummary) => void; onMfaRequired?: () => void; initialKind?: "main" | "location" }) {
+export function GroupCreation({ client, groups, onCreated, onMfaRequired, initialKind = "main", summary }: { client: SupabaseClient; groups: GroupSummary[]; onCreated: (group: GroupSummary) => void; onMfaRequired?: () => void; initialKind?: "main" | "location"; summary?: ReactNode }) {
   const [open, setOpen] = useState(false);
   const [kind, setKind] = useState<"main" | "location">("main");
   const [locations, setLocations] = useState<ClubLocation[]>([]);
@@ -108,7 +108,7 @@ export function GroupCreation({ client, groups, onCreated, onMfaRequired, initia
   }
 
   return <>
-    <div className="section-title-row group-creation-toolbar"><div><h3>Групи клубу</h3><p className="muted">Додавайте основні групи та групи локацій поступово, а потім призначайте тренерів.</p></div><button className="secondary-action" type="button" onClick={begin}><Plus size={18} />Додати групу</button></div>
+    <div className={`section-title-row group-creation-toolbar${summary ? " group-summary-toolbar" : ""}`}>{summary}<button className="secondary-action" type="button" onClick={begin}><Plus size={18} />Додати групу</button></div>
     {success && <StatusMessage kind="success">{success}</StatusMessage>}
     {open && <Modal title="Додати групу" onClose={() => !saving.current && setOpen(false)} footer={<><button className="secondary-action" type="button" disabled={busy} onClick={() => setOpen(false)}>Скасувати</button><button className="primary-action" form="create-age-group" disabled={busy || !code || duplicate}>{busy ? "Створення…" : "Створити групу"}</button></>}>
       <form id="create-age-group" className="form-stack" onSubmit={create}>

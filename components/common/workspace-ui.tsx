@@ -7,8 +7,8 @@ import { type ReactNode, useEffect, useId, useRef } from "react";
 import { lockPageScroll } from "@/lib/browser/modal-scroll";
 import type { GroupSummary } from "@/lib/domain/types";
 
-export function WorkspaceHeader({ eyebrow, title, description, actions }: { eyebrow?: string; title: string; description?: string; actions?: ReactNode }) {
-  return <header className="workspace-header"><div>{eyebrow && <p className="eyebrow">{eyebrow}</p>}<h1>{title}</h1>{description && <p>{description}</p>}</div>{actions && <div className="workspace-actions">{actions}</div>}</header>;
+export function WorkspaceHeader({ eyebrow, title, titleMeta, description, actions }: { eyebrow?: string; title: string; titleMeta?: ReactNode; description?: string; actions?: ReactNode }) {
+  return <header className="workspace-header"><div>{eyebrow && <p className="eyebrow">{eyebrow}</p>}<h1 className={titleMeta ? "workspace-title-with-meta" : undefined}>{title}{titleMeta && <span className="workspace-title-meta">{titleMeta}</span>}</h1>{description && <p>{description}</p>}</div>{actions && <div className="workspace-actions">{actions}</div>}</header>;
 }
 
 export function Tabs<T extends string>({ items, value, onChange, label }: { items: Array<{ value: T; label: string; badge?: number }>; value: T; onChange: (value: T) => void; label: string }) {

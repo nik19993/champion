@@ -1295,6 +1295,17 @@ input, select, textarea { min-width: 0; max-width: 100%; }
 
 .group-creation-toolbar { margin-bottom: 1.25rem; flex-wrap: wrap; gap: 1rem; }
 .group-creation-toolbar p { margin-top: .4rem; }
+.workspace-header h1.workspace-title-with-meta { display: flex; align-items: center; gap: 10px; }
+.workspace-title-meta { flex: 0 0 auto; font-size: 14px; line-height: 1.2; font-weight: 700; letter-spacing: 0; white-space: nowrap; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 6px 9px; background: #faf8ee; }
+.group-creation-toolbar.group-summary-toolbar { flex-wrap: nowrap; gap: 10px; }
+.group-section-summary { min-width: 0; white-space: nowrap; font-size: 14px; font-weight: 750; font-variant-numeric: tabular-nums; }
+.group-summary-toolbar > button { flex: 0 0 auto; margin-left: auto; white-space: nowrap; }
+@media (max-width: 480px) {
+  .group-section-summary { font-size: 13px; }
+  .group-summary-toolbar > button { gap: 5px; padding-inline: 10px; font-size: 13px; }
+  .group-summary-toolbar > button svg { display: none; }
+  .workspace-title-meta { font-size: 13px; padding: 5px 8px; }
+}
 .group-creation-preview { padding: .85rem 1rem; border-radius: .75rem; background: var(--surface-muted, #f5f4ef); }
 
 .admin-calendar { display: grid; gap: 11px; }

@@ -17,6 +17,13 @@ export function rosterCounts(players: PrimaryPlayer[], memberships: ExtraMembers
   return Object.fromEntries([...rosterMemberIds(players, memberships, day)].map(([id, members]) => [id, members.size]));
 }
 
+export function uniqueRosterCount(groupIds: string[], players: PrimaryPlayer[], memberships: ExtraMembership[], day: string) {
+  const members = rosterMemberIds(players, memberships, day);
+  const included = new Set<string>();
+  for (const groupId of groupIds) for (const playerId of members.get(groupId) ?? []) included.add(playerId);
+  return included.size;
+}
+
 interface RosterGroup { id: string; label: string; }
 
 export interface GroupedRoster<T> {
