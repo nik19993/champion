@@ -119,7 +119,7 @@ export function AppShell({ client, profile, onMfaRequired }: Props) {
       if (activeView === "inventory") return <CoachInventory client={client} profile={profile} groups={groups} />;
       return <CoachPlan client={client} profile={profile} groups={groups} />;
     }
-    if (activeView === "groups") return <AdminGroups client={client} profile={profile} groups={groups} onRefresh={() => void loadGroups()} />;
+    if (activeView === "groups") return <AdminGroups client={client} profile={profile} groups={groups} onRefresh={() => void loadGroups(true)} />;
     if (activeView === "venues") return <VenueOccupancy client={client} />;
     if (activeView === "uniform") return <AdminUniform client={client} profile={profile} groups={groups} />;
     if (activeView === "management") return <AdminManagement client={client} profile={profile} groups={groups} onGroupCreated={(created) => setGroups((current) => mergeCreatedGroup(current, created))} onMfaRequired={onMfaRequired} />;

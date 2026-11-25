@@ -520,7 +520,7 @@ test("corrected draft conflicts never remain in the administrator plan", async (
 test("administrator groups remain visible without players and use explicit coach relations", async () => {
   const [groups, management, inventory] = await Promise.all([
     readFile(adminGroupsUrl, "utf8"),
-    readFile(managementUrl, "utf8"),
+    Promise.all([readFile(managementUrl, "utf8"), readFile(new URL("../lib/supabase/admin-coach-assignment.ts", import.meta.url), "utf8")]).then((sources) => sources.join("\n")),
     readFile(adminInventoryUrl, "utf8"),
   ]);
   assert.match(groups, /setMetrics\(emptyMetrics\)/);
@@ -1045,7 +1045,7 @@ test("coach deletion is server-only, keeps history and queues future reassignmen
   const [sql, edge, management, plan] = await Promise.all([
     readFile(coachDeletionMigrationUrl, "utf8"),
     readFile(adminUsersFunctionUrl, "utf8"),
-    readFile(managementUrl, "utf8"),
+    Promise.all([readFile(managementUrl, "utf8"), readFile(new URL("../lib/supabase/admin-coach-assignment.ts", import.meta.url), "utf8")]).then((sources) => sources.join("\n")),
     readFile(adminPlanUrl, "utf8"),
   ]);
   assert.match(sql, /drop constraint if exists profiles_id_fkey/i);

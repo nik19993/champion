@@ -6,7 +6,8 @@ import { groupCode } from "@/lib/domain/seasons";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { BellRing, ChevronDown, Copy, KeyRound, MapPinned, Pencil, RefreshCw, Trash2, Users } from "lucide-react";
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { AssignmentRequestError, loadCoachUsers, saveCoachAssignment } from "@/lib/supabase/admin-coach-assignment";
 import { Accordion, EmptyState, LoadingState, Modal, Pill, StatusMessage, WorkspaceHeader } from "@/components/common/workspace-ui";
 import { SaveStateLabel, UndoLastChange, type SaveState } from "@/components/common/save-feedback";
 import { EvaluationManagement } from "@/components/admin/evaluation-management";
@@ -275,7 +276,9 @@ function GroupAssignmentPicker({ groups, selected, coachCounts, disabled, canAdd
 }
 
 function adminUserError(error: unknown, fallback: string) {
-  const code = error instanceof Error ? error.message : String(error ?? "");
+  const code = error instanceof Error ? error.message : error && typeof error === "object" && "message" in error ? String(error.message) : String(error ?? "");
+  if (code.includes("ASSIGNMENT_STATUS_UNKNOWN")) return "Сервер міг уже зберегти призначення, але відповідь не підтверджено. Натисніть «Перевірити стан» або повторіть цю саму дію. Перезавантажувати сторінку не потрібно.";
+  if (code.includes("ASSIGNMENT_TIMEOUT")) return "Перевірка сесії триває надто довго. Спробуйте ще раз. Запит на зміну призначення не надіслано.";
   if (code.includes("MFA_REQUIRED")) return "Потрібна повторна двоетапна перевірка адміністратора. Після підтвердження ви повернетеся до цього розділу.";
   if (code.includes("EMAIL_EXISTS") || /already registered|already exists|email.*used/i.test(code)) return "Користувач із такою електронною адресою вже існує.";
   if (code.includes("PASSWORD_POLICY") || /weak.password|password.*character|password.*symbol/i.test(code)) return "Тимчасовий пароль має містити щонайменше 12 символів, велику й малу літери, цифру та спеціальний знак. Скористайтеся кнопкою «Згенерувати».";
@@ -302,16 +305,27 @@ function UserManagement({ client, groups, onGroupCreated, onMfaRequired }: { cli
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [savingAssignment, setSavingAssignment] = useState(false);
+  const assignmentPending = useRef(false);
+  const usersRequest = useRef(0);
+  const [usersLoadFailed, setUsersLoadFailed] = useState(false);
+  const [assignmentFeedback, setAssignmentFeedback] = useState<{ userId: string; kind: "success" | "error" | "warning"; text: string } | null>(null);
   const [pendingDelete, setPendingDelete] = useState<UserRow | null>(null);
   const [message, setMessage] = useState<{ kind: "success" | "error" | "warning"; text: string } | null>(null);
   const [createdCredentials, setCreatedCredentials] = useState<{ email: string; password: string } | null>(null);
   const [form, setForm] = useState({ last_name: "", first_name: "", middle_name: "", email: "", role: "coach" as "coach" | "admin", password: "", group_ids: [] as string[] });
   const load = useCallback(async (showLoading = true) => {
+    const ticket = ++usersRequest.current;
+    setUsersLoadFailed(false);
     if (showLoading) setLoading(true);
-    const result = await client.from("profiles").select("id, full_name, first_name, last_name, middle_name, email, role, status, must_change_password, coach_group_assignments!coach_group_assignments_coach_id_fkey(group_id, is_active)").neq("status", "closed").order("full_name");
-    if (result.error) setMessage({ kind: "error", text: "Список користувачів не завантажено. Оновіть захищену сесію." });
-    else setUsers((result.data ?? []) as unknown as UserRow[]);
-    setLoading(false);
+    try {
+      const rows = await loadCoachUsers(client);
+      if (ticket !== usersRequest.current) return false;
+      setUsers(rows as unknown as UserRow[]);
+      return true;
+    } catch {
+      if (ticket === usersRequest.current) { setUsersLoadFailed(true); setMessage({ kind: "error", text: "Список користувачів не оновлено. Перевірте з’єднання та повторіть спробу." }); }
+      return false;
+    } finally { if (ticket === usersRequest.current) setLoading(false); }
   }, [client]);
 
   useEffect(() => { void load(); }, [load]);
@@ -379,31 +393,40 @@ function UserManagement({ client, groups, onGroupCreated, onMfaRequired }: { cli
   async function setAccess(user: UserRow, enabled: boolean) { setMessage(null); try { await invoke({ action: "access", user_id: user.id, enabled }); setUsers((rows) => rows.map((row) => row.id === user.id ? { ...row, status: enabled ? "active" : "suspended" } : row)); } catch (error) { setMessage({ kind: "error", text: adminUserError(error, "Стан доступу не змінено.") }); } }
   async function resetPassword(user: UserRow) { const password = window.prompt(`Новий тимчасовий пароль для ${user.full_name} (щонайменше 12 символів, великі й малі літери, цифра та спеціальний знак):`, generateTemporaryPassword()); if (!password) return; if (!isStrongTemporaryPassword(password)) { setMessage({ kind: "error", text: adminUserError(new Error("PASSWORD_POLICY"), "Пароль не скинуто.") }); return; } try { await invoke({ action: "reset_password", user_id: user.id, password }); setCreatedCredentials({ email: user.email ?? "", password }); setMessage({ kind: "success", text: "Новий тимчасовий пароль встановлено. Скопіюйте й передайте його користувачу." }); } catch (error) { setMessage({ kind: "error", text: adminUserError(error, "Пароль не скинуто.") }); } }
   async function updateGroup(user: UserRow, groupId: string, assigned: boolean) {
-    if (busy || savingAssignment) return;
+    if (busy || assignmentPending.current) return;
+    assignmentPending.current = true;
+    usersRequest.current++;
     setSavingAssignment(true);
     setMessage(null);
+    setAssignmentFeedback({ userId: user.id, kind: "warning", text: "Зберігаємо призначення…" });
     try {
-      await refreshProtectedSession();
-      const result = await client.rpc("admin_set_coach_group", {
-        p_coach_id: user.id,
-        p_group_id: groupId,
-        p_assigned: assigned,
-      });
-      if (result.error) throw new Error(result.error.message);
-
+      const result = await saveCoachAssignment(client, user.id, groupId, assigned);
       setUsers((rows) => rows.map((row) => {
         if (row.id !== user.id) return row;
         const remaining = (row.coach_group_assignments ?? []).filter((item) => item.group_id !== groupId);
         return { ...row, coach_group_assignments: assigned ? [...remaining, { group_id: groupId, is_active: true }] : remaining };
       }));
-      setMessage({ kind: "success", text: assigned ? "Групу призначено тренеру." : "Призначення тренера знято." });
+      setAssignmentFeedback({ userId: user.id, kind: "success", text: result.confirmedAfterRetry ? "Призначення збережено. Стан додатково перевірено на сервері." : assigned ? "Групу призначено тренеру." : "Призначення тренера знято." });
     } catch (error) {
-      if (error instanceof Error && error.message.includes("COACH_GROUP_LIMIT_REACHED")) await load(false);
-      setMessage({ kind: "error", text: adminUserError(error, "Призначення групи не збережено. Повторіть дію.") });
+      if (error instanceof AssignmentRequestError && error.code === "MFA_REQUIRED") onMfaRequired?.();
+      setAssignmentFeedback({ userId: user.id, kind: error instanceof AssignmentRequestError && error.code === "ASSIGNMENT_STATUS_UNKNOWN" ? "warning" : "error", text: adminUserError(error, "Призначення не підтверджено. Перевірте стан і повторіть дію.") });
     } finally {
+      assignmentPending.current = false;
       setSavingAssignment(false);
     }
   }
+
+  async function verifyAssignments(user: UserRow) {
+    if (busy || assignmentPending.current) return;
+    assignmentPending.current = true;
+    setSavingAssignment(true);
+    setAssignmentFeedback({ userId: user.id, kind: "warning", text: "Перевіряємо призначення…" });
+    try {
+      const loaded = await load(false);
+      setAssignmentFeedback({ userId: user.id, kind: loaded ? "success" : "error", text: loaded ? "Актуальні призначення завантажено із сервера." : "Не вдалося перевірити призначення. Перевірте з’єднання та повторіть спробу." });
+    } finally { assignmentPending.current = false; setSavingAssignment(false); }
+  }
+
   async function deleteCoach(user: UserRow, confirmationName: string, reason: string) {
     setBusy(true);
     setMessage(null);
@@ -453,6 +476,7 @@ function UserManagement({ client, groups, onGroupCreated, onMfaRequired }: { cli
       </form>
       <div>
         <h3 className="management-title">Користувачі</h3>
+        {usersLoadFailed && <button type="button" className="secondary-action" disabled={loading || busy || savingAssignment} onClick={() => void load()}>Повторити завантаження</button>}
         <p className="user-list-help">Картки згорнуті. Для перевірки входу тренера використовуйте окреме приватне вікно браузера, щоб не завершувати сеанс адміністратора.</p>
         {message && <StatusMessage kind={message.kind}>{message.text}</StatusMessage>}
         {loading ? <LoadingState /> : <div className="user-list">{users.map((user) => {
@@ -464,6 +488,7 @@ function UserManagement({ client, groups, onGroupCreated, onMfaRequired }: { cli
             <button type="button" className="user-summary-button" aria-expanded={expanded} onClick={() => setExpandedUserId(expanded ? null : user.id)}><span className="tile-icon plum"><Users /></span><span className="user-summary-copy"><b>{user.full_name}</b><small>{user.role === "admin" ? "Адміністратор" : "Тренер"} · {user.email || "службовий запис без логіна"}</small>{user.role === "coach" && <small className="user-groups-summary">{assignedCodes.length ? `Групи: ${assignedCodes.join(", ")}` : "Групи не призначено"}</small>}</span><Pill tone={!hasLogin ? "neutral" : user.status === "active" ? "success" : "danger"}>{!hasLogin ? "Без входу" : user.status === "active" ? "Доступ дозволено" : "Доступ заборонено"}</Pill><ChevronDown className="user-expand-icon" size={20} aria-hidden="true" /></button>
             {expanded && <div className="user-expanded-panel">
               {user.role === "coach" && <div className="assignment-picker">
+                {assignmentFeedback?.userId === user.id && <>{savingAssignment ? <LoadingState label={assignmentFeedback.text} /> : <StatusMessage kind={assignmentFeedback.kind}>{assignmentFeedback.text}</StatusMessage>}{!savingAssignment && assignmentFeedback.kind !== "success" && <button type="button" className="secondary-action small" onClick={() => void verifyAssignments(user)}>Перевірити стан</button>}</>}
                 <p className="field-help">До двох тренерів на групу. Щоб зняти призначення, приберіть позначку в картці потрібного тренера.</p>
                 <GroupAssignmentPicker groups={groups} selected={assigned} coachCounts={coachCounts} disabled={busy || savingAssignment} canAdd={user.status === "active"} onToggle={(groupId, selected) => void updateGroup(user, groupId, selected)} />
               </div>}

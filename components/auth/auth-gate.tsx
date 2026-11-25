@@ -56,6 +56,7 @@ export function AuthGate() {
     const client = getSupabaseBrowserClient();
     let active = true;
     let resolution = 0;
+    let authTimer: number | undefined;
 
     async function applySession(session: Session | null) {
       if (!active) return;
@@ -93,15 +94,20 @@ export function AuthGate() {
       }
     });
     const { data: listener } = client.auth.onAuthStateChange((event, session) => {
+      window.clearTimeout(authTimer);
       if (event === "PASSWORD_RECOVERY") {
         window.location.replace("/password-reset/");
         return;
       }
-      void applySession(session);
+      if (!session) { void applySession(null); return; }
+      // Profile queries can acquire the Auth session lock. Start them after
+      // Supabase has finished notifying subscribers and released that lock.
+      authTimer = window.setTimeout(() => { void applySession(session); }, 0);
     });
 
     return () => {
       active = false;
+      window.clearTimeout(authTimer);
       listener.subscription.unsubscribe();
     };
   }, []);

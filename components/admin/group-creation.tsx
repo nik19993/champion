@@ -11,7 +11,7 @@ import { GROUP_SUMMARY_SELECT, LOCATION_CATEGORIES, locationGroupCode, type Club
 import { VENUE_SELECT, isAwayVenue } from "@/lib/domain/venue-booking";
 import type { Venue } from "@/lib/domain/types";
 
-export function GroupCreation({ client, groups, onCreated, onMfaRequired }: { client: SupabaseClient; groups: GroupSummary[]; onCreated: (group: GroupSummary) => void; onMfaRequired?: () => void }) {
+export function GroupCreation({ client, groups, onCreated, onMfaRequired, initialKind = "main" }: { client: SupabaseClient; groups: GroupSummary[]; onCreated: (group: GroupSummary) => void; onMfaRequired?: () => void; initialKind?: "main" | "location" }) {
   const [open, setOpen] = useState(false);
   const [kind, setKind] = useState<"main" | "location">("main");
   const [locations, setLocations] = useState<ClubLocation[]>([]);
@@ -54,6 +54,7 @@ export function GroupCreation({ client, groups, onCreated, onMfaRequired }: { cl
   }, [client, open]);
 
   function begin() {
+    setKind(initialKind);
     setSuffix(nextGroupSuffix(groups, age));
     setError(null);
     setSuccess(null);
