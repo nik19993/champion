@@ -27,3 +27,9 @@ test("invalid intervals fail instead of claiming a free venue",()=>{
  assert.throws(()=>venueOccupiedIntervals([event("left",1,2,{ends_at:null})],"field","left",start,end));
  assert.throws(()=>venueFreeIntervals([],end,start));
 });
+test("a session ending exactly when another begins does not occupy the new time window",()=>{
+ for(const part of ['whole','left','right']) {
+  assert.deepEqual(venueOccupiedIntervals([event(part,1,2)],'field',part,start+2*hour,start+3*hour),[]);
+  assert.equal(venueOccupiedIntervals([event(part,1,2)],'field',part,start+2*hour-60000,start+3*hour).length,1);
+ }
+});

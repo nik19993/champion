@@ -342,6 +342,13 @@ export type Database = {
             foreignKeyName: "club_locations_venue_id_fkey"
             columns: ["venue_id"]
             isOneToOne: false
+            referencedRelation: "admin_venue_occupancy_venues"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "club_locations_venue_id_fkey"
+            columns: ["venue_id"]
+            isOneToOne: false
             referencedRelation: "venues"
             referencedColumns: ["id"]
           },
@@ -397,6 +404,13 @@ export type Database = {
             columns: ["group_id"]
             isOneToOne: false
             referencedRelation: "groups"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "club_schedule_slots_venue_id_fkey"
+            columns: ["venue_id"]
+            isOneToOne: false
+            referencedRelation: "admin_venue_occupancy_venues"
             referencedColumns: ["id"]
           },
           {
@@ -803,6 +817,13 @@ export type Database = {
             columns: ["updated_by"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "events_venue_id_fkey"
+            columns: ["venue_id"]
+            isOneToOne: false
+            referencedRelation: "admin_venue_occupancy_venues"
             referencedColumns: ["id"]
           },
           {
@@ -3099,6 +3120,13 @@ export type Database = {
             foreignKeyName: "venues_parent_venue_id_fkey"
             columns: ["parent_venue_id"]
             isOneToOne: false
+            referencedRelation: "admin_venue_occupancy_venues"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "venues_parent_venue_id_fkey"
+            columns: ["parent_venue_id"]
+            isOneToOne: false
             referencedRelation: "venues"
             referencedColumns: ["id"]
           },
@@ -3113,6 +3141,51 @@ export type Database = {
       }
     }
     Views: {
+      admin_venue_occupancy_venues: {
+        Row: {
+          id: string | null
+          is_active: boolean | null
+          name: string | null
+          parent_venue_id: string | null
+          supports_half_booking: boolean | null
+          venue_part: string | null
+          venue_type: string | null
+        }
+        Insert: {
+          id?: string | null
+          is_active?: boolean | null
+          name?: string | null
+          parent_venue_id?: string | null
+          supports_half_booking?: boolean | null
+          venue_part?: string | null
+          venue_type?: string | null
+        }
+        Update: {
+          id?: string | null
+          is_active?: boolean | null
+          name?: string | null
+          parent_venue_id?: string | null
+          supports_half_booking?: boolean | null
+          venue_part?: string | null
+          venue_type?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "venues_parent_venue_id_fkey"
+            columns: ["parent_venue_id"]
+            isOneToOne: false
+            referencedRelation: "admin_venue_occupancy_venues"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "venues_parent_venue_id_fkey"
+            columns: ["parent_venue_id"]
+            isOneToOne: false
+            referencedRelation: "venues"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       task_usage: {
         Row: {
           group_id: string | null
@@ -3247,6 +3320,11 @@ export type Database = {
           isOneToOne: true
           isSetofReturn: false
         }
+      }
+      delete_empty_group: { Args: { p_group_id: string }; Returns: Json }
+      empty_group_deletion_status: {
+        Args: { p_group_id: string }
+        Returns: Json
       }
       event_player_roster: {
         Args: { p_event_id: string }

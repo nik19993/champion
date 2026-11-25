@@ -5,13 +5,15 @@ import { eventVenueLabel } from "@/lib/domain/venue-booking";
 
 import { EnrollGoalkeeper } from "@/components/admin/goalkeeper-membership";
 import { rosterCounts } from "@/lib/domain/group-memberships";
-import { loadGroupPlayers } from "@/lib/supabase/group-roster";
+import { loadActiveRosterMemberships, loadActiveRosterPlayers, loadGroupPlayers } from "@/lib/supabase/group-roster";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import Image from "next/image";
-import { Boxes, CalendarDays, ChevronLeft, ChevronRight, ClipboardCheck, List, MapPin, Pencil, Plus, UserRound, Users } from "lucide-react";
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { Boxes, CalendarDays, ChevronLeft, ChevronRight, ClipboardCheck, List, MapPin, Pencil, Plus, Trash2, UserRound, Users } from "lucide-react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EmptyState, LoadingState, Modal, Pill, SearchField, StatusMessage, Tabs, WorkspaceHeader } from "@/components/common/workspace-ui";
 import { GroupCreation } from "@/components/admin/group-creation";
+import { GroupDeletion } from "@/components/admin/group-deletion";
+import { ADMIN_GROUP_SECTIONS, groupsForAdminSection, type AdminGroupSection } from "@/lib/domain/admin-groups";
 import { locationCategoryLabel } from "@/lib/domain/location-groups";
 import { SeasonManagement } from "@/components/admin/season-management";
 import { groupCode, groupLabel } from "@/lib/domain/seasons";
@@ -88,7 +90,11 @@ function groupCountLabel(count: number) {
 }
 
 export function AdminGroups({ client, profile, groups, onRefresh }: { client: SupabaseClient; profile: Profile; groups: GroupSummary[]; onRefresh: () => void }) {
-  const [section, setSection] = useState<"main" | "location">("main");
+  const metricsRequest = useRef(0);
+  const [section, setSection] = useState<AdminGroupSection>("main");
+  const [deleteGroup, setDeleteGroup] = useState<GroupSummary | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [rosterReady, setRosterReady] = useState(false);
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [rosterVersion, setRosterVersion] = useState(0);
   const [metrics, setMetrics] = useState<GroupMetric[]>([]);
@@ -100,23 +106,26 @@ export function AdminGroups({ client, profile, groups, onRefresh }: { client: Su
   const [inventoryGroup, setInventoryGroup] = useState<GroupSummary | null>(null);
 
   const load = useCallback(async () => {
+    const ticket = ++metricsRequest.current;
     if (!groups.length) { setMetrics([]); setLoading(false); return; }
-    setLoading(true); setError(null);
+    setLoading(true); setError(null); setRosterReady(false);
     const emptyMetrics = groups.map((group) => ({ ...group, coachName: "Тренера не призначено", playerCount: 0, trainingCount: 0, attendancePercent: null }));
     setMetrics(emptyMetrics);
     const ids = groups.map((group) => group.id);
     const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0);
     const monthEnd = new Date(monthStart); monthEnd.setMonth(monthEnd.getMonth() + 1);
     const [players, memberships, events, assignments, attendance] = await Promise.all([
-      client.from("players").select("id, group_id").eq("is_active", true),
-      client.from("player_group_memberships").select("player_id, group_id, active_from, active_to").in("group_id", ids),
+      loadActiveRosterPlayers(client, "id, group_id").then((data) => ({ data, error: null })).catch((error: unknown) => ({ data: [], error })),
+      loadActiveRosterMemberships(client, ids, kyivDateKey(new Date())).then((data) => ({ data, error: null })).catch((error: unknown) => ({ data: [], error })),
       client.from("events").select("id, group_id").in("group_id", ids).eq("event_type", "training").gte("start_at", monthStart.toISOString()).lt("start_at", monthEnd.toISOString()).neq("status", "cancelled"),
       client.from("coach_group_assignments").select("group_id, coach:profiles!coach_group_assignments_coach_id_fkey(full_name)").in("group_id", ids).eq("is_active", true).order("coach_slot"),
       client.from("attendance_records").select("status, attendance_sessions!inner(event_id, completed_at, events!inner(group_id, start_at))").not("attendance_sessions.completed_at", "is", null).gte("attendance_sessions.events.start_at", monthStart.toISOString()).lt("attendance_sessions.events.start_at", monthEnd.toISOString()),
     ]);
+    if (ticket !== metricsRequest.current) return;
     setLoading(false);
     const failedMetrics = [players.error, memberships.error, events.error, assignments.error, attendance.error].filter(Boolean).length;
     if (failedMetrics) setError("Усі групи відображено, але частину показників поки не вдалося обчислити.");
+    setRosterReady(!players.error && !memberships.error);
     const counts = rosterCounts(players.data ?? [], memberships.data ?? [], kyivDateKey(new Date().toISOString()));
     const coachNames = new Map<string, string[]>();
     for (const row of assignments.data ?? []) {
@@ -137,12 +146,12 @@ export function AdminGroups({ client, profile, groups, onRefresh }: { client: Su
     setMetrics(result);
     setDetailsGroup((current) => current ? result.find((group) => group.id === current.id) ?? null : null);
   }, [client, groups]);
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void load(); return () => { metricsRequest.current++; }; }, [load]);
 
-  const visibleGroups = metrics.filter((group) => (group.group_kind === "location") === (section === "location"));
-  const sectionTitle = section === "main" ? "Основні групи" : "Групи локацій";
+  const visibleGroups = groupsForAdminSection(metrics, section);
+  const sectionTitle = ADMIN_GROUP_SECTIONS.find((item) => item.value === section)!.label;
 
-  return <div className="workspace-stack"><WorkspaceHeader eyebrow={groupCountLabel(groups.length)} title="Групи" description="Натисніть на групу, щоб переглянути склад команди та дані гравців" actions={<button type="button" className="secondary-action" onClick={() => setArchiveOpen(true)}>Архів гравців</button>} /><Tabs label="Тип груп" value={section} onChange={setSection} items={[{ value: "main", label: "Основні групи", badge: groups.filter((group) => group.group_kind !== "location").length }, { value: "location", label: "Групи локацій", badge: groups.filter((group) => group.group_kind === "location").length }]} /><GroupCreation client={client} groups={groups} initialKind={section} onCreated={() => onRefresh()} />{section === "main" && <SeasonManagement client={client} groups={groups} onSaved={onRefresh} />}{error && <StatusMessage kind="warning">{error}</StatusMessage>}{loading ? <LoadingState /> : <section role="tabpanel" aria-label={sectionTitle}>{visibleGroups.length ? <div className="group-admin-grid">{visibleGroups.map((group) => <article key={group.id} className="group-admin-card"><button type="button" className="group-card-main" onClick={() => setDetailsGroup(group)} aria-label={`Відкрити групу ${groupCode(group)}`}><header><div><span className="group-code">{groupLabel(group)}</span><h2>{group.competition_format || (group.group_kind === "goalkeeper" ? "Спеціалізована підготовка воротарів" : group.group_kind === "location" ? locationCategoryLabel(group) : "Формат не вказано")}</h2></div><ChevronRight aria-hidden="true" /></header><p className="coach-line"><Users size={17} />{group.coachName}</p><div className="group-metrics"><div><Users /><span><b>{group.playerCount}</b><small>гравців</small></span></div><div><CalendarDays /><span><b>{group.trainingCount}</b><small>тренувань</small></span></div><div><ClipboardCheck /><span><b>{group.attendancePercent === null ? "—" : `${group.attendancePercent}%`}</b><small>відвідування</small></span></div></div><span className="group-open-label">Відкрити групу<ChevronRight size={17} aria-hidden="true" /></span></button><div className="group-card-actions"><button type="button" className="secondary-action" onClick={() => setFormatGroup(group)}><Pencil size={17} />Формат</button><button type="button" className="secondary-action" onClick={() => setInventoryGroup(group)}><Boxes size={17} />Інвентар</button></div></article>)}</div> : <EmptyState title={section === "location" ? "Групи локацій ще не додано" : "Основні групи ще не додано"}>Додавайте команди поступово.</EmptyState>}</section>}{detailsGroup && !selectedPlayer && <GroupDetailsModal key={rosterVersion} client={client} group={detailsGroup} onRosterSaved={() => { setRosterVersion(value => value + 1); void load(); }} onClose={() => setDetailsGroup(null)} onPlayerOpen={(player, photoUrl) => setSelectedPlayer({ player, photoUrl })} />}{selectedPlayer && <PlayerDetails client={client} profile={profile} transferGroups={groups} contextGroupId={detailsGroup?.id} onProfileSaved={() => { setSelectedPlayer(null); setRosterVersion(value => value + 1); void load(); }} player={selectedPlayer.player} photoUrl={selectedPlayer.photoUrl} onClose={() => setSelectedPlayer(null)} />}{archiveOpen && <ArchivedPlayers client={client} onClose={() => setArchiveOpen(false)} onPlayerOpen={(player, photoUrl) => { setArchiveOpen(false); setSelectedPlayer({player,photoUrl}); }} />}{formatGroup && <GroupFormatModal client={client} group={formatGroup} onClose={() => setFormatGroup(null)} onSaved={() => { setFormatGroup(null); onRefresh(); void load(); }} />}{inventoryGroup && <GroupInventoryModal client={client} group={inventoryGroup} onClose={() => setInventoryGroup(null)} />}</div>;
+  return <div className="workspace-stack"><WorkspaceHeader eyebrow={groupCountLabel(groups.length)} title="Групи" description="Натисніть на групу, щоб переглянути склад команди та дані гравців" actions={<button type="button" className="secondary-action" onClick={() => setArchiveOpen(true)}>Архів гравців</button>} /><Tabs label="Тип груп" value={section} onChange={setSection} items={ADMIN_GROUP_SECTIONS.map(({ value, label }) => ({ value, label, badge: groupsForAdminSection(groups, value).length }))} />{section !== "goalkeeper" && <GroupCreation client={client} groups={groups} initialKind={section} onCreated={() => onRefresh()} />}{section === "main" && <SeasonManagement client={client} groups={groups} onSaved={onRefresh} />}{notice && <StatusMessage kind="success">{notice}</StatusMessage>}{error && <StatusMessage kind="warning">{error}</StatusMessage>}{loading ? <LoadingState /> : <section role="tabpanel" aria-label={sectionTitle}>{visibleGroups.length ? <div className="group-admin-grid">{visibleGroups.map((group) => <article key={group.id} className="group-admin-card"><button type="button" className="group-card-main" onClick={() => setDetailsGroup(group)} aria-label={`Відкрити групу ${groupCode(group)}`}><header><div><span className="group-code">{groupLabel(group)}</span><h2>{group.competition_format || (group.group_kind === "goalkeeper" ? "Спеціалізована підготовка воротарів" : group.group_kind === "location" ? locationCategoryLabel(group) : "Формат не вказано")}</h2></div><ChevronRight aria-hidden="true" /></header><p className="coach-line"><Users size={17} />{group.coachName}</p><div className="group-metrics"><div><Users /><span><b>{group.playerCount}</b><small>гравців</small></span></div><div><CalendarDays /><span><b>{group.trainingCount}</b><small>тренувань</small></span></div><div><ClipboardCheck /><span><b>{group.attendancePercent === null ? "—" : `${group.attendancePercent}%`}</b><small>відвідування</small></span></div></div><span className="group-open-label">Відкрити групу<ChevronRight size={17} aria-hidden="true" /></span></button><div className="group-card-actions"><button type="button" className="secondary-action" onClick={() => setFormatGroup(group)}><Pencil size={17} />Формат</button><button type="button" className="secondary-action" onClick={() => setInventoryGroup(group)}><Boxes size={17} />Інвентар</button>{rosterReady && group.playerCount === 0 && <button type="button" className="danger-action" onClick={() => setDeleteGroup(group)}><Trash2 size={17} />Видалити групу</button>}</div></article>)}</div> : <EmptyState title={`${sectionTitle} ще не додано`}>Додавайте команди поступово.</EmptyState>}</section>}{detailsGroup && !selectedPlayer && <GroupDetailsModal key={rosterVersion} client={client} group={detailsGroup} onDelete={() => { setDeleteGroup(detailsGroup); setDetailsGroup(null); }} onRosterSaved={() => { setRosterVersion(value => value + 1); void load(); }} onClose={() => setDetailsGroup(null)} onPlayerOpen={(player, photoUrl) => setSelectedPlayer({ player, photoUrl })} />}{selectedPlayer && <PlayerDetails client={client} profile={profile} transferGroups={groups} contextGroupId={detailsGroup?.id} onProfileSaved={() => { setSelectedPlayer(null); setRosterVersion(value => value + 1); void load(); }} player={selectedPlayer.player} photoUrl={selectedPlayer.photoUrl} onClose={() => setSelectedPlayer(null)} />}{archiveOpen && <ArchivedPlayers client={client} onClose={() => setArchiveOpen(false)} onPlayerOpen={(player, photoUrl) => { setArchiveOpen(false); setSelectedPlayer({player,photoUrl}); }} />}{formatGroup && <GroupFormatModal client={client} group={formatGroup} onClose={() => setFormatGroup(null)} onSaved={() => { setFormatGroup(null); onRefresh(); void load(); }} />}{inventoryGroup && <GroupInventoryModal client={client} group={inventoryGroup} onClose={() => setInventoryGroup(null)} />}{deleteGroup && <GroupDeletion client={client} group={deleteGroup} onClose={() => setDeleteGroup(null)} onDeleted={() => { metricsRequest.current++; setNotice(`Групу ${groupCode(deleteGroup)} видалено з переліку. Історію збережено.`); setMetrics((current) => current.filter((group) => group.id !== deleteGroup.id)); setDeleteGroup(null); onRefresh(); }} />}</div>;
 }
 
 function ArchivedPlayers({client,onClose,onPlayerOpen}: {client:SupabaseClient;onClose:()=>void;onPlayerOpen:(player:AdminGroupPlayer, photoUrl?:string)=>void}) {
@@ -181,7 +190,7 @@ function ArchivedPlayers({client,onClose,onPlayerOpen}: {client:SupabaseClient;o
   return <Modal title="Архів гравців" onClose={onClose} wide><p>Профілі гравців, вилучених з активного складу. Історичні дані збережені.</p><SearchField value={search} onChange={setSearch} placeholder="Пошук гравця" />{error&&<StatusMessage kind="error">{error}</StatusMessage>}{loading?<LoadingState />:filtered.length?<div className="compact-list">{filtered.map(player=><article key={player.id}><div><b>{player.full_name}</b><small>{groupCode(player.groups)}</small></div><button className="secondary-action" type="button" onClick={()=>void open(player)}>Відкрити профіль</button></article>)}</div>:<EmptyState title="Архівних гравців не знайдено" />}</Modal>;
 }
 
-function GroupDetailsModal({ client, group, onClose, onPlayerOpen, onRosterSaved }: { client: SupabaseClient; group: GroupMetric; onRosterSaved: () => void; onClose: () => void; onPlayerOpen: (player: AdminGroupPlayer, photoUrl?: string) => void }) {
+function GroupDetailsModal({ client, group, onDelete, onClose, onPlayerOpen, onRosterSaved }: { client: SupabaseClient; group: GroupMetric; onRosterSaved: () => void; onDelete: () => void; onClose: () => void; onPlayerOpen: (player: AdminGroupPlayer, photoUrl?: string) => void }) {
   const [newPlayerOpen, setNewPlayerOpen] = useState(false);
   const [players, setPlayers] = useState<AdminGroupPlayer[]>([]);
   const [photoUrls, setPhotoUrls] = useState<Record<string, string>>({});
@@ -253,6 +262,7 @@ function GroupDetailsModal({ client, group, onClose, onPlayerOpen, onRosterSaved
 
   return <Modal title={`Група · ${groupLabel(group)}`} onClose={onClose} wide footer={<>
     {group.group_kind !== "goalkeeper" && <button className="primary-action" type="button" onClick={() => setNewPlayerOpen(true)}><Plus size={17} aria-hidden="true" />Додати гравця</button>}
+    {!loading && !error && players.length === 0 && <button className="danger-action" type="button" onClick={onDelete}><Trash2 size={17} />Видалити групу</button>}
     <button className={group.group_kind !== "goalkeeper" ? "secondary-action" : "primary-action"} type="button" onClick={onClose}>Закрити</button>
   </>}>
     <div className="group-detail-head"><div><Pill tone="plum">{group.group_kind === "goalkeeper" ? "Воротарська група" : group.group_kind === "location" ? "Група локації" : "Вікова команда"}</Pill><h3>{group.competition_format || "Формат не вказано"}</h3><p className="coach-line"><Users size={17} />{group.coachName}</p></div><div className="group-metrics group-detail-metrics"><div><Users /><span><b>{group.playerCount}</b><small>гравців</small></span></div><div><CalendarDays /><span><b>{group.trainingCount}</b><small>тренувань цього місяця</small></span></div><div><ClipboardCheck /><span><b>{group.attendancePercent === null ? "—" : `${group.attendancePercent}%`}</b><small>відвідування</small></span></div></div></div>
