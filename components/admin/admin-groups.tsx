@@ -8,12 +8,13 @@ import { rosterCounts } from "@/lib/domain/group-memberships";
 import { loadGroupPlayers } from "@/lib/supabase/group-roster";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import Image from "next/image";
-import { Boxes, CalendarDays, ChevronLeft, ChevronRight, ClipboardCheck, List, MapPin, Pencil, UserRound, Users } from "lucide-react";
+import { Boxes, CalendarDays, ChevronLeft, ChevronRight, ClipboardCheck, List, MapPin, Pencil, Plus, UserRound, Users } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { EmptyState, LoadingState, Modal, Pill, SearchField, StatusMessage, WorkspaceHeader } from "@/components/common/workspace-ui";
 import { SeasonManagement } from "@/components/admin/season-management";
 import { groupCode, groupLabel } from "@/lib/domain/seasons";
 import { PlayerDetails } from "@/components/coach/coach-players";
+import { PlayerProfileEditor } from "@/components/coach/player-profile-editor";
 import { EVENT_LABELS, formatDate, formatTime, kyivDateKey, kyivMonthBounds } from "@/lib/domain/format";
 import type { EventType, GroupSummary, InventoryItem, Player, Profile, UniformStatus } from "@/lib/domain/types";
 
@@ -175,6 +176,7 @@ function ArchivedPlayers({client,onClose,onPlayerOpen}: {client:SupabaseClient;o
 }
 
 function GroupDetailsModal({ client, group, onClose, onPlayerOpen, onRosterSaved }: { client: SupabaseClient; group: GroupMetric; onRosterSaved: () => void; onClose: () => void; onPlayerOpen: (player: AdminGroupPlayer, photoUrl?: string) => void }) {
+  const [newPlayerOpen, setNewPlayerOpen] = useState(false);
   const [players, setPlayers] = useState<AdminGroupPlayer[]>([]);
   const [photoUrls, setPhotoUrls] = useState<Record<string, string>>({});
   const [paymentIndicators, setPaymentIndicators] = useState<Record<string, PaymentIndicator>>({});
@@ -239,7 +241,14 @@ function GroupDetailsModal({ client, group, onClose, onPlayerOpen, onRosterSaved
     return query ? players.filter((player) => `${player.full_name} ${player.position ?? ""}`.toLocaleLowerCase("uk-UA").includes(query)) : players;
   }, [players, search]);
 
-  return <Modal title={`Група · ${groupLabel(group)}`} onClose={onClose} wide footer={<button className="primary-action" type="button" onClick={onClose}>Закрити</button>}>
+  if (newPlayerOpen && group.group_kind === "age") {
+    return <PlayerProfileEditor client={client} groupId={group.id} onClose={() => setNewPlayerOpen(false)} onSaved={() => { setNewPlayerOpen(false); onRosterSaved(); }} />;
+  }
+
+  return <Modal title={`Група · ${groupLabel(group)}`} onClose={onClose} wide footer={<>
+    {group.group_kind === "age" && <button className="primary-action" type="button" onClick={() => setNewPlayerOpen(true)}><Plus size={17} aria-hidden="true" />Додати гравця</button>}
+    <button className={group.group_kind === "age" ? "secondary-action" : "primary-action"} type="button" onClick={onClose}>Закрити</button>
+  </>}>
     <div className="group-detail-head"><div><Pill tone="plum">{group.group_kind === "goalkeeper" ? "Воротарська група" : "Вікова команда"}</Pill><h3>{group.competition_format || "Формат не вказано"}</h3><p className="coach-line"><Users size={17} />{group.coachName}</p></div><div className="group-metrics group-detail-metrics"><div><Users /><span><b>{group.playerCount}</b><small>гравців</small></span></div><div><CalendarDays /><span><b>{group.trainingCount}</b><small>тренувань цього місяця</small></span></div><div><ClipboardCheck /><span><b>{group.attendancePercent === null ? "—" : `${group.attendancePercent}%`}</b><small>відвідування</small></span></div></div></div>
     {(group.regulation_source || group.regulation_verified_on) && <section className="profile-section"><h3>Регламент і формат</h3><div className="detail-list">{group.regulation_source && <div><ClipboardCheck /><span><b>Джерело регламенту</b><small>{group.regulation_source}</small></span></div>}{group.regulation_verified_on && <div><CalendarDays /><span><b>Дата перевірки</b><small>{new Date(group.regulation_verified_on).toLocaleDateString("uk-UA")}</small></span></div>}</div></section>}
     <GroupMonthlyPlan client={client} group={group} />
