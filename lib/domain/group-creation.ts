@@ -32,8 +32,9 @@ export function mergeCreatedGroup<T extends GroupIdentity>(groups: T[], created:
 export function groupCreationError(error: unknown): string {
   const details = error && typeof error === "object" ? error as { code?: string; message?: string } : {};
   const message = details.message ?? "";
-  if (details.code === "23505" || message.includes("GROUP_ALREADY_EXISTS")) return "Група з такою назвою вже існує. Виберіть іншу літеру групи.";
+  if (details.code === "23505" || message.includes("GROUP_ALREADY_EXISTS")) return "Група з такою назвою вже існує. Виберіть іншу літеру або категорію групи.";
   if (message.includes("MFA_REQUIRED") || details.code === "42501") return "Потрібна двоетапна перевірка адміністратора. Підтвердьте вхід і повторіть створення групи.";
+  if (message.includes("INVALID_LOCATION_GROUP")) return "Перевірте номер локації та категорію групи: A, B, C або Junior.";
   if (message.includes("INVALID_GROUP")) return "Перевірте вік і літеру групи. Для U8–U17 потрібно вибрати латинську літеру A–Z.";
   if (message.includes("INITIAL_SEASON_REQUIRED")) return "Спочатку налаштуйте початковий сезон у розділі «Групи», а потім створіть нову групу.";
   return "Не вдалося створити групу. Перевірте з’єднання та повторіть спробу — повторне натискання не створить дубль.";

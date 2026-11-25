@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { fixedTrainingVenue, groupsInScope, groupScopeOptions, locationAgeRange, locationGroupCode } from '../lib/domain/location-groups.ts';
+import { fixedTrainingVenue, groupsInScope, groupScopeOptions, locationAgeRange, locationCategoryLabel, locationGroupCode } from '../lib/domain/location-groups.ts';
 import { taskForGroup } from '../lib/domain/curriculum.ts';
 import { previewSeason } from '../lib/domain/seasons.ts';
 
@@ -22,7 +22,7 @@ test('reports distinguish organization membership from the physical venue',()=>{
   assert.equal(groupScopeOptions(groups).filter(o=>o.value==='location:school2').length,1);
 });
 
-test('location names and age bands exclude the undecided preschool category',()=>{
+test('location names preserve the agreed A/B/C age bands',()=>{
   assert.equal(locationGroupCode(2,'A'),'Локація № 2 A');
   for(const number of [0,-1,2.5,10000,NaN]) assert.equal(locationGroupCode(number,'A'),null);
   assert.equal(locationGroupCode(15,'preschool'),null);
@@ -36,6 +36,16 @@ test('location names and age bands exclude the undecided preschool category',()=
       assert.equal(taskForGroup({...task,audience:'goalkeeper'},group),false);
     }
   }
+});
+
+test('Junior has its own category without an invented age band or curriculum',()=>{
+  const junior={...other, id:'junior', team_suffix:'Junior', code:locationGroupCode(15,'Junior')};
+  assert.equal(junior.code,'Локація № 15 Junior');
+  assert.equal(locationAgeRange(junior),null);
+  assert.equal(locationCategoryLabel(junior),'Junior');
+  assert.equal(fixedTrainingVenue(junior,'training'),'hall15');
+  assert.deepEqual(groupsInScope([...groups,junior],'location:school15').map(g=>g.id),['other','junior']);
+  for(let age=4;age<=18;age++) assert.equal(taskForGroup({is_active:true,audience:'field',age_from:age,age_to:age},junior),false);
 });
 
 test('location training uses its assigned hall while games retain their venue choice',()=>{

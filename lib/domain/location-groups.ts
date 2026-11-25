@@ -4,6 +4,7 @@ export const LOCATION_CATEGORIES = {
   A: { min: 6, max: 8, label: "А · 6–8 років" },
   B: { min: 9, max: 12, label: "B · 9–12 років" },
   C: { min: 13, max: 17, label: "C · 13–17 років" },
+  Junior: { min: null, max: null, label: "Junior" },
 } as const;
 export type LocationCategory = keyof typeof LOCATION_CATEGORIES;
 
@@ -19,7 +20,12 @@ export const GROUP_SUMMARY_SELECT = "id, code, age, team_suffix, group_kind, com
 export function locationAgeRange(group: { group_kind?: string; team_suffix?: string | null } | undefined) {
   if (group?.group_kind !== "location") return null;
   const category = group.team_suffix as LocationCategory;
-  return LOCATION_CATEGORIES[category] ?? null;
+  const range = LOCATION_CATEGORIES[category];
+  return range?.min != null && range.max != null ? range : null;
+}
+
+export function locationCategoryLabel(group: { team_suffix?: string | null }) {
+  return LOCATION_CATEGORIES[group.team_suffix as LocationCategory]?.label ?? "Група локації";
 }
 
 export function locationGroupCode(schoolNumber: number, category: string) {

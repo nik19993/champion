@@ -30,7 +30,7 @@ export function VenueOccupancy({client}:{client:SupabaseClient}) {
     if(!Number.isFinite(start)||!Number.isFinite(end)){setLoading(false);setError("Оберіть дату.");return;}
     if(!silent)setLoading(true);setError(null);
     try {
-      const venues=await client.from("venues").select(VENUE_SELECT).order("name");
+      const venues=await client.from("admin_venue_occupancy_venues").select(VENUE_SELECT).order("name");
       if(venues.error||!Array.isArray(venues.data))throw Error();
       const bookings:Booking[]=[];let expected:number|undefined;
       for(;;){

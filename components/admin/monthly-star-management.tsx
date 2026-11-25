@@ -7,6 +7,7 @@ import { Pencil, Save, Star, Trophy } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { EmptyState, GroupSelect, LoadingState, Pill, StatusMessage } from "@/components/common/workspace-ui";
 import { formatMonth, kyivDateKey } from "@/lib/domain/format";
+import { ALL_GROUPS_SCOPE, groupsInScope, groupScopeOptions } from "@/lib/domain/location-groups";
 import type { GroupSummary, MonthlyStarTheme, Profile } from "@/lib/domain/types";
 
 function currentMonthInput() {
@@ -56,12 +57,14 @@ export function MonthlyStarManagement({ client, profile, groups }: { client: Sup
   const [description, setDescription] = useState("");
   const [criteria, setCriteria] = useState("");
   const [groupId, setGroupId] = useState(groups[0]?.id ?? "");
+  const [scope, setScope] = useState(ALL_GROUPS_SCOPE);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ kind: "success" | "error"; text: string } | null>(null);
   const selectedMonth = `${month}-01`;
   const existing = themes.find((theme) => theme.month === selectedMonth);
-  const selectedGroup = groups.find((group) => group.id === groupId) ?? groups[0];
+  const scopedGroups = groupsInScope(groups, scope);
+  const selectedGroup = scopedGroups.find((group) => group.id === groupId) ?? scopedGroups[0];
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -71,8 +74,8 @@ export function MonthlyStarManagement({ client, profile, groups }: { client: Sup
   }, [client]);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
-    if (!groupId && groups[0]) setGroupId(groups[0].id);
-  }, [groupId, groups]);
+    if (selectedGroup && groupId !== selectedGroup.id) setGroupId(selectedGroup.id);
+  }, [groupId, selectedGroup]);
   useEffect(() => {
     const theme = themes.find((item) => item.month === selectedMonth);
     setTitle(theme?.title ?? "");
@@ -97,5 +100,5 @@ export function MonthlyStarManagement({ client, profile, groups }: { client: Sup
     window.requestAnimationFrame(() => document.getElementById("monthly-star-theme-form")?.scrollIntoView({ behavior: "smooth", block: "center" }));
   }
 
-  return <div className="monthly-star-admin"><div className="management-grid"><form id="monthly-star-theme-form" className="form-stack management-form" onSubmit={save}><div className="form-title-row"><div><p className="eyebrow">Одна тема для всіх груп</p><h3>{existing ? "Редагування теми місяця" : "Нова тема місяця"}</h3></div><Star /></div><label><span>Місяць</span><input type="month" value={month} onChange={(event) => setMonth(event.target.value)} required /></label><label><span>Назва теми</span><input value={title} onChange={(event) => setTitle(event.target.value)} required maxLength={160} placeholder="Наприклад, Місяць техніки" /></label><label><span>Опис для тренерів</span><textarea rows={4} value={description} onChange={(event) => setDescription(event.target.value)} required maxLength={1200} /></label><label><span>Критерії — необов’язково</span><textarea rows={3} value={criteria} onChange={(event) => setCriteria(event.target.value)} maxLength={1200} /></label>{message && <StatusMessage kind={message.kind}>{message.text}</StatusMessage>}<button className="primary-action" disabled={busy}><Save size={17} />{busy ? "Збереження…" : existing ? "Зберегти зміни" : "Створити тему"}</button></form><div><div className="section-title-row"><div><p className="eyebrow">Збережена історія</p><h3>Теми місяців</h3></div><Pill tone="plum">{themes.length}</Pill></div>{loading ? <LoadingState /> : themes.length ? <div className="compact-list star-theme-history">{themes.map((theme) => <article key={theme.id}><div><b>{formatMonth(theme.month)} · {theme.title}</b><small>{theme.description}</small></div><button type="button" className="secondary-action small" onClick={() => editTheme(theme)}><Pencil size={15} />Редагувати</button></article>)}</div> : <EmptyState title="Тем ще немає" />}</div></div><section className="panel-section"><div className="section-title-row"><div><p className="eyebrow">Результати тренерів</p><h2>Визначені зірки за вибраний місяць</h2></div>{groups.length > 0 && <GroupSelect groups={groups} value={selectedGroup?.id ?? ""} onChange={setGroupId} />}</div>{selectedGroup ? <AdminMonthlyStarResults key={`${selectedGroup.id}:${selectedMonth}`} client={client} group={selectedGroup} month={selectedMonth} theme={existing} /> : <EmptyState title="Груп не знайдено" />}</section></div>;
+  return <div className="monthly-star-admin"><div className="management-grid"><form id="monthly-star-theme-form" className="form-stack management-form" onSubmit={save}><div className="form-title-row"><div><p className="eyebrow">Одна тема для всіх груп</p><h3>{existing ? "Редагування теми місяця" : "Нова тема місяця"}</h3></div><Star /></div><label><span>Місяць</span><input type="month" value={month} onChange={(event) => setMonth(event.target.value)} required /></label><label><span>Назва теми</span><input value={title} onChange={(event) => setTitle(event.target.value)} required maxLength={160} placeholder="Наприклад, Місяць техніки" /></label><label><span>Опис для тренерів</span><textarea rows={4} value={description} onChange={(event) => setDescription(event.target.value)} required maxLength={1200} /></label><label><span>Критерії — необов’язково</span><textarea rows={3} value={criteria} onChange={(event) => setCriteria(event.target.value)} maxLength={1200} /></label>{message && <StatusMessage kind={message.kind}>{message.text}</StatusMessage>}<button className="primary-action" disabled={busy}><Save size={17} />{busy ? "Збереження…" : existing ? "Зберегти зміни" : "Створити тему"}</button></form><div><div className="section-title-row"><div><p className="eyebrow">Збережена історія</p><h3>Теми місяців</h3></div><Pill tone="plum">{themes.length}</Pill></div>{loading ? <LoadingState /> : themes.length ? <div className="compact-list star-theme-history">{themes.map((theme) => <article key={theme.id}><div><b>{formatMonth(theme.month)} · {theme.title}</b><small>{theme.description}</small></div><button type="button" className="secondary-action small" onClick={() => editTheme(theme)}><Pencil size={15} />Редагувати</button></article>)}</div> : <EmptyState title="Тем ще немає" />}</div></div><section className="panel-section"><div className="section-title-row"><div><p className="eyebrow">Основні групи та групи локацій</p><h2>Визначені зірки за вибраний місяць</h2></div></div><div className="filter-bar"><label className="compact-field"><span>Групи конкурсу</span><select value={scope} onChange={(event) => setScope(event.target.value)}>{groupScopeOptions(groups).filter((option) => !option.value.startsWith("group:")).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>{scopedGroups.length > 0 && <GroupSelect groups={scopedGroups} value={selectedGroup?.id ?? ""} onChange={setGroupId} />}</div>{selectedGroup ? <AdminMonthlyStarResults key={`${selectedGroup.id}:${selectedMonth}`} client={client} group={selectedGroup} month={selectedMonth} theme={existing} /> : <EmptyState title="Груп не знайдено" />}</section></div>;
 }

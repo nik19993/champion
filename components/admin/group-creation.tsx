@@ -119,12 +119,12 @@ export function GroupCreation({ client, groups, onCreated, onMfaRequired, initia
           <label><span>Локація</span><select value={locationId} disabled={busy || !locationsReady} onChange={(event) => { setLocationId(event.target.value); setVenueId(""); setError(null); }}>{!locationsReady && <option value="">Завантажуємо…</option>}{locations.map((location) => <option key={location.id} value={location.id}>№ {location.school_number} · {location.name}</option>)}<option value="new">Додати нову локацію</option></select></label>
           {locationId === "new" && <><label><span>Номер локації / школи</span><input type="number" min={1} max={9999} step={1} value={schoolNumber} onChange={(event) => setSchoolNumber(event.target.value)} required /></label><label><span>Назва локації</span><input value={locationName} maxLength={160} onChange={(event) => setLocationName(event.target.value)} placeholder="Наприклад, ЗОШ № 2" /></label></>}
           {!selectedLocation?.venue_id && <label><span>Місце тренувань</span><select value={venueId} disabled={busy} onChange={(event) => setVenueId(event.target.value)}><option value="">Спортивний зал цієї локації</option>{venues.map((venue) => <option key={venue.id} value={venue.id}>{venue.name}</option>)}</select></label>}
-          <label><span>Вікова категорія</span><select value={category} disabled={busy} onChange={(event) => setCategory(event.target.value as LocationCategory)}>{Object.entries(LOCATION_CATEGORIES).map(([value, item]) => <option key={value} value={value}>{item.label}</option>)}</select></label>
+          <label><span>Категорія групи</span><select value={category} disabled={busy} onChange={(event) => setCategory(event.target.value as LocationCategory)}>{Object.entries(LOCATION_CATEGORIES).map(([value, item]) => <option key={value} value={value}>{item.label}</option>)}</select></label>
           <p className="muted">Місце тренування закріплюється за локацією. Тренер не вибирає його під час планування тренування.</p>
         </>}
         <p className="group-creation-preview">Назва групи: <strong>{code ?? "Перевірте дані"}</strong></p>
         <p className="muted">{kind === "main" && "Сезон і рік народження визначаються автоматично за поточним сезоном клубу. "}Групу можна створити без гравців та без призначеного тренера.</p>
-        {duplicate && <StatusMessage kind="warning">Група {code} вже існує. Виберіть іншу літеру.</StatusMessage>}
+        {duplicate && <StatusMessage kind="warning">Група {code} вже існує. Виберіть іншу літеру або категорію.</StatusMessage>}
         {error && <StatusMessage kind="error">{error}</StatusMessage>}
       </form>
     </Modal>}
