@@ -29,6 +29,11 @@ function fixture(mode = "normal") {
 }
 const file = new File(["synthetic"], "test.pdf", { type: "application/pdf" });
 const context = { bucket: "task-documents", ownerId: "synthetic-coach", groupId: "synthetic-group", age: 12, contextType: "event_task" };
+test("an oversized unprocessed document never reaches Storage", async () => {
+  const { client, calls } = fixture();
+  await assert.rejects(uploadPrivateFile(client, new File([new Uint8Array(1_000_001)], "test.pdf"), context), /1 МБ/);
+  assert.deepEqual(calls, []);
+});
 test("task registration confirms a separate RLS-protected read before validation", async () => {
   const { client, calls } = fixture();
   const asset = await uploadPrivateFile(client, file, context);

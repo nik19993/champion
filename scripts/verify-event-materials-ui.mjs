@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 import { readFile, mkdtemp, rm } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
+import { randomBytes } from "node:crypto";
 import { pathToFileURL, fileURLToPath } from "node:url";
+import { zipSync, strToU8 } from "fflate";
 
 if (process.argv.length < 5) throw Error("Pass esbuild, playwright and Chromium paths.");
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -15,25 +17,38 @@ let checks = 0;
 const check = (ok, message) => { assert.ok(ok, message); checks++; };
 try {
   const bundle = join(directory, "fixture.js");
-  await build({ entryPoints: [join(root, "tests/ui/event-materials-fixture.jsx")], outfile: bundle, bundle: true, platform: "browser", format: "iife", jsx: "automatic", tsconfig: join(root, "tsconfig.json"), define: { "process.env.NODE_ENV": '"test"' }, alias: { "next/image": join(root, "tests/ui/image-stub.jsx") } });
+  await build({ entryPoints: [join(root, "tests/ui/event-materials-fixture.jsx")], outfile: bundle, bundle: true, platform: "browser", format: "esm", jsx: "automatic", tsconfig: join(root, "tsconfig.json"), define: { "process.env.NODE_ENV": '"test"' }, alias: { "next/image": join(root, "tests/ui/image-stub.jsx") } });
+  const workerBundle = join(directory, "worker.js");
+  await build({ entryPoints: [join(root, "lib/browser/training-document-worker.ts")], outfile: workerBundle, bundle: true, platform: "browser", format: "esm" });
+  const workerSource = await readFile(workerBundle);
   const source = await readFile(bundle);
   const css = await readFile(join(root, "app/globals.css"));
   browser = await chromium.launch({ executablePath: resolve(process.argv[4]), headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage"] });
   const page = await browser.newPage({ viewport: { width: 360, height: 800 } });
   const errors = [];
   page.on("pageerror", error => errors.push(error.message));
-  await page.route("**/*", async route => {
+  await page.context().route("**/*", async route => {
     const url = new URL(route.request().url());
     if (url.origin !== "https://documents-check.test") throw Error(`Unexpected external request: ${url.origin}`);
     if (url.pathname === "/fixture.js") return route.fulfill({ body: source, contentType: "application/javascript" });
+    if (url.pathname === "/training-document-worker.ts") return route.fulfill({ body: workerSource, contentType: "application/javascript" });
     if (url.pathname === "/style.css") return route.fulfill({ body: css, contentType: "text/css" });
-    return route.fulfill({ body: '<!doctype html><html lang="uk"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/style.css"><div id="root"></div><script src="/fixture.js"></script></html>', contentType: "text/html" });
+    return route.fulfill({ body: '<!doctype html><html lang="uk"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/style.css"><div id="root"></div><script type="module" src="/fixture.js"></script></html>', contentType: "text/html" });
   });
   const open = async () => { await page.locator(".calendar-event").first().click(); await page.getByRole("heading", { name: "Прикріплені документи", exact: true }).waitFor(); };
-  const choose = name => page.locator('input[type="file"]').setInputFiles({ name, mimeType: "", buffer: Buffer.from("%PDF-1.4 synthetic document") });
+  const word = Buffer.from(zipSync({ "[Content_Types].xml": strToU8('<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>'), "word/document.xml": strToU8('<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>План заняття</w:t></w:r></w:p></w:body></w:document>') }));
+  const choose = async name => {
+    await page.locator('input[type="file"]').setInputFiles({ name, mimeType: "", buffer: name.endsWith(".docx") ? word : Buffer.from("%PDF-1.4 synthetic document") });
+    await page.getByText(/Стискання перевірено:|Стиснуто:/).waitFor();
+  };
   await page.goto("https://documents-check.test");
   await open();
   await page.getByText("Прикріплених документів немає.", { exact: true }).waitFor();
+  const oversized = zipSync({ "[Content_Types].xml": strToU8("<Types/>"), "word/document.xml": strToU8("<document/>"), "word/media/data.bin": randomBytes(1_100_000) }, { level: 0 });
+  await page.locator('input[type="file"]').setInputFiles({ name: "too-large.docx", buffer: Buffer.from(oversized), mimeType: "" });
+  await page.getByText(/Після спроби стискання документ перевищує 1 МБ/).waitFor();
+  check(await page.getByRole("button", { name: "Зберегти зміни", exact: true }).isEnabled(), "rejected compression does not block saving the training without a document");
+  check(await page.evaluate(() => documentQa.calls.some(call => call.storage === "upload")) === false, "the original oversized file never reaches Storage");
   await choose("План.pdf");
   check(await page.getByText(/Документ ще не прикріплено/).count() === 1, "choosing a file is explicitly pending");
   await page.getByRole("button", { name: "Прикріпити документ", exact: true }).click();

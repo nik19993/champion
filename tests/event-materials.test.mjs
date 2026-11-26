@@ -50,6 +50,6 @@ test("document MIME comes from a supported extension even when the browser omits
   assert.equal(trainingDocumentType({ name: "План.DOCX", size: 1024 }), "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
   assert.equal(trainingDocumentType({ name: "план.pdf", size: TRAINING_DOCUMENT_LIMIT }), "application/pdf");
   assert.throws(() => trainingDocumentType({ name: "план.doc", size: 1024 }), /\.docx або PDF/);
-  assert.throws(() => trainingDocumentType({ name: "план.pdf", size: TRAINING_DOCUMENT_LIMIT + 1 }), /20 МБ/);
+  assert.throws(() => trainingDocumentType({ name: "план.pdf", size: TRAINING_DOCUMENT_LIMIT + 1 }), /1 МБ/);
   assert.throws(() => trainingDocumentType({ name: "план.pdf", size: 0 }), /порожній/);
 });

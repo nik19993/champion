@@ -1,6 +1,7 @@
 "use client";
 import { EventMaterials } from "@/components/common/event-materials";
-import { TRAINING_DOCUMENT_ACCEPT, trainingDocumentType } from "@/lib/domain/training-document";
+import { prepareTrainingDocument, type PreparedTrainingDocument } from "@/lib/browser/prepare-training-document";
+import { TRAINING_DOCUMENT_ACCEPT, trainingDocumentType, trainingDocumentSize, trainingDocumentError } from "@/lib/domain/training-document";
 import { attachEventMaterial } from "@/lib/supabase/event-materials";
 import { fixedTrainingVenue } from "@/lib/domain/location-groups";
 
@@ -304,6 +305,10 @@ function EventEditor({ client, profile, groups, initialGroupId, event, isCreatin
   const [needsSubstitute, setNeedsSubstitute] = useState(event?.needs_substitute ?? false);
   const [file, setFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const documentRequest = useRef<AbortController | null>(null);
+  const [preparingDocument, setPreparingDocument] = useState(false);
+  const [preparedDocument, setPreparedDocument] = useState<PreparedTrainingDocument | null>(null);
+  const [documentUrl, setDocumentUrl] = useState<string | null>(null);
   const pendingUpload = useRef<{ file: File; asset: FileAsset } | null>(null);
   const [materialsRevision, setMaterialsRevision] = useState(0);
   const [usageCount, setUsageCount] = useState(0);
@@ -378,17 +383,31 @@ function EventEditor({ client, profile, groups, initialGroupId, event, isCreatin
     return () => { active = false; };
   }, [client, group, taskId]);
 
-  function chooseFile(chosen: File | null) {
+  useEffect(() => () => { documentRequest.current?.abort(); }, []);
+  useEffect(() => {
+    if (!file) { setDocumentUrl(null); return; }
+    const url = URL.createObjectURL(file);
+    setDocumentUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
+
+  async function chooseFile(chosen: File | null) {
+    documentRequest.current?.abort();
+    const request = new AbortController();
+    documentRequest.current = request;
     pendingUpload.current = null;
-    setMessage(null);
+    setMessage(null); setFile(null); setPreparedDocument(null);
+    if (!chosen) { setPreparingDocument(false); return; }
+    setPreparingDocument(true);
     try {
-      if (chosen) trainingDocumentType(chosen);
-      setFile(chosen);
+      const prepared = await prepareTrainingDocument(chosen, { signal: request.signal });
+      if (request.signal.aborted) return;
+      setFile(prepared.file); setPreparedDocument(prepared);
     } catch (error) {
-      setFile(null);
+      if (request.signal.aborted) return;
       if (fileInputRef.current) fileInputRef.current.value = "";
-      setMessage(safeError(error));
-    }
+      setMessage(trainingDocumentError(error));
+    } finally { if (!request.signal.aborted) setPreparingDocument(false); }
   }
 
   async function attachSelectedDocument(target: EventItem) {
@@ -402,7 +421,7 @@ function EventEditor({ client, profile, groups, initialGroupId, event, isCreatin
     }
     await attachEventMaterial(client, target.id, group.group_kind === "goalkeeper" ? null : target.task_id ?? null, asset.id);
     pendingUpload.current = null;
-    setFile(null);
+    setFile(null); setPreparedDocument(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
     setMaterialsRevision((value) => value + 1);
   }
@@ -411,7 +430,7 @@ function EventEditor({ client, profile, groups, initialGroupId, event, isCreatin
     && eventType === "training" && persistedEvent.group_id === groupId && (persistedEvent.task_id ?? "") === taskId);
 
   async function attachDocument() {
-    if (busy || !file || !persistedEvent || !canAttachToSaved) return;
+    if (busy || preparingDocument || !file || !persistedEvent || !canAttachToSaved) return;
     setBusy(true); setMessage(null);
     try {
       await attachSelectedDocument(persistedEvent);
@@ -422,7 +441,7 @@ function EventEditor({ client, profile, groups, initialGroupId, event, isCreatin
   }
 
   async function persist() {
-    if (busy) return;
+    if (busy || preparingDocument) return;
     const venue = venues.find((item) => item.id === bookingVenueId);
     const away = isAwayVenue(venue);
     const part = effectiveVenuePart(venue, bookingPart);
@@ -433,7 +452,7 @@ function EventEditor({ client, profile, groups, initialGroupId, event, isCreatin
     const minutes = durationMinutes(duration);
     if (minutes == null) { setMessage("Вкажіть цілу тривалість від 15 до 360 хвилин."); return; }
     if (file && eventType === "training") {
-      try { trainingDocumentType(file); } catch (error) { setMessage(safeError(error)); return; }
+      try { trainingDocumentType(file); } catch (error) { setMessage(trainingDocumentError(error)); return; }
       if (!taskId && group.group_kind !== "goalkeeper" && !customTask) { setMessage("Виберіть навчальне завдання для документа."); return; }
     }
     setBusy(true); setMessage(null);
@@ -555,9 +574,9 @@ function EventEditor({ client, profile, groups, initialGroupId, event, isCreatin
     <button type="button" className="secondary-action" disabled={busy} onClick={onClose}>{creating ? "Скасувати" : "Закрити вікно"}</button>
     {persistedEvent && !creating && <button type="button" className="danger-action" onClick={() => void requestRemoval()} disabled={busy || !canEdit}><Trash2 size={17} />Прибрати з календаря</button>}
     {persistedEvent && !creating && <button type="button" className="secondary-action" onClick={() => onCreateSimilar(persistedEvent)} disabled={busy}><Repeat2 size={17} />Створити подібне</button>}
-    <button form="event-form" className="primary-action" disabled={busy || !canEdit}>{busy ? "Збереження…" : creating ? "Створити подію" : "Зберегти зміни"}</button>
+    <button form="event-form" className="primary-action" disabled={busy || preparingDocument || !canEdit}>{preparingDocument ? "Стискання документа…" : busy ? "Збереження…" : creating ? "Створити подію" : "Зберегти зміни"}</button>
   </>;
-  return <Modal title={persistedEvent && !creating ? `Редагування · ${group ? groupCode(group) : ""}` : `Нова подія · ${group ? groupCode(group) : ""}`} onClose={() => { if (!busy) onClose(); }} wide footer={footer}><form id="event-form" className="event-editor-form" onSubmit={save}><div className="span-2"><DraftStatus state={draftState} onClear={draftState !== "idle" ? () => { clearDraft(eventDraftKey); applyDraft(initialDraft); setDraftState("idle"); } : undefined} /></div>{!creating && !canEdit && <StatusMessage kind="warning">Редагувати та прибирати цю подію може її тренер або адміністратор.</StatusMessage>}<fieldset className="form-grid event-editor-fields" disabled={busy || (!creating && !canEdit)}>{creating && <label className="span-2"><span>Група події</span><select value={groupId} required onChange={(e) => { setGroupId(e.target.value); setTaskId(""); setTitle(""); chooseFile(null); }}><option value="" disabled>Виберіть групу</option>{groups.map((item) => <option value={item.id} key={item.id}>{groupCode(item)}</option>)}</select></label>}<label><span>Тип події</span><select value={eventType} onChange={(e) => setEventType(e.target.value as EventItem["event_type"])}>{Object.entries(EVENT_LABELS).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label><label><span>Дата</span><input type="date" value={date} onChange={(e) => setDate(e.target.value)} required /></label><label><span>Час (Київ)</span><input type="time" value={time} onChange={(e) => setTime(e.target.value)} required /></label><label><span>Тривалість, хв</span><input type="text" inputMode="numeric" pattern="[0-9]+" value={duration} onChange={(e) => { if (/^\d*$/.test(e.target.value)) setDuration(durationInput(e.target.value)); }} onBlur={() => setDuration(durationInput(duration))} aria-label="Тривалість у хвилинах" required /><small className="field-hint">Цілі хвилини, від 15 до 360.</small></label><VenueBookingSelector client={client} venues={venues} venueId={bookingVenueId} part={bookingPart} locked={Boolean(fixedVenueId)} startAt={date && time ? combineKyivDateTime(date, time) : null} minutes={durationMinutes(duration)} excludeEventId={!creating ? persistedEvent?.id : null} checkAvailability={creating || persistedEvent?.status === "scheduled"} onVenueChange={(id) => { setVenueId(id); setVenuePart("whole"); }} onPartChange={setVenuePart} onBlockedChange={setVenueBlocked} />{eventType === "training" && <><label className="span-2"><span>Навчальне завдання</span><select aria-label="Навчальне завдання" value={taskId} onChange={(e) => setTaskId(e.target.value)}><option value="">{savedTask?.id === null ? "Залишити збережене завдання" : "Не вибрано"}</option>{previousTaskOption && <option value={previousTaskOption.id}>{previousTaskOption.label} (раніше вибране)</option>}{group?.group_kind !== "goalkeeper" && taskId && !selectedTaskLabel && <option value={taskId} disabled>Попереднє завдання недоступне</option>}{availableTasks.map((task) => <option key={task.id} value={task.id}>{taskLabel(task)}</option>)}</select>{selectedTaskLabel && <p className="task-selection-text">{selectedTaskLabel}</p>}{group && group.group_kind !== "goalkeeper" && !availableTasks.length && !previousTaskOption && <small className="field-hint">Готових навчальних завдань для цієї групи немає.</small>}{taskId && <small className="field-hint">Ця команда вже використовувала завдання {usageCount} разів.</small>}</label>{customTask && <label className="span-2"><span>Збережене завдання заняття</span><input value={title} onChange={(e) => setTitle(e.target.value)} required /></label>}<label className="span-2"><span>Документ із вправами</span><input ref={fileInputRef} type="file" accept={TRAINING_DOCUMENT_ACCEPT} disabled={!customTask && !taskId && group?.group_kind !== "goalkeeper"} onChange={(e) => chooseFile(e.target.files?.[0] ?? null)} /><small className="field-hint">PDF, Word (.docx), JPG, PNG або WebP · до 20 МБ.</small>{!customTask && !taskId && group?.group_kind !== "goalkeeper" && <small className="field-hint">Спочатку виберіть навчальне завдання.</small>}{file && <small className="field-hint" role="status">Вибрано «{file.name}». Документ ще не прикріплено. {canAttachToSaved ? "Натисніть «Прикріпити документ» або «Зберегти зміни»." : creating ? "Натисніть «Створити подію», щоб зберегти заняття разом із документом." : "Збережіть зміни заняття разом із документом."}</small>}</label>{persistedEvent && <div className="span-2"><button type="button" className="secondary-action" disabled={busy || !file || !canAttachToSaved} onClick={() => void attachDocument()}>Прикріпити документ</button></div>}{persistedEvent && <EventMaterials client={client} eventId={persistedEvent.id} taskId={persistedEvent.task_id} revision={materialsRevision} />}</>}<label className="span-2"><span>Завдання тренера</span><textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} /></label>{supportsOrganizationalNeeds(eventType) && <fieldset className="span-2 organizational-needs"><legend>Організаційні потреби</legend><p>Позначте все, що потрібно підготувати для цієї події.</p><div className="checkbox-grid">{ORGANIZATIONAL_NEED_OPTIONS.map((option) => <label className="check-field" key={option}><input type="checkbox" checked={selectedNeeds.includes(option)} onChange={(input) => setSelectedNeeds((current) => input.target.checked ? [...current, option] : current.filter((item) => item !== option))} /><span>{option}</span></label>)}</div>{selectedNeeds.includes("Інше") && <label className="other-need"><span>Уточніть іншу потребу</span><input value={otherNeed} onChange={(input) => setOtherNeed(input.target.value)} required /></label>}</fieldset>}
+  return <Modal title={persistedEvent && !creating ? `Редагування · ${group ? groupCode(group) : ""}` : `Нова подія · ${group ? groupCode(group) : ""}`} onClose={() => { if (!busy) onClose(); }} wide footer={footer}><form id="event-form" className="event-editor-form" onSubmit={save}><div className="span-2"><DraftStatus state={draftState} onClear={draftState !== "idle" ? () => { clearDraft(eventDraftKey); applyDraft(initialDraft); setDraftState("idle"); } : undefined} /></div>{!creating && !canEdit && <StatusMessage kind="warning">Редагувати та прибирати цю подію може її тренер або адміністратор.</StatusMessage>}<fieldset className="form-grid event-editor-fields" disabled={busy || preparingDocument || (!creating && !canEdit)}>{creating && <label className="span-2"><span>Група події</span><select value={groupId} required onChange={(e) => { setGroupId(e.target.value); setTaskId(""); setTitle(""); void chooseFile(null); }}><option value="" disabled>Виберіть групу</option>{groups.map((item) => <option value={item.id} key={item.id}>{groupCode(item)}</option>)}</select></label>}<label><span>Тип події</span><select value={eventType} onChange={(e) => setEventType(e.target.value as EventItem["event_type"])}>{Object.entries(EVENT_LABELS).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label><label><span>Дата</span><input type="date" value={date} onChange={(e) => setDate(e.target.value)} required /></label><label><span>Час (Київ)</span><input type="time" value={time} onChange={(e) => setTime(e.target.value)} required /></label><label><span>Тривалість, хв</span><input type="text" inputMode="numeric" pattern="[0-9]+" value={duration} onChange={(e) => { if (/^\d*$/.test(e.target.value)) setDuration(durationInput(e.target.value)); }} onBlur={() => setDuration(durationInput(duration))} aria-label="Тривалість у хвилинах" required /><small className="field-hint">Цілі хвилини, від 15 до 360.</small></label><VenueBookingSelector client={client} venues={venues} venueId={bookingVenueId} part={bookingPart} locked={Boolean(fixedVenueId)} startAt={date && time ? combineKyivDateTime(date, time) : null} minutes={durationMinutes(duration)} excludeEventId={!creating ? persistedEvent?.id : null} checkAvailability={creating || persistedEvent?.status === "scheduled"} onVenueChange={(id) => { setVenueId(id); setVenuePart("whole"); }} onPartChange={setVenuePart} onBlockedChange={setVenueBlocked} />{eventType === "training" && <><label className="span-2"><span>Навчальне завдання</span><select aria-label="Навчальне завдання" value={taskId} onChange={(e) => setTaskId(e.target.value)}><option value="">{savedTask?.id === null ? "Залишити збережене завдання" : "Не вибрано"}</option>{previousTaskOption && <option value={previousTaskOption.id}>{previousTaskOption.label} (раніше вибране)</option>}{group?.group_kind !== "goalkeeper" && taskId && !selectedTaskLabel && <option value={taskId} disabled>Попереднє завдання недоступне</option>}{availableTasks.map((task) => <option key={task.id} value={task.id}>{taskLabel(task)}</option>)}</select>{selectedTaskLabel && <p className="task-selection-text">{selectedTaskLabel}</p>}{group && group.group_kind !== "goalkeeper" && !availableTasks.length && !previousTaskOption && <small className="field-hint">Готових навчальних завдань для цієї групи немає.</small>}{taskId && <small className="field-hint">Ця команда вже використовувала завдання {usageCount} разів.</small>}</label>{customTask && <label className="span-2"><span>Збережене завдання заняття</span><input value={title} onChange={(e) => setTitle(e.target.value)} required /></label>}<label className="span-2"><span>Документ із вправами</span><input ref={fileInputRef} type="file" accept={TRAINING_DOCUMENT_ACCEPT} disabled={!customTask && !taskId && group?.group_kind !== "goalkeeper"} onChange={(e) => void chooseFile(e.target.files?.[0] ?? null)} /><small className="field-hint">PDF, Word (.docx), JPG, PNG або WebP · до 1 МБ після автоматичного стискання.</small>{preparingDocument && <small className="field-hint" role="status">Спробуємо стиснути документ. Зачекайте…</small>}{preparedDocument && <small className="field-hint" role="status">{preparedDocument.file.size < preparedDocument.originalSize ? `Стиснуто: ${trainingDocumentSize(preparedDocument.originalSize)} → ${trainingDocumentSize(preparedDocument.file.size)}.` : `Стискання перевірено: ${trainingDocumentSize(preparedDocument.file.size)}. Менший оригінал залишено.`} {preparedDocument.note}</small>}{documentUrl && <a href={documentUrl} target="_blank" rel="noopener noreferrer" className="field-hint">Переглянути файл перед прикріпленням</a>}{!customTask && !taskId && group?.group_kind !== "goalkeeper" && <small className="field-hint">Спочатку виберіть навчальне завдання.</small>}{file && <small className="field-hint" role="status">Вибрано «{file.name}». Документ ще не прикріплено. {canAttachToSaved ? "Натисніть «Прикріпити документ» або «Зберегти зміни»." : creating ? "Натисніть «Створити подію», щоб зберегти заняття разом із документом." : "Збережіть зміни заняття разом із документом."}</small>}</label>{persistedEvent && <div className="span-2"><button type="button" className="secondary-action" disabled={busy || !file || !canAttachToSaved} onClick={() => void attachDocument()}>Прикріпити документ</button></div>}{persistedEvent && <EventMaterials client={client} eventId={persistedEvent.id} taskId={persistedEvent.task_id} revision={materialsRevision} />}</>}<label className="span-2"><span>Завдання тренера</span><textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} /></label>{supportsOrganizationalNeeds(eventType) && <fieldset className="span-2 organizational-needs"><legend>Організаційні потреби</legend><p>Позначте все, що потрібно підготувати для цієї події.</p><div className="checkbox-grid">{ORGANIZATIONAL_NEED_OPTIONS.map((option) => <label className="check-field" key={option}><input type="checkbox" checked={selectedNeeds.includes(option)} onChange={(input) => setSelectedNeeds((current) => input.target.checked ? [...current, option] : current.filter((item) => item !== option))} /><span>{option}</span></label>)}</div>{selectedNeeds.includes("Інше") && <label className="other-need"><span>Уточніть іншу потребу</span><input value={otherNeed} onChange={(input) => setOtherNeed(input.target.value)} required /></label>}</fieldset>}
           <label className="span-2">
             <span id="coach-event-comment-label">Коментар для адміністратора</span>
             <textarea

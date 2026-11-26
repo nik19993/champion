@@ -3,7 +3,7 @@ import { requireActiveUser } from "../_shared/user.ts";
 
 const limits: Record<string, number> = {
   methodology: 25 * 1024 * 1024,
-  "task-documents": 20 * 1024 * 1024,
+  "task-documents": 1_000_000,
   "player-photos": 8 * 1024 * 1024,
   imports: 10 * 1024 * 1024,
   exports: 50 * 1024 * 1024,
