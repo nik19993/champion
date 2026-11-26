@@ -1,8 +1,9 @@
 import { kyivDateKey } from "./format.ts";
 import { eventIsVisible } from "./event-visibility.ts";
-import type { EventItem } from "./types.ts";
+import type { EventItem, GroupSummary } from "./types.ts";
 
 export type CalendarPeriod = "7" | "10" | "month";
+export type AdminCalendarScope = "main" | "locations";
 export interface CalendarRange { start: string; end: string }
 
 export interface AdminCalendarEvent extends Pick<EventItem, "id" | "group_id" | "event_type" | "start_at" | "venue_id" | "venue_part" | "coach_id" | "substitute_coach_id" | "needs_substitute" | "is_rescheduled" | "status" | "groups" | "venues"> {
@@ -91,6 +92,15 @@ export function filterCalendarEvents(events: AdminCalendarEvent[], filters: Admi
     && (!filters.type || event.event_type === filters.type)
     && (!filters.venueId || event.venue_id === filters.venueId || event.booking_venue_id === filters.venueId)
   ));
+}
+
+export function calendarEventsForScope(events: AdminCalendarEvent[], scope: AdminCalendarScope, groups: GroupSummary[] = []) {
+  const kinds = new Map(groups.map(group => [group.id, group.group_kind]));
+  return events.filter(event => {
+    // Joined kind also covers historical groups absent from the active catalog.
+    const location = (event.groups?.group_kind ?? kinds.get(event.group_id)) === "location";
+    return scope === "locations" ? location : !location;
+  });
 }
 
 export function calendarEventsByDay(events: AdminCalendarEvent[]) {

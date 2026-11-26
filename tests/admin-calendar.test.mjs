@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createClient } from "@supabase/supabase-js";
 import {
-  adminCalendarRange, calendarEventsByDay, calendarMonthCells, calendarRangeLabel, filterCalendarEvents, shiftCalendarAnchor,
+  adminCalendarRange, calendarEventsByDay, calendarEventsForScope, calendarMonthCells, calendarRangeLabel, filterCalendarEvents, shiftCalendarAnchor,
 } from "../lib/domain/admin-calendar.ts";
 import { loadAdminCalendarEvents } from "../lib/supabase/admin-calendar.ts";
 
@@ -27,6 +27,24 @@ function event(id, fields = {}) {
     status: "scheduled", coach: null, substitute: null, ...fields,
   };
 }
+
+test("main and location calendars classify the group even when the same coach teaches both", () => {
+  const rows = [
+    event("age", { groups: { code: "U10A", group_kind: "age" } }),
+    event("keeper", { groups: { code: "Воротарі A", group_kind: "goalkeeper" } }),
+    event("location", { groups: { code: "Локація № 2 A", group_kind: "location" } }),
+    event("historical-location", { group_id: "inactive-location", groups: { code: "Локація № 15 Junior", group_kind: "location" } }),
+  ];
+  assert.deepEqual(calendarEventsForScope(rows, "main").map(row => row.id), ["age", "keeper"]);
+  assert.deepEqual(calendarEventsForScope(rows, "locations").map(row => row.id), ["location", "historical-location"]);
+  assert.equal(new Set(rows.map(row => row.coach_id)).size, 1);
+});
+test("group catalog identifies older location rows while unknown legacy events stay in the main calendar", () => {
+  const rows = [event("older-location", { group_id: "location-group", groups: { code: "Локація № 2 A" } }), event("legacy")];
+  const groups = [{ id: "location-group", code: "Локація № 2 A", group_kind: "location" }];
+  assert.deepEqual(calendarEventsForScope(rows, "locations", groups).map(row => row.id), ["older-location"]);
+  assert.deepEqual(calendarEventsForScope(rows, "main", groups).map(row => row.id), ["legacy"]);
+});
 
 test("the calendar keeps each event once and filters both coach roles and all parts of a field", () => {
   const rows = [
@@ -71,6 +89,7 @@ test("the calendar requests Kyiv midnight boundaries across the clock change and
   const client = fixtureClient(async (input) => {
     const { pathname, searchParams } = new URL(input);
     assert.equal(pathname, "/rest/v1/events");
+    assert.match(searchParams.get("select"), /groups\([^)]*group_kind/);
     assert.deepEqual(searchParams.getAll("start_at"), ["gte.2026-10-24T21:00:00.000Z", "lt.2026-10-31T22:00:00.000Z"]);
     assert.equal(searchParams.get("order"), "start_at.asc,id.asc");
     assert(!searchParams.has("status"), "cancelled events are available when the administrator enables them");

@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AdminCalendarEvent, CalendarRange } from "../domain/admin-calendar.ts";
 import { combineKyivDateTime } from "../domain/format.ts";
 
-const CALENDAR_SELECT = "id, group_id, event_type, start_at, ends_at, venue_id, booking_venue_id, venue_part, coach_id, substitute_coach_id, needs_substitute, is_rescheduled, status, coach_comment, groups(code, display_code), venues(name, parent_venue_id), coach:profiles!events_coach_id_fkey(full_name), substitute:profiles!events_substitute_coach_id_fkey(full_name)";
+const CALENDAR_SELECT = "id, group_id, event_type, start_at, ends_at, venue_id, booking_venue_id, venue_part, coach_id, substitute_coach_id, needs_substitute, is_rescheduled, status, coach_comment, groups(code, display_code, group_kind), venues(name, parent_venue_id), coach:profiles!events_coach_id_fkey(full_name), substitute:profiles!events_substitute_coach_id_fkey(full_name)";
 
 export async function loadAdminCalendarEvents(client: SupabaseClient, range: CalendarRange) {
   const start = combineKyivDateTime(range.start, "00:00");

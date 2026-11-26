@@ -3,15 +3,16 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { EmptyState, LoadingState, Pill, StatusMessage } from "@/components/common/workspace-ui";
+import { EmptyState, LoadingState, Pill, StatusMessage, Tabs } from "@/components/common/workspace-ui";
 import { OFFLINE_MESSAGE, useAutomaticRefresh } from "@/lib/browser/use-automatic-refresh";
 import {
   adminCalendarRange, calendarDayLabel, calendarEventCount, calendarEventsByDay, calendarMonthCells,
-  calendarRangeLabel, filterCalendarEvents, shiftCalendarAnchor,
-  type AdminCalendarEvent, type CalendarPeriod, type CalendarRange,
+  calendarRangeLabel, calendarEventsForScope, filterCalendarEvents, shiftCalendarAnchor,
+  type AdminCalendarEvent, type AdminCalendarScope, type CalendarPeriod, type CalendarRange,
 } from "@/lib/domain/admin-calendar";
 import { EVENT_LABELS, formatTime, kyivDateKey } from "@/lib/domain/format";
 import { groupCode } from "@/lib/domain/seasons";
+import { groupsInScope } from "@/lib/domain/location-groups";
 import type { GroupSummary, Venue } from "@/lib/domain/types";
 import { eventVenueLabel } from "@/lib/domain/venue-booking";
 import { loadAdminCalendarEvents } from "@/lib/supabase/admin-calendar";
@@ -19,6 +20,12 @@ import { loadAdminCalendarEvents } from "@/lib/supabase/admin-calendar";
 type FilterOption = { id: string; label: string };
 type CalendarSelection = { anchor: string; day: string; period: CalendarPeriod };
 type LoadedCalendar = CalendarRange & { events: AdminCalendarEvent[] | null; failed: boolean };
+type FilterSelection = { group: FilterOption | null; coach: FilterOption | null; type: FilterOption | null; venue: FilterOption | null; includeCancelled: boolean };
+const emptyFilters = (): FilterSelection => ({ group: null, coach: null, type: null, venue: null, includeCancelled: false });
+const CALENDAR_SCOPES: Array<{ value: AdminCalendarScope; label: string }> = [
+  { value: "main", label: "Календар основних груп" },
+  { value: "locations", label: "Календар локацій" },
+];
 
 const PERIODS: Array<{ value: CalendarPeriod; label: string }> = [
   { value: "7", label: "7 днів" }, { value: "10", label: "10 днів" }, { value: "month", label: "Місяць" },
@@ -49,7 +56,7 @@ function CalendarFilter({ label, all, options, value, onChange }: {
   return (
     <label className="compact-field">
       <span>{label}</span>
-      <select value={value?.id ?? ""} onChange={(event) => onChange(choices.find((option) => option.id === event.target.value) ?? null)}>
+      <select aria-label={label} value={value?.id ?? ""} onChange={(event) => onChange(choices.find((option) => option.id === event.target.value) ?? null)}>
         <option value="">{all}</option>
         {choices.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
       </select>
@@ -134,19 +141,27 @@ export function AdminCalendar({ client, groups, revision, onOpenEvent }: {
   });
   const [loaded, setLoaded] = useState<LoadedCalendar | null>(null);
   const [venueCatalog, setVenueCatalog] = useState<Pick<Venue, "id" | "name">[]>([]);
-  const [group, setGroup] = useState<FilterOption | null>(null);
-  const [coach, setCoach] = useState<FilterOption | null>(null);
-  const [type, setType] = useState<FilterOption | null>(null);
-  const [venue, setVenue] = useState<FilterOption | null>(null);
-  const [includeCancelled, setIncludeCancelled] = useState(false);
+  const [scope, setScope] = useState<AdminCalendarScope>("main");
+  const [filters, setFilters] = useState<Record<AdminCalendarScope, FilterSelection>>(() => ({ main: emptyFilters(), locations: emptyFilters() }));
+  const { group, coach, type, venue, includeCancelled } = filters[scope];
+  function setFilter<K extends keyof FilterSelection>(key: K, value: FilterSelection[K]) {
+    setFilters(previous => ({ ...previous, [scope]: { ...previous[scope], [key]: value } }));
+  }
   const request = useRef(0);
   const dayDetails = useRef<HTMLDivElement>(null);
   const today = kyivDateKey(new Date());
   const { period, anchor, day } = selection;
   const { start, end } = adminCalendarRange(anchor, period);
   const current = loaded?.start === start && loaded.end === end ? loaded : null;
-  const events = current?.events ?? NO_EVENTS;
-  const options = useMemo(() => calendarFilterOptions(groups, events, venueCatalog), [groups, events, venueCatalog]);
+  const allEvents = current?.events ?? NO_EVENTS;
+  const events = useMemo(() => calendarEventsForScope(allEvents, scope, groups), [allEvents, scope, groups]);
+  const scopedGroups = useMemo(() => groupsInScope(groups, scope), [groups, scope]);
+  const options = useMemo(() => {
+    const locationVenues = new Set(scopedGroups.map(group => group.location?.venue_id).filter(Boolean));
+    const catalog = scope === "locations" ? venueCatalog.filter(venue => locationVenues.has(venue.id)
+      || events.some(event => event.venue_id === venue.id || event.booking_venue_id === venue.id)) : venueCatalog;
+    return calendarFilterOptions(scopedGroups, events, catalog);
+  }, [scopedGroups, events, venueCatalog, scope]);
   const visible = useMemo(() => filterCalendarEvents(events, {
     groupId: group?.id ?? "", coachId: coach?.id ?? "", type: type?.id ?? "", venueId: venue?.id ?? "", includeCancelled,
   }), [events, group, coach, type, venue, includeCancelled]);
@@ -195,7 +210,8 @@ export function AdminCalendar({ client, groups, revision, onOpenEvent }: {
   }
 
   return (
-    <section className="panel-section admin-calendar" aria-label="Календар подій клубу">
+    <section className="panel-section admin-calendar" aria-label={CALENDAR_SCOPES.find(item => item.value === scope)?.label}>
+      <div className="admin-calendar-scopes"><Tabs items={CALENDAR_SCOPES} value={scope} onChange={setScope} label="Календарі груп" /></div>
       <div className="admin-calendar-toolbar">
         <div className="subtabs admin-calendar-period" role="group" aria-label="Період календаря">
           {PERIODS.map((item) => <button type="button" key={item.value} className={item.value === period ? "active" : ""} aria-pressed={item.value === period} onClick={() => selectPeriod(item.value)}>{item.label}</button>)}
@@ -208,14 +224,14 @@ export function AdminCalendar({ client, groups, revision, onOpenEvent }: {
         </div>
       </div>
       <div className="admin-calendar-filters">
-        <CalendarFilter label="Група" all="Усі групи" options={options.groups} value={group} onChange={setGroup} />
-        <CalendarFilter label="Тренер" all="Усі тренери" options={options.coaches} value={coach} onChange={setCoach} />
-        <CalendarFilter label="Тип події" all="Усі типи" options={TYPES} value={type} onChange={setType} />
-        <CalendarFilter label="Майданчик" all="Усі майданчики" options={options.venues} value={venue} onChange={setVenue} />
+        <CalendarFilter label="Група" all="Усі групи" options={options.groups} value={group} onChange={value => setFilter("group", value)} />
+        <CalendarFilter label="Тренер" all="Усі тренери" options={options.coaches} value={coach} onChange={value => setFilter("coach", value)} />
+        <CalendarFilter label="Тип події" all="Усі типи" options={TYPES} value={type} onChange={value => setFilter("type", value)} />
+        <CalendarFilter label="Майданчик" all="Усі майданчики" options={options.venues} value={venue} onChange={value => setFilter("venue", value)} />
       </div>
       <div className="admin-calendar-count">
         <span>{current?.events && <b aria-live="polite">{calendarEventCount(visible.length)} · </b>}Час за Києвом</span>
-        <label className="check-field"><input type="checkbox" checked={includeCancelled} onChange={(event) => setIncludeCancelled(event.target.checked)} />Показати скасовані</label>
+        <label className="check-field"><input type="checkbox" checked={includeCancelled} onChange={(event) => setFilter("includeCancelled", event.target.checked)} />Показати скасовані</label>
       </div>
       {!online && <p className="muted" role="status">{OFFLINE_MESSAGE}</p>}
       {current?.failed && <div className="admin-calendar-error">

@@ -1309,6 +1309,8 @@ input, select, textarea { min-width: 0; max-width: 100%; }
 .group-creation-preview { padding: .85rem 1rem; border-radius: .75rem; background: var(--surface-muted, #f5f4ef); }
 
 .admin-calendar { display: grid; gap: 11px; }
+.admin-calendar-scopes .subtabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: fit-content; max-width: 100%; }
+.admin-calendar-scopes .subtabs button { min-width: 0; justify-content: center; white-space: normal; text-align: center; }
 .admin-calendar-toolbar, .admin-calendar-navigation, .admin-calendar-count, .admin-calendar-error { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .admin-calendar-toolbar, .admin-calendar-count { justify-content: space-between; }
 .admin-calendar-period { padding: 3px; }
