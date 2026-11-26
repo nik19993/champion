@@ -306,7 +306,7 @@ test("coach navigation keeps the agreed order", async () => {
 
 test("calendar supports large add target and real create-similar action", async () => {
   const [source, styles] = await Promise.all([readFile(coachPlanUrl, "utf8"), readFile(stylesUrl, "utf8")]);
-  assert.match(source, /onClick=\{\(\) => onCreateSimilar\(event\)\}/);
+  assert.match(source, /onClick=\{\(\) => onCreateSimilar\(persistedEvent\)\}/);
   assert.match(source, /Створити подібне/);
   assert.match(styles, /\.calendar-plus\s*\{[^}]*width:\s*48px[^}]*height:\s*48px/is);
   assert.match(styles, /@media \(max-width: 760px\)[\s\S]*?\.calendar-weekdays, \.calendar-grid \{ min-width: 0; \}/);
@@ -665,7 +665,7 @@ test("every public foreign key receives a covering index", async () => {
 
 test("event task files are linked atomically by a group-scoped database function", async () => {
   const [coach, sql] = await Promise.all([
-    readFile(coachPlanUrl, "utf8"),
+    readFile(new URL("../lib/supabase/event-materials.ts", import.meta.url), "utf8"),
     readModulesMigration(),
   ]);
   assert.match(coach, /rpc\("attach_event_task_material"/);

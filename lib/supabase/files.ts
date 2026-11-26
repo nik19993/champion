@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { FileAsset } from "@/lib/domain/types";
+import { trainingDocumentType } from "../domain/training-document.ts";
 
 interface UploadContext {
   bucket: "methodology" | "task-documents" | "player-photos" | "imports" | "exports";
@@ -17,17 +18,18 @@ function safeName(name: string) {
 }
 
 export async function uploadPrivateFile(client: SupabaseClient, file: File, context: UploadContext): Promise<FileAsset> {
+  const mimeType = context.bucket === "task-documents" ? trainingDocumentType(file) : file.type || "application/octet-stream";
   if (context.bucket === "player-photos" && !context.groupId) {
     throw new Error("Для фото гравця не визначено групу.");
   }
   const objectPath = `${context.ownerId}/${crypto.randomUUID()}-${safeName(file.name)}`;
-  const upload = await client.storage.from(context.bucket).upload(objectPath, file, { cacheControl: "3600", upsert: false, contentType: file.type || undefined });
+  const upload = await client.storage.from(context.bucket).upload(objectPath, file, { cacheControl: "3600", upsert: false, contentType: mimeType });
   if (upload.error) throw upload.error;
   const row = {
     bucket: context.bucket,
     object_path: objectPath,
     original_name: file.name,
-    mime_type: file.type || "application/octet-stream",
+    mime_type: mimeType,
     size_bytes: file.size,
     scan_status: "pending",
     owner_id: context.ownerId,

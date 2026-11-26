@@ -35,7 +35,7 @@ try {
   check(await page.locator(".calendar-event").count() === 2, "one assigned group shown initially");
   await page.locator(".calendar-tools select").selectOption("__all_coach_groups__");
   check(await page.locator(".calendar-event").count() === 4, "all and only assigned groups shown");
-  await page.getByRole("button", { name: "Запланувати", exact: true }).click();
+  await page.locator(".calendar-day.today .calendar-plus").click();
   check(await page.getByLabel("Група події").inputValue() === "", "creation from all groups requires an explicit group");
   check(await page.getByRole("button", { name: "Створити подію", exact: true }).isDisabled(), "creation cannot default to an arbitrary first group");
   await page.getByLabel("Група події").selectOption("group-b");
@@ -107,7 +107,7 @@ try {
   await page.evaluate(() => window.calendarQa.report());
   await page.locator(".operational-report-table").waitFor();
   const headers = await page.locator(".operational-report-table th").allTextContents();
-  check(JSON.stringify(headers) === JSON.stringify(["Дата", "Вікова група", "Тренер", "Що потрібно зробити / коментар", "Подія / ситуація", "Стан"]), "report columns follow the requested order");
+  check(JSON.stringify(headers) === JSON.stringify(["Дата", "Група", "Тренер", "Що потрібно зробити / коментар", "Подія / ситуація", "Стан"]), "report columns follow the requested order");
   const report = await page.locator(".operational-report-table").textContent();
   check(report.includes("Автобус; Лікар; Інше: питна вода") && report.includes("Телефонувати відповідальному за поле.") && report.includes("Тестовий тренер") && report.includes("Турнір групи"), "report renders complete actionable details and context");
   await page.evaluate(() => window.calendarQa.export());
