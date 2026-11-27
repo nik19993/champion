@@ -17,6 +17,13 @@ export interface ClubLocation {
 
 export const GROUP_SUMMARY_SELECT = "id, code, age, team_suffix, group_kind, competition_format, regulation_source, regulation_verified_on, season, cohort_birth_year, display_age, display_code, location_id, location:club_locations(id, school_number, name, venue_id)";
 
+export function orderLocationGroups<T extends Pick<GroupSummary, "group_kind" | "code">>(groups: readonly T[]): T[] {
+  const locations = groups.filter((group) => group.group_kind === "location")
+    .sort((a, b) => a.code.localeCompare(b.code, "uk", { numeric: true }));
+  let locationIndex = 0;
+  return groups.map((group) => group.group_kind === "location" ? locations[locationIndex++] : group);
+}
+
 export function locationAgeRange(group: { group_kind?: string; team_suffix?: string | null } | undefined) {
   if (group?.group_kind !== "location") return null;
   const category = group.team_suffix as LocationCategory;

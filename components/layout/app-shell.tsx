@@ -18,7 +18,7 @@ import { SessionTimeoutGuard } from "@/components/auth/session-timeout-guard";
 import { ConnectionStatus } from "@/components/common/connection-status";
 import { LoadingState, StatusMessage } from "@/components/common/workspace-ui";
 import { mergeCreatedGroup } from "@/lib/domain/group-creation";
-import { GROUP_SUMMARY_SELECT } from "@/lib/domain/location-groups";
+import { GROUP_SUMMARY_SELECT, orderLocationGroups } from "@/lib/domain/location-groups";
 import { useAutomaticRefresh } from "@/lib/browser/use-automatic-refresh";
 import type { GroupSummary, Profile } from "@/lib/domain/types";
 
@@ -88,7 +88,7 @@ export function AppShell({ client, profile, onMfaRequired }: Props) {
         setLoadError("У staging налаштовано групи, але поточна сесія не надала до них доступ. Повторіть завантаження.");
         return;
       }
-      const next = (result.data ?? []) as unknown as GroupSummary[];
+      const next = orderLocationGroups((result.data ?? []) as unknown as GroupSummary[]);
       setGroups((current) => JSON.stringify(current) === JSON.stringify(next) ? current : next);
     } catch {
       if (ticket === groupRequest.current) setLoadError("Не вдалося оновити групи. Перевірте з’єднання й повторіть спробу.");
